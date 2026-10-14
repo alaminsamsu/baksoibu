@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-import { ChefHat, Truck, PlusCircle, CheckCircle2, LogOut, ArrowRight } from 'lucide-react';
+import { ChefHat, Truck, PlusCircle, CheckCircle2, LogOut } from 'lucide-react';
 
 export default function ProductionDashboardPage() {
   const router = useRouter();
@@ -27,7 +27,6 @@ export default function ProductionDashboardPage() {
 
   const loadData = async () => {
     setLoading(true);
-    // Ambil orderan masuk dari outlet (status: requested)
     const { data: orderData } = await supabase
       .from('stock_transfers')
       .select('*, locations!stock_transfers_to_location_id_fkey(name), stock_transfer_items(*, items(name, unit))')
@@ -36,7 +35,6 @@ export default function ProductionDashboardPage() {
 
     if (orderData) setOrders(orderData);
 
-    // Ambil item olahan
     const { data: itemData } = await supabase
       .from('items')
       .select('*')

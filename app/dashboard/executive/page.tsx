@@ -28,7 +28,6 @@ export default function ExecutiveDashboardPage() {
 
   useEffect(() => {
     async function fetchData() {
-      // Rekap Belanja Pasar Kasir
       const { data: expData } = await supabase
         .from('petty_cash_expenses')
         .select('*, locations(name)')
@@ -40,7 +39,6 @@ export default function ExecutiveDashboardPage() {
         setTotalExpense(sum);
       }
 
-      // Rekap Stok Semua Cabang
       const { data: invData } = await supabase
         .from('inventories')
         .select('*, items(name, unit), locations(name)')
@@ -104,7 +102,6 @@ export default function ExecutiveDashboardPage() {
       </header>
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6 space-y-6">
-        {/* KPI Card */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-white p-5 rounded-2xl border shadow-xs flex items-center gap-4">
             <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center">
@@ -127,7 +124,6 @@ export default function ExecutiveDashboardPage() {
           </div>
         </div>
 
-        {/* Tabel Rekap Belanja Pasar Kasir & Foto Nota */}
         <div className="bg-white rounded-2xl border p-5 shadow-xs space-y-4">
           <h3 className="font-bold text-sm text-gray-800 flex items-center gap-2">
             <Wallet className="text-emerald-600" /> Bukti Nota Belanja Pasar Harian
@@ -180,7 +176,6 @@ export default function ExecutiveDashboardPage() {
           </div>
         </div>
 
-        {/* Tabel Monitor Stok Real-Time */}
         <div className="bg-white rounded-2xl border p-5 shadow-xs space-y-4">
           <h3 className="font-bold text-sm text-gray-800 flex items-center gap-2">
             <Layers className="text-amber-800" /> Monitor Sisa Stok Fisik Cabang
