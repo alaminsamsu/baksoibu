@@ -7,13 +7,13 @@ import { Store, Lock, User, ShieldAlert, ArrowRight, MapPin } from 'lucide-react
 
 export default function LoginPage() {
   const router = useRouter();
-  
+
   const [locations, setLocations] = useState<any[]>([]);
   const [selectedLocation, setSelectedLocation] = useState('');
   const [staffName, setStaffName] = useState('');
   const [username, setUsername] = useState('');
   const [pin, setPin] = useState('');
-  
+
   const [loginType, setLoginType] = useState<'outlet' | 'management'>('outlet');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -62,7 +62,6 @@ export default function LoginPage() {
 
         localStorage.setItem('bakso_ibu_user', JSON.stringify(sessionData));
         router.push('/dashboard/outlet');
-
       } else {
         const { data, error: fetchError } = await supabase
           .from('users')
@@ -104,7 +103,6 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4 font-sans text-neutral-800">
       <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl overflow-hidden border border-neutral-200">
-        
         <div className="bg-amber-900 text-white p-7 text-center">
           <div className="w-14 h-14 bg-amber-800 border-2 border-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-2">
             <Store className="w-7 h-7 text-amber-100" />
@@ -115,7 +113,10 @@ export default function LoginPage() {
           <div className="flex bg-amber-950/60 p-1 rounded-xl mt-5 text-xs font-semibold">
             <button
               type="button"
-              onClick={() => { setLoginType('outlet'); setError(''); }}
+              onClick={() => {
+                setLoginType('outlet');
+                setError('');
+              }}
               className={`flex-1 py-1.5 rounded-lg transition-all ${
                 loginType === 'outlet' ? 'bg-amber-500 text-white shadow-sm' : 'text-amber-200 hover:text-white'
               }`}
@@ -124,7 +125,10 @@ export default function LoginPage() {
             </button>
             <button
               type="button"
-              onClick={() => { setLoginType('management'); setError(''); }}
+              onClick={() => {
+                setLoginType('management');
+                setError('');
+              }}
               className={`flex-1 py-1.5 rounded-lg transition-all ${
                 loginType === 'management' ? 'bg-amber-500 text-white shadow-sm' : 'text-amber-200 hover:text-white'
               }`}
@@ -160,3 +164,66 @@ export default function LoginPage() {
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">Nama Petugas Bertugas</label>
+                <div className="relative">
+                  <User className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    required
+                    value={staffName}
+                    onChange={(e) => setStaffName(e.target.value)}
+                    placeholder="Contoh: Rian / Siti"
+                    className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-1">
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">Username</label>
+              <div className="relative">
+                <User className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  required
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="owner / admin / koki_pusat"
+                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">PIN (6 Digit)</label>
+            <div className="relative">
+              <Lock className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
+              <input
+                type="password"
+                maxLength={6}
+                required
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                placeholder="••••••"
+                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold tracking-widest text-gray-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 bg-amber-900 hover:bg-amber-800 text-white font-bold rounded-xl text-sm shadow-md flex items-center justify-center gap-2 transition-all disabled:opacity-50 mt-2"
+          >
+            <span>{loading ? 'Memeriksa...' : 'Mulai Tugas'}</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
