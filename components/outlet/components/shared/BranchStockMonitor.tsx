@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabaseClient';
+import { supabase } from '@/lib/supabaseClient';
 import { Layers, RefreshCw, MapPin } from 'lucide-react';
 
 interface StockRow {
@@ -36,7 +36,7 @@ export default function BranchStockMonitor() {
         setStocks(stockData as any);
       }
     } catch (err) {
-      console.error('Gagal mengambil sisa stok:', err);
+      console.error('Gagal mengambil data sisa stok:', err);
     } finally {
       setLoading(false);
     }
@@ -105,7 +105,7 @@ export default function BranchStockMonitor() {
             {loading ? (
               <tr>
                 <td colSpan={5} className="py-8 text-center text-neutral-400">
-                  Memuat rincian stok cabang...
+                  Memuat data stok cabang...
                 </td>
               </tr>
             ) : filteredStocks.length === 0 ? (
