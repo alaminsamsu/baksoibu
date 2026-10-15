@@ -2,11 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { ShoppingBag, Plus, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ShoppingBag, Plus, Trash2, ArrowLeft, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface Props {
-  locationId: string;
-  staffName: string;
+  user?: any;
+  onBack?: () => void;
+  locationId?: string;
+  staffName?: string;
 }
 
 interface OrderRow {
@@ -15,7 +17,10 @@ interface OrderRow {
   unit: string;
 }
 
-export default function OrderRequestForm({ locationId, staffName }: Props) {
+export default function OrderRequestForm({ user, onBack, locationId, staffName }: Props) {
+  const activeLocationId = locationId || user?.location_id;
+  const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
+
   const [masterItems, setMasterItems] = useState<any[]>([]);
   const [orderItems, setOrderItems] = useState<OrderRow[]>([
     { itemName: '', quantity: '', unit: 'Porsi' },
@@ -73,21 +78,20 @@ export default function OrderRequestForm({ locationId, staffName }: Props) {
         throw new Error('Masukkan minimal satu barang dengan jumlah lebih dari 0.');
       }
 
-      // Format payload untuk tabel order_requests
       const inserts = validRows.map((row) => ({
-        location_id: locationId,
+        location_id: activeLocationId,
         item_name: row.itemName,
         quantity: parseFloat(row.quantity),
         unit: row.unit,
         notes: notes.trim() || null,
-        requested_by: staffName,
-        status: 'pending', // Menunggu persetujuan / proses dapur pusat
+        requested_by: activeStaffName,
+        status: 'pending',
       }));
 
       const { error } = await supabase.from('order_requests').insert(inserts);
       if (error) throw error;
 
-      setMessage({ text: `Berhasil mengirim ${validRows.length} item request order malam ke dapur pusat!`, type: 'success' });
+      setMessage({ text: `Berhasil mengirim ${validRows.length} item request order malam!`, type: 'success' });
       setOrderItems([{ itemName: masterItems[0]?.name || '', quantity: '', unit: masterItems[0]?.default_unit || 'Porsi' }]);
       setNotes('');
     } catch (err: any) {
@@ -99,6 +103,17 @@ export default function OrderRequestForm({ locationId, staffName }: Props) {
 
   return (
     <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-xs font-bold text-neutral-500 hover:text-amber-800 mb-4 flex items-center gap-1.5 transition-colors"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Kembali ke Menu Utama
+        </button>
+      )}
+
       <div className="flex items-center gap-2 mb-4 pb-3 border-b border-neutral-100">
         <ShoppingBag className="w-5 h-5 text-amber-800" />
         <div>
@@ -186,7 +201,7 @@ export default function OrderRequestForm({ locationId, staffName }: Props) {
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Misal: Prioritas kirim jam 09.00 pagi, kuah minta agak pedas (opsional)"
+            placeholder="Misal: Prioritas kirim jam 09.00 pagi (opsional)"
             className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl font-medium text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
           />
         </div>

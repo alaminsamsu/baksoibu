@@ -2,14 +2,19 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { PackageCheck, Plus, CheckCircle2, AlertCircle } from 'lucide-react';
+import { PackageCheck, ArrowLeft, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface Props {
-  locationId: string;
-  staffName: string;
+  user?: any;
+  onBack?: () => void;
+  locationId?: string;
+  staffName?: string;
 }
 
-export default function ReceptionForm({ locationId, staffName }: Props) {
+export default function ReceptionForm({ user, onBack, locationId, staffName }: Props) {
+  const activeLocationId = locationId || user?.location_id;
+  const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
+
   const [itemsList, setItemsList] = useState<any[]>([]);
   const [itemName, setItemName] = useState('');
   const [customItem, setCustomItem] = useState('');
@@ -20,7 +25,6 @@ export default function ReceptionForm({ locationId, staffName }: Props) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // Ambil master barang
   useEffect(() => {
     async function fetchMasterItems() {
       const { data } = await supabase.from('items').select('*').order('name');
@@ -62,26 +66,24 @@ export default function ReceptionForm({ locationId, staffName }: Props) {
     }
 
     try {
-      // 1. Simpan ke riwayat penerimaan barang (goods_receipts / receptions)
       const { error: receiptError } = await supabase.from('receptions').insert([
         {
-          location_id: locationId,
+          location_id: activeLocationId,
           item_name: finalItemName,
           quantity: qtyNum,
           unit,
           source,
           notes: notes.trim() || null,
-          received_by: staffName,
+          received_by: activeStaffName,
         },
       ]);
 
       if (receiptError) throw receiptError;
 
-      // 2. Update atau tambah stok fisik di branch_stocks (upsert)
       const { data: existingStock } = await supabase
         .from('branch_stocks')
         .select('*')
-        .eq('location_id', locationId)
+        .eq('location_id', activeLocationId)
         .eq('item_name', finalItemName)
         .single();
 
@@ -91,18 +93,18 @@ export default function ReceptionForm({ locationId, staffName }: Props) {
           .from('branch_stocks')
           .update({
             remaining_stock: newTotal,
-            updated_by: staffName,
+            updated_by: activeStaffName,
             updated_at: new Date().toISOString(),
           })
           .eq('id', existingStock.id);
       } else {
         await supabase.from('branch_stocks').insert([
           {
-            location_id: locationId,
+            location_id: activeLocationId,
             item_name: finalItemName,
             remaining_stock: qtyNum,
             unit,
-            updated_by: staffName,
+            updated_by: activeStaffName,
           },
         ]);
       }
@@ -112,7 +114,7 @@ export default function ReceptionForm({ locationId, staffName }: Props) {
       setNotes('');
       setCustomItem('');
     } catch (err: any) {
-      setMessage({ text: err.message || 'Gagal menyimpan penerimaan barang.', type: 'error' });
+      setMessage({ text: err.message || 'Gagal mencatat penerimaan barang.', type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -120,6 +122,17 @@ export default function ReceptionForm({ locationId, staffName }: Props) {
 
   return (
     <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-xs font-bold text-neutral-500 hover:text-amber-800 mb-4 flex items-center gap-1.5 transition-colors"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Kembali ke Menu Utama
+        </button>
+      )}
+
       <div className="flex items-center gap-2 mb-4 pb-3 border-b border-neutral-100">
         <PackageCheck className="w-5 h-5 text-amber-800" />
         <div>
