@@ -137,6 +137,4 @@ export default function OutletDashboardPage() {
       </main>
     </div>
   );
-}<div className="mt-6">
-  <BranchStockMonitor />
-</div>
+}
