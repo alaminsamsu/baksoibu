@@ -1,10 +1,124 @@
 'use client';
-import BranchStockMonitor from '../../../components/shared/BranchStockMonitor';
+
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { Crown, Wallet, Layers, Download, LogOut, ExternalLink } from 'lucide-react';
+function BranchStockMonitor() {
+  const [stocks, setStocks] = React.useState<any[]>([]);
+  const [locations, setLocations] = React.useState<any[]>([]);
+  const [selectedFilter, setSelectedFilter] = React.useState('all');
+  const [loading, setLoading] = React.useState(true);
 
+  const fetchStockData = async () => {
+    setLoading(true);
+    try {
+      const { data: locData } = await supabase.from('locations').select('*');
+      if (locData) setLocations(locData);
+
+      const { data: stockData } = await supabase
+        .from('branch_stocks')
+        .select('*, locations(name)')
+        .order('item_name', { ascending: true });
+
+      if (stockData) setStocks(stockData);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchStockData();
+  }, []);
+
+  const filteredStocks = selectedFilter === 'all'
+    ? stocks
+    : stocks.filter((s) => s.location_id === selectedFilter);
+
+  return (
+    <div className="bg-white rounded-2xl border border-neutral-200 overflow-hidden shadow-sm">
+      <div className="p-5 border-b border-neutral-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <div>
+          <h2 className="text-base font-bold text-neutral-800">Monitor Sisa Stok Fisik Cabang</h2>
+          <p className="text-xs text-neutral-500">Live pantauan sisa stok bahan dan porsi riil di setiap cabang.</p>
+        </div>
+
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <select
+            value={selectedFilter}
+            onChange={(e) => setSelectedFilter(e.target.value)}
+            className="w-full sm:w-48 px-3 py-1.5 bg-neutral-50 border border-neutral-200 rounded-xl text-xs font-semibold text-neutral-700 focus:outline-none"
+          >
+            <option value="all">Semua Cabang ({stocks.length} Item)</option>
+            {locations.map((loc) => (
+              <option key={loc.id} value={loc.id}>
+                {loc.name}
+              </option>
+            ))}
+          </select>
+
+          <button
+            onClick={fetchStockData}
+            type="button"
+            className="px-3 py-1.5 text-xs font-bold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 rounded-xl transition-all"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr className="bg-neutral-50 text-neutral-600 font-bold uppercase tracking-wider border-b border-neutral-200">
+              <th className="py-3 px-4">Lokasi Cabang</th>
+              <th className="py-3 px-4">Nama Barang</th>
+              <th className="py-3 px-4 text-right">Sisa Stok Fisik</th>
+              <th className="py-3 px-4">Update Terakhir</th>
+              <th className="py-3 px-4">Diinput Oleh</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-100 text-neutral-700">
+            {loading ? (
+              <tr>
+                <td colSpan={5} className="py-8 text-center text-neutral-400">
+                  Memuat data stok...
+                </td>
+              </tr>
+            ) : filteredStocks.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="py-8 text-center text-neutral-400">
+                  Belum ada data stok tercatat.
+                </td>
+              </tr>
+            ) : (
+              filteredStocks.map((item) => (
+                <tr key={item.id} className="hover:bg-neutral-50 transition-colors">
+                  <td className="py-3 px-4 font-bold text-neutral-800">{item.locations?.name || '-'}</td>
+                  <td className="py-3 px-4 font-semibold text-neutral-900">{item.item_name}</td>
+                  <td className="py-3 px-4 text-right font-bold text-amber-900">
+                    {item.remaining_stock} {item.unit}
+                  </td>
+                  <td className="py-3 px-4 text-neutral-500 whitespace-nowrap">
+                    {new Date(item.updated_at).toLocaleDateString('id-ID', {
+                      day: '2-digit',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </td>
+                  <td className="py-3 px-4 text-neutral-600 whitespace-nowrap">{item.updated_by || '-'}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 export default function ExecutiveDashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
