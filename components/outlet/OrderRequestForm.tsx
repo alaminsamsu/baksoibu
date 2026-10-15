@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabaseClient';
-import { ShoppingBag, Plus, Trash2, ArrowLeft, CheckCircle2, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+import { ShoppingBag, ArrowLeft, CheckCircle2, AlertCircle, Search } from 'lucide-react';
 
 interface Props {
   user?: any;
@@ -11,20 +11,21 @@ interface Props {
   staffName?: string;
 }
 
-interface OrderRow {
-  itemName: string;
-  quantity: string;
-  unit: string;
+interface MasterItem {
+  id: string;
+  name: string;
+  category: string;
+  default_unit: string;
 }
 
 export default function OrderRequestForm({ user, onBack, locationId, staffName }: Props) {
   const activeLocationId = locationId || user?.location_id;
   const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
 
-  const [masterItems, setMasterItems] = useState<any[]>([]);
-  const [orderItems, setOrderItems] = useState<OrderRow[]>([
-    { itemName: '', quantity: '', unit: 'Porsi' },
-  ]);
+  const [items, setItems] = useState<MasterItem[]>([]);
+  const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [activeCategory, setActiveCategory] = useState<string>('Semua');
+  const [searchTerm, setSearchTerm] = useState('');
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -32,40 +33,34 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   useEffect(() => {
     async function fetchItems() {
       const { data } = await supabase.from('items').select('*').order('name');
-      if (data && data.length > 0) {
-        setMasterItems(data);
-        setOrderItems([{ itemName: data[0].name, quantity: '', unit: data[0].default_unit || 'Porsi' }]);
-      }
+      if (data) setItems(data);
     }
     fetchItems();
   }, []);
 
-  const handleAddItemRow = () => {
-    const defaultItem = masterItems[0]?.name || '';
-    const defaultUnit = masterItems[0]?.default_unit || 'Porsi';
-    setOrderItems([...orderItems, { itemName: defaultItem, quantity: '', unit: defaultUnit }]);
+  const categories = useMemo(() => {
+    const list = Array.from(new Set(items.map((i) => i.category || 'Lainnya')));
+    return ['Semua', ...list];
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    return items.filter((item) => {
+      const matchCat = activeCategory === 'Semua' || item.category === activeCategory;
+      const matchSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
+      return matchCat && matchSearch;
+    });
+  }, [items, activeCategory, searchTerm]);
+
+  const handleQtyChange = (itemName: string, val: string) => {
+    setQuantities((prev) => ({
+      ...prev,
+      [itemName]: val,
+    }));
   };
 
-  const handleRemoveRow = (index: number) => {
-    if (orderItems.length === 1) return;
-    setOrderItems(orderItems.filter((_, i) => i !== index));
-  };
-
-  const handleItemChange = (index: number, name: string) => {
-    const found = masterItems.find((i) => i.name === name);
-    const updated = [...orderItems];
-    updated[index].itemName = name;
-    if (found) {
-      updated[index].unit = found.default_unit || 'Porsi';
-    }
-    setOrderItems(updated);
-  };
-
-  const handleQtyChange = (index: number, qty: string) => {
-    const updated = [...orderItems];
-    updated[index].quantity = qty;
-    setOrderItems(updated);
-  };
+  const totalFilled = useMemo(() => {
+    return Object.values(quantities).filter((q) => parseFloat(q) > 0).length;
+  }, [quantities]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,29 +68,36 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     setMessage(null);
 
     try {
-      const validRows = orderItems.filter((row) => row.itemName && parseFloat(row.quantity) > 0);
-      if (validRows.length === 0) {
-        throw new Error('Masukkan minimal satu barang dengan jumlah lebih dari 0.');
+      const orderPayload = Object.entries(quantities)
+        .filter(([_, qty]) => parseFloat(qty) > 0)
+        .map(([itemName, qty]) => {
+          const itemMeta = items.find((i) => i.name === itemName);
+          return {
+            location_id: activeLocationId,
+            item_name: itemName,
+            quantity: parseFloat(qty),
+            unit: itemMeta?.default_unit || 'Pcs',
+            notes: notes.trim() || null,
+            requested_by: activeStaffName,
+            status: 'pending',
+          };
+        });
+
+      if (orderPayload.length === 0) {
+        throw new Error('Isi minimal satu barang dengan jumlah lebih dari 0.');
       }
 
-      const inserts = validRows.map((row) => ({
-        location_id: activeLocationId,
-        item_name: row.itemName,
-        quantity: parseFloat(row.quantity),
-        unit: row.unit,
-        notes: notes.trim() || null,
-        requested_by: activeStaffName,
-        status: 'pending',
-      }));
-
-      const { error } = await supabase.from('order_requests').insert(inserts);
+      const { error } = await supabase.from('order_requests').insert(orderPayload);
       if (error) throw error;
 
-      setMessage({ text: `Berhasil mengirim ${validRows.length} item request order malam!`, type: 'success' });
-      setOrderItems([{ itemName: masterItems[0]?.name || '', quantity: '', unit: masterItems[0]?.default_unit || 'Porsi' }]);
+      setMessage({
+        text: `Berhasil mengirim permintaan untuk ${orderPayload.length} barang ke Dapur Pusat!`,
+        type: 'success',
+      });
+      setQuantities({});
       setNotes('');
     } catch (err: any) {
-      setMessage({ text: err.message || 'Gagal mengirim request order.', type: 'error' });
+      setMessage({ text: err.message || 'Gagal mengirim order.', type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -114,11 +116,16 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </button>
       )}
 
-      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-neutral-100">
-        <ShoppingBag className="w-5 h-5 text-amber-800" />
-        <div>
-          <h2 className="text-base font-bold text-neutral-800">Request Order Malam</h2>
-          <p className="text-xs text-neutral-500">Kirim permintaan stok bahan ke dapur pusat untuk persiapan besok.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-4 border-b border-neutral-100 gap-2">
+        <div className="flex items-center gap-2">
+          <ShoppingBag className="w-5 h-5 text-amber-800" />
+          <div>
+            <h2 className="text-base font-bold text-neutral-800">Lembar Request Order Malam</h2>
+            <p className="text-xs text-neutral-500">Ketik angka langsung pada barang yang ingin dipesan.</p>
+          </div>
+        </div>
+        <div className="text-xs font-bold px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-200 rounded-xl w-fit">
+          {totalFilled} barang terisi
         </div>
       </div>
 
@@ -139,62 +146,86 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-        <div className="space-y-2.5">
-          <label className="block font-bold text-neutral-700 uppercase tracking-wider">
-            Daftar Barang yang Dipesan
-          </label>
+      {/* Filter Kategori & Pencarian */}
+      <div className="space-y-3 mb-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 w-4 h-4 text-neutral-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Cari nama barang cepat (misal: bakso, plastik, kecap)..."
+            className="w-full pl-9 pr-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-xs font-medium text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
 
-          {orderItems.map((row, idx) => (
-            <div key={idx} className="flex items-center gap-2 bg-neutral-50 p-2.5 rounded-xl border border-neutral-200">
-              <select
-                value={row.itemName}
-                onChange={(e) => handleItemChange(idx, e.target.value)}
-                className="flex-1 px-2.5 py-2 bg-white border border-neutral-200 rounded-lg font-semibold text-neutral-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
-              >
-                {masterItems.map((m) => (
-                  <option key={m.id} value={m.name}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-
-              <input
-                type="number"
-                step="any"
-                required
-                value={row.quantity}
-                onChange={(e) => handleQtyChange(idx, e.target.value)}
-                placeholder="Jumlah"
-                className="w-20 px-2.5 py-2 bg-white border border-neutral-200 rounded-lg font-semibold text-neutral-800 text-right focus:outline-none focus:ring-1 focus:ring-amber-500"
-              />
-
-              <span className="w-12 font-bold text-neutral-600">{row.unit}</span>
-
-              {orderItems.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => handleRemoveRow(idx)}
-                  className="p-1.5 text-neutral-400 hover:text-red-600 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
-            </div>
+        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setActiveCategory(cat)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                activeCategory === cat
+                  ? 'bg-amber-900 text-white shadow-sm'
+                  : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+              }`}
+            >
+              {cat}
+            </button>
           ))}
+        </div>
+      </div>
 
-          <button
-            type="button"
-            onClick={handleAddItemRow}
-            className="w-full py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-bold rounded-xl border border-dashed border-neutral-300 flex items-center justify-center gap-1.5 transition-all mt-1"
-          >
-            <Plus className="w-4 h-4" />
-            Tambah Baris Barang Lain
-          </button>
+      {/* Tabel Checklist Barang */}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="border border-neutral-200 rounded-xl overflow-hidden max-h-96 overflow-y-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead className="bg-neutral-50 sticky top-0 border-b border-neutral-200 z-10">
+              <tr className="text-neutral-600 font-bold uppercase tracking-wider">
+                <th className="py-2.5 px-3">Nama Barang</th>
+                <th className="py-2.5 px-3">Kategori</th>
+                <th className="py-2.5 px-3 text-right w-36">Jumlah Order</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-100">
+              {filteredItems.map((item) => {
+                const val = quantities[item.name] || '';
+                const isSelected = parseFloat(val) > 0;
+                return (
+                  <tr
+                    key={item.id}
+                    className={`transition-colors ${
+                      isSelected ? 'bg-amber-50/60 font-semibold' : 'hover:bg-neutral-50'
+                    }`}
+                  >
+                    <td className="py-2 px-3 text-neutral-800">{item.name}</td>
+                    <td className="py-2 px-3 text-neutral-400 text-[11px]">{item.category}</td>
+                    <td className="py-1.5 px-3 text-right">
+                      <div className="inline-flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={val}
+                          onChange={(e) => handleQtyChange(item.name, e.target.value)}
+                          placeholder="0"
+                          className="w-20 px-2 py-1 text-right bg-white border border-neutral-200 rounded-lg text-xs font-bold text-neutral-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                        <span className="text-[11px] text-neutral-500 w-9 text-left">
+                          {item.default_unit}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
 
         <div>
-          <label className="block font-bold text-neutral-700 uppercase tracking-wider mb-1">
+          <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1">
             Catatan Tambahan untuk Dapur Pusat
           </label>
           <input
@@ -202,16 +233,16 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Misal: Prioritas kirim jam 09.00 pagi (opsional)"
-            className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl font-medium text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+            className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-xs font-medium text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
           />
         </div>
 
         <button
           type="submit"
-          disabled={loading}
-          className="w-full py-2.5 bg-amber-900 hover:bg-amber-800 text-white font-bold rounded-xl shadow transition-all disabled:opacity-50"
+          disabled={loading || totalFilled === 0}
+          className="w-full py-2.5 bg-amber-900 hover:bg-amber-800 text-white text-xs font-bold rounded-xl shadow transition-all disabled:opacity-50"
         >
-          {loading ? 'Mengirim Request...' : 'Kirim Request Order'}
+          {loading ? 'Mengirim...' : `Kirim Request Order (${totalFilled} Item)`}
         </button>
       </form>
     </div>
