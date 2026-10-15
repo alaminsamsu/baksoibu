@@ -15,8 +15,17 @@ interface MasterItem {
   id: string;
   name: string;
   category: string;
-  default_unit: string;
+  uom: string;
 }
+
+const CATEGORY_ORDER = [
+  'Semua',
+  'Bakso & Olahan Frozen',
+  'Bahan Dapur & Bumbu',
+  'Sayur, Mie & Pelengkap',
+  'Minuman & Es',
+  'Kemasan & Operasional',
+];
 
 export default function OrderRequestForm({ user, onBack, locationId, staffName }: Props) {
   const activeLocationId = locationId || user?.location_id;
@@ -32,17 +41,17 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
 
   useEffect(() => {
     async function fetchItems() {
-      const { data } = await supabase.from('items').select('*').order('name');
-      if (data) setItems(data);
+      const { data, error } = await supabase.from('items').select('*').order('name');
+      if (error) {
+        console.error('Gagal mengambil data items:', error);
+      } else if (data) {
+        setItems(data);
+      }
     }
     fetchItems();
   }, []);
 
-  const categories = useMemo(() => {
-    const list = Array.from(new Set(items.map((i) => i.category || 'Lainnya')));
-    return ['Semua', ...list];
-  }, [items]);
-
+  // Filter items sesuai kategori dan pencarian
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       const matchCat = activeCategory === 'Semua' || item.category === activeCategory;
@@ -50,6 +59,17 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
       return matchCat && matchSearch;
     });
   }, [items, activeCategory, searchTerm]);
+
+  // Kelompokkan item berdasarkan grup untuk tampilan tabel terstruktur
+  const groupedItems = useMemo(() => {
+    const groups: Record<string, MasterItem[]> = {};
+    filteredItems.forEach((item) => {
+      const cat = item.category || 'Lain-lain';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(item);
+    });
+    return groups;
+  }, [filteredItems]);
 
   const handleQtyChange = (itemName: string, val: string) => {
     setQuantities((prev) => ({
@@ -76,7 +96,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             location_id: activeLocationId,
             item_name: itemName,
             quantity: parseFloat(qty),
-            unit: itemMeta?.default_unit || 'Pcs',
+            unit: itemMeta?.uom || 'Pcs',
             notes: notes.trim() || null,
             requested_by: activeStaffName,
             status: 'pending',
@@ -121,7 +141,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           <ShoppingBag className="w-5 h-5 text-amber-800" />
           <div>
             <h2 className="text-base font-bold text-neutral-800">Lembar Request Order Malam</h2>
-            <p className="text-xs text-neutral-500">Ketik angka langsung pada barang yang ingin dipesan.</p>
+            <p className="text-xs text-neutral-500">Pilih tab grup atau isi langsung jumlah pesanan barang di bawah.</p>
           </div>
         </div>
         <div className="text-xs font-bold px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-200 rounded-xl w-fit">
@@ -146,7 +166,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </div>
       )}
 
-      {/* Filter Kategori & Pencarian */}
+      {/* Filter Pencarian & Tombol Grup Kategori */}
       <div className="space-y-3 mb-4">
         <div className="relative">
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-neutral-400" />
@@ -154,13 +174,13 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Cari nama barang cepat (misal: bakso, plastik, kecap)..."
+            placeholder="Cari cepat (misal: urat, sawi, plastik, gas)..."
             className="w-full pl-9 pr-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-xs font-medium text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
           />
         </div>
 
         <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          {categories.map((cat) => (
+          {CATEGORY_ORDER.map((cat) => (
             <button
               key={cat}
               type="button"
@@ -177,49 +197,66 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </div>
       </div>
 
-      {/* Tabel Checklist Barang */}
+      {/* Tabel Checklist Barang Berkelompok */}
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="border border-neutral-200 rounded-xl overflow-hidden max-h-96 overflow-y-auto">
+        <div className="border border-neutral-200 rounded-xl overflow-hidden max-h-[28rem] overflow-y-auto">
           <table className="w-full text-left border-collapse text-xs">
-            <thead className="bg-neutral-50 sticky top-0 border-b border-neutral-200 z-10">
-              <tr className="text-neutral-600 font-bold uppercase tracking-wider">
+            <thead className="bg-neutral-100/90 sticky top-0 border-b border-neutral-200 z-10 backdrop-blur-sm">
+              <tr className="text-neutral-700 font-bold uppercase tracking-wider">
                 <th className="py-2.5 px-3">Nama Barang</th>
-                <th className="py-2.5 px-3">Kategori</th>
                 <th className="py-2.5 px-3 text-right w-36">Jumlah Order</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100">
-              {filteredItems.map((item) => {
-                const val = quantities[item.name] || '';
-                const isSelected = parseFloat(val) > 0;
-                return (
-                  <tr
-                    key={item.id}
-                    className={`transition-colors ${
-                      isSelected ? 'bg-amber-50/60 font-semibold' : 'hover:bg-neutral-50'
-                    }`}
-                  >
-                    <td className="py-2 px-3 text-neutral-800">{item.name}</td>
-                    <td className="py-2 px-3 text-neutral-400 text-[11px]">{item.category}</td>
-                    <td className="py-1.5 px-3 text-right">
-                      <div className="inline-flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          value={val}
-                          onChange={(e) => handleQtyChange(item.name, e.target.value)}
-                          placeholder="0"
-                          className="w-20 px-2 py-1 text-right bg-white border border-neutral-200 rounded-lg text-xs font-bold text-neutral-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                        />
-                        <span className="text-[11px] text-neutral-500 w-9 text-left">
-                          {item.default_unit}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {Object.keys(groupedItems).length === 0 ? (
+                <tr>
+                  <td colSpan={2} className="py-8 text-center text-neutral-400">
+                    Tidak ada barang yang cocok dengan pencarian.
+                  </td>
+                </tr>
+              ) : (
+                Object.entries(groupedItems).map(([groupName, groupList]) => (
+                  <React.Fragment key={groupName}>
+                    {/* Header Pemisah Grup */}
+                    <tr className="bg-amber-50/70 border-y border-amber-200/60">
+                      <td colSpan={2} className="py-1.5 px-3 font-bold text-amber-900 uppercase tracking-wider text-[11px]">
+                        📁 {groupName} ({groupList.length} item)
+                      </td>
+                    </tr>
+                    {/* Daftar Barang dalam Grup */}
+                    {groupList.map((item) => {
+                      const val = quantities[item.name] || '';
+                      const isSelected = parseFloat(val) > 0;
+                      return (
+                        <tr
+                          key={item.id}
+                          className={`transition-colors ${
+                            isSelected ? 'bg-amber-100/50 font-semibold' : 'hover:bg-neutral-50'
+                          }`}
+                        >
+                          <td className="py-2 px-3 text-neutral-800">{item.name}</td>
+                          <td className="py-1.5 px-3 text-right">
+                            <div className="inline-flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={val}
+                                onChange={(e) => handleQtyChange(item.name, e.target.value)}
+                                placeholder="0"
+                                className="w-20 px-2 py-1 text-right bg-white border border-neutral-200 rounded-lg text-xs font-bold text-neutral-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                              />
+                              <span className="text-[11px] text-neutral-500 w-10 text-left">
+                                {item.uom || 'Pcs'}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                ))
+              )}
             </tbody>
           </table>
         </div>
