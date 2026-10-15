@@ -1,163 +1,204 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabaseClient';
-import { ClipboardList, Send, Plus } from 'lucide-react';
+import { supabase } from '../../lib/supabaseClient';
+import { ShoppingBag, Plus, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 
-export default function OrderRequestForm({ user, onBack }: { user: any; onBack: () => void }) {
-  const [items, setItems] = useState<any[]>([]);
-  const [selectedItems, setSelectedItems] = useState<{ itemId: string; qty: number }[]>([]);
+interface Props {
+  locationId: string;
+  staffName: string;
+}
+
+interface OrderRow {
+  itemName: string;
+  quantity: string;
+  unit: string;
+}
+
+export default function OrderRequestForm({ locationId, staffName }: Props) {
+  const [masterItems, setMasterItems] = useState<any[]>([]);
+  const [orderItems, setOrderItems] = useState<OrderRow[]>([
+    { itemName: '', quantity: '', unit: 'Porsi' },
+  ]);
   const [notes, setNotes] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     async function fetchItems() {
-      const { data } = await supabase.from('items').select('*').eq('is_active', true);
-      if (data) setItems(data);
+      const { data } = await supabase.from('items').select('*').order('name');
+      if (data && data.length > 0) {
+        setMasterItems(data);
+        setOrderItems([{ itemName: data[0].name, quantity: '', unit: data[0].default_unit || 'Porsi' }]);
+      }
     }
     fetchItems();
   }, []);
 
   const handleAddItemRow = () => {
-    if (items.length > 0) {
-      setSelectedItems([...selectedItems, { itemId: items[0].id, qty: 10 }]);
-    }
+    const defaultItem = masterItems[0]?.name || '';
+    const defaultUnit = masterItems[0]?.default_unit || 'Porsi';
+    setOrderItems([...orderItems, { itemName: defaultItem, quantity: '', unit: defaultUnit }]);
   };
 
   const handleRemoveRow = (index: number) => {
-    const updated = [...selectedItems];
-    updated.splice(index, 1);
-    setSelectedItems(updated);
+    if (orderItems.length === 1) return;
+    setOrderItems(orderItems.filter((_, i) => i !== index));
+  };
+
+  const handleItemChange = (index: number, name: string) => {
+    const found = masterItems.find((i) => i.name === name);
+    const updated = [...orderItems];
+    updated[index].itemName = name;
+    if (found) {
+      updated[index].unit = found.default_unit || 'Porsi';
+    }
+    setOrderItems(updated);
+  };
+
+  const handleQtyChange = (index: number, qty: string) => {
+    const updated = [...orderItems];
+    updated[index].quantity = qty;
+    setOrderItems(updated);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedItems.length === 0) {
-      alert('Pilih minimal 1 barang untuk diorder.');
-      return;
-    }
-    setSubmitting(true);
+    setLoading(true);
+    setMessage(null);
 
     try {
-      const { data: centralLoc } = await supabase
-        .from('locations')
-        .select('id')
-        .eq('type', 'central_kitchen')
-        .single();
+      const validRows = orderItems.filter((row) => row.itemName && parseFloat(row.quantity) > 0);
+      if (validRows.length === 0) {
+        throw new Error('Masukkan minimal satu barang dengan jumlah lebih dari 0.');
+      }
 
-      const transferNumber = `RO-${Date.now().toString().slice(-6)}`;
-
-      const { data: transfer, error: transError } = await supabase
-        .from('stock_transfers')
-        .insert({
-          transfer_number: transferNumber,
-          from_location_id: centralLoc?.id,
-          to_location_id: user.location_id,
-          created_by: user.id,
-          requested_by_staff_name: user.active_staff_name || user.username,
-          status: 'requested',
-          notes: notes,
-        })
-        .select()
-        .single();
-
-      if (transError) throw transError;
-
-      const detailInserts = selectedItems.map((row) => ({
-        stock_transfer_id: transfer.id,
-        item_id: row.itemId,
-        qty_requested: row.qty,
+      // Format payload untuk tabel order_requests
+      const inserts = validRows.map((row) => ({
+        location_id: locationId,
+        item_name: row.itemName,
+        quantity: parseFloat(row.quantity),
+        unit: row.unit,
+        notes: notes.trim() || null,
+        requested_by: staffName,
+        status: 'pending', // Menunggu persetujuan / proses dapur pusat
       }));
 
-      await supabase.from('stock_transfer_items').insert(detailInserts);
+      const { error } = await supabase.from('order_requests').insert(inserts);
+      if (error) throw error;
 
-      alert(`Pesanan berhasil terkirim ke Dapur Pusat! No: ${transferNumber}`);
-      onBack();
+      setMessage({ text: `Berhasil mengirim ${validRows.length} item request order malam ke dapur pusat!`, type: 'success' });
+      setOrderItems([{ itemName: masterItems[0]?.name || '', quantity: '', unit: masterItems[0]?.default_unit || 'Porsi' }]);
+      setNotes('');
     } catch (err: any) {
-      alert('Gagal mengirim order: ' + err.message);
+      setMessage({ text: err.message || 'Gagal mengirim request order.', type: 'error' });
     } finally {
-      setSubmitting(false);
+      setLoading(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 max-w-lg mx-auto bg-white p-6 rounded-2xl border shadow-sm">
-      <div className="flex items-center justify-between border-b pb-3">
-        <h2 className="text-lg font-bold flex items-center gap-2">
-          <ClipboardList className="text-orange-600" /> Request Order Malam (Untuk Besok)
-        </h2>
-        <button type="button" onClick={onBack} className="text-xs text-amber-900 font-semibold hover:underline">
-          ← Batal
-        </button>
+    <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
+      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-neutral-100">
+        <ShoppingBag className="w-5 h-5 text-amber-800" />
+        <div>
+          <h2 className="text-base font-bold text-neutral-800">Request Order Malam</h2>
+          <p className="text-xs text-neutral-500">Kirim permintaan stok bahan ke dapur pusat untuk persiapan besok.</p>
+        </div>
       </div>
 
-      <div className="space-y-3">
-        {selectedItems.map((row, idx) => (
-          <div key={idx} className="flex items-center gap-2">
-            <select
-              value={row.itemId}
-              onChange={(e) => {
-                const updated = [...selectedItems];
-                updated[idx].itemId = e.target.value;
-                setSelectedItems(updated);
-              }}
-              className="flex-1 p-2 border rounded-xl text-xs bg-white"
-            >
-              {items.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.name} ({i.unit})
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              min="1"
-              value={row.qty}
-              onChange={(e) => {
-                const updated = [...selectedItems];
-                updated[idx].qty = Number(e.target.value);
-                setSelectedItems(updated);
-              }}
-              className="w-20 p-2 border rounded-xl text-xs text-right font-bold"
-            />
-            <button
-              type="button"
-              onClick={() => handleRemoveRow(idx)}
-              className="p-2 text-red-500 text-xs font-bold"
-            >
-              ✕
-            </button>
-          </div>
-        ))}
+      {message && (
+        <div
+          className={`p-3 mb-4 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+            message.type === 'success'
+              ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+              : 'bg-red-50 border border-red-200 text-red-700'
+          }`}
+        >
+          {message.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+          ) : (
+            <AlertCircle className="w-4 h-4 shrink-0" />
+          )}
+          <span>{message.text}</span>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        <div className="space-y-2.5">
+          <label className="block font-bold text-neutral-700 uppercase tracking-wider">
+            Daftar Barang yang Dipesan
+          </label>
+
+          {orderItems.map((row, idx) => (
+            <div key={idx} className="flex items-center gap-2 bg-neutral-50 p-2.5 rounded-xl border border-neutral-200">
+              <select
+                value={row.itemName}
+                onChange={(e) => handleItemChange(idx, e.target.value)}
+                className="flex-1 px-2.5 py-2 bg-white border border-neutral-200 rounded-lg font-semibold text-neutral-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              >
+                {masterItems.map((m) => (
+                  <option key={m.id} value={m.name}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="number"
+                step="any"
+                required
+                value={row.quantity}
+                onChange={(e) => handleQtyChange(idx, e.target.value)}
+                placeholder="Jumlah"
+                className="w-20 px-2.5 py-2 bg-white border border-neutral-200 rounded-lg font-semibold text-neutral-800 text-right focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+
+              <span className="w-12 font-bold text-neutral-600">{row.unit}</span>
+
+              {orderItems.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => handleRemoveRow(idx)}
+                  className="p-1.5 text-neutral-400 hover:text-red-600 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onClick={handleAddItemRow}
+            className="w-full py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-bold rounded-xl border border-dashed border-neutral-300 flex items-center justify-center gap-1.5 transition-all mt-1"
+          >
+            <Plus className="w-4 h-4" />
+            Tambah Baris Barang Lain
+          </button>
+        </div>
+
+        <div>
+          <label className="block font-bold text-neutral-700 uppercase tracking-wider mb-1">
+            Catatan Tambahan untuk Dapur Pusat
+          </label>
+          <input
+            type="text"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Misal: Prioritas kirim jam 09.00 pagi, kuah minta agak pedas (opsional)"
+            className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl font-medium text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
 
         <button
-          type="button"
-          onClick={handleAddItemRow}
-          className="w-full py-2 border-2 border-dashed border-gray-300 text-gray-600 rounded-xl text-xs font-bold flex items-center justify-center gap-1 hover:bg-gray-50"
+          type="submit"
+          disabled={loading}
+          className="w-full py-2.5 bg-amber-900 hover:bg-amber-800 text-white font-bold rounded-xl shadow transition-all disabled:opacity-50"
         >
-          <Plus className="w-4 h-4" /> Tambah Barang Orderan
+          {loading ? 'Mengirim Request...' : 'Kirim Request Order'}
         </button>
-      </div>
-
-      <div className="space-y-1">
-        <label className="text-xs font-bold text-gray-600">Catatan Tambahan untuk Dapur Pusat</label>
-        <textarea
-          rows={2}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Misal: Mohon kirim lebih pagi karena ada pesanan katering."
-          className="w-full p-2.5 border rounded-xl text-xs"
-        />
-      </div>
-
-      <button
-        type="submit"
-        disabled={submitting}
-        className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold text-sm shadow flex items-center justify-center gap-2 disabled:opacity-50"
-      >
-        <Send className="w-4 h-4" />
-        <span>{submitting ? 'Mengirim ke Dapur Pusat...' : 'Kirim Request Order'}</span>
-      </button>
-    </form>
+      </form>
+    </div>
   );
 }

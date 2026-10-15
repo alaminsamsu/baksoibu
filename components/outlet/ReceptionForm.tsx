@@ -1,142 +1,270 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabaseClient';
-import { PackageCheck, CheckCircle2, Clock } from 'lucide-react';
+import { supabase } from '../../lib/supabaseClient';
+import { PackageCheck, Plus, CheckCircle2, AlertCircle } from 'lucide-react';
 
-export default function ReceptionForm({ user, onBack }: { user: any; onBack: () => void }) {
-  const [transfers, setTransfers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [receivedQty, setReceivedQty] = useState<{ [key: string]: number }>({});
-  const [notes, setNotes] = useState<{ [key: string]: string }>({});
-  const [savingId, setSavingId] = useState<string | null>(null);
+interface Props {
+  locationId: string;
+  staffName: string;
+}
 
-  const fetchTransfers = async () => {
-    setLoading(true);
-    const { data } = await supabase
-      .from('stock_transfers')
-      .select('*, stock_transfer_items(*, items(name, unit))')
-      .eq('to_location_id', user.location_id)
-      .in('status', ['shipped', 'in_transit'])
-      .order('created_at', { ascending: false });
+export default function ReceptionForm({ locationId, staffName }: Props) {
+  const [itemsList, setItemsList] = useState<any[]>([]);
+  const [itemName, setItemName] = useState('');
+  const [customItem, setCustomItem] = useState('');
+  const [quantity, setQuantity] = useState('');
+  const [unit, setUnit] = useState('Porsi');
+  const [source, setSource] = useState<'Dapur Pusat' | 'Belanja Luar / Supplier'>('Dapur Pusat');
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-    if (data) setTransfers(data);
-    setLoading(false);
+  // Ambil master barang
+  useEffect(() => {
+    async function fetchMasterItems() {
+      const { data } = await supabase.from('items').select('*').order('name');
+      if (data && data.length > 0) {
+        setItemsList(data);
+        setItemName(data[0].name);
+        setUnit(data[0].default_unit || 'Porsi');
+      }
+    }
+    fetchMasterItems();
+  }, []);
+
+  const handleItemSelect = (selectedName: string) => {
+    setItemName(selectedName);
+    const found = itemsList.find((i) => i.name === selectedName);
+    if (found) {
+      setUnit(found.default_unit || 'Porsi');
+    }
   };
 
-  useEffect(() => {
-    fetchTransfers();
-  }, [user.location_id]);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage(null);
 
-  const handleReceive = async (transfer: any) => {
-    setSavingId(transfer.id);
+    const finalItemName = itemName === '__custom__' ? customItem.trim() : itemName;
+    const qtyNum = parseFloat(quantity);
+
+    if (!finalItemName) {
+      setMessage({ text: 'Nama barang tidak boleh kosong.', type: 'error' });
+      setLoading(false);
+      return;
+    }
+
+    if (isNaN(qtyNum) || qtyNum <= 0) {
+      setMessage({ text: 'Jumlah barang harus lebih dari 0.', type: 'error' });
+      setLoading(false);
+      return;
+    }
+
     try {
-      for (const item of transfer.stock_transfer_items) {
-        const qty = receivedQty[item.id] ?? item.qty_dispatched ?? item.qty_requested;
-        
+      // 1. Simpan ke riwayat penerimaan barang (goods_receipts / receptions)
+      const { error: receiptError } = await supabase.from('receptions').insert([
+        {
+          location_id: locationId,
+          item_name: finalItemName,
+          quantity: qtyNum,
+          unit,
+          source,
+          notes: notes.trim() || null,
+          received_by: staffName,
+        },
+      ]);
+
+      if (receiptError) throw receiptError;
+
+      // 2. Update atau tambah stok fisik di branch_stocks (upsert)
+      const { data: existingStock } = await supabase
+        .from('branch_stocks')
+        .select('*')
+        .eq('location_id', locationId)
+        .eq('item_name', finalItemName)
+        .single();
+
+      if (existingStock) {
+        const newTotal = Number(existingStock.remaining_stock) + qtyNum;
         await supabase
-          .from('stock_transfer_items')
-          .update({ qty_received: qty, notes: notes[item.id] || null })
-          .eq('id', item.id);
-
-        const { data: inv } = await supabase
-          .from('inventories')
-          .select('id, quantity')
-          .eq('location_id', user.location_id)
-          .eq('item_id', item.item_id)
-          .single();
-
-        if (inv) {
-          await supabase
-            .from('inventories')
-            .update({ quantity: Number(inv.quantity) + Number(qty), last_updated: new Date().toISOString() })
-            .eq('id', inv.id);
-        } else {
-          await supabase.from('inventories').insert({
-            location_id: user.location_id,
-            item_id: item.item_id,
-            quantity: Number(qty),
-          });
-        }
+          .from('branch_stocks')
+          .update({
+            remaining_stock: newTotal,
+            updated_by: staffName,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingStock.id);
+      } else {
+        await supabase.from('branch_stocks').insert([
+          {
+            location_id: locationId,
+            item_name: finalItemName,
+            remaining_stock: qtyNum,
+            unit,
+            updated_by: staffName,
+          },
+        ]);
       }
 
-      await supabase
-        .from('stock_transfers')
-        .update({
-          status: 'received',
-          received_by: user.id,
-          received_at: new Date().toISOString(),
-          receiver_staff_name: user.active_staff_name || user.username,
-        })
-        .eq('id', transfer.id);
-
-      alert('Kiriman barang berhasil diterima dan stok outlet telah bertambah!');
-      fetchTransfers();
+      setMessage({ text: `Berhasil menerima ${qtyNum} ${unit} ${finalItemName}!`, type: 'success' });
+      setQuantity('');
+      setNotes('');
+      setCustomItem('');
     } catch (err: any) {
-      alert('Gagal memproses penerimaan: ' + err.message);
+      setMessage({ text: err.message || 'Gagal menyimpan penerimaan barang.', type: 'error' });
     } finally {
-      setSavingId(null);
+      setLoading(false);
     }
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between border-b pb-3">
-        <h2 className="text-lg font-bold flex items-center gap-2">
-          <PackageCheck className="text-blue-600" /> Penerimaan Barang Kiriman Dapur Pusat
-        </h2>
-        <button onClick={onBack} className="text-xs text-amber-900 font-semibold hover:underline">
-          ← Kembali ke Menu
-        </button>
+    <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
+      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-neutral-100">
+        <PackageCheck className="w-5 h-5 text-amber-800" />
+        <div>
+          <h2 className="text-base font-bold text-neutral-800">Penerimaan Barang Masuk</h2>
+          <p className="text-xs text-neutral-500">Catat langsung barang yang tiba di cabang fisik.</p>
+        </div>
       </div>
 
-      {loading ? (
-        <p className="text-xs text-gray-500 py-4">Memuat data pengiriman...</p>
-      ) : transfers.length === 0 ? (
-        <div className="p-8 text-center text-gray-400 bg-gray-50 rounded-2xl border border-dashed">
-          <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
-          <p className="text-sm font-semibold">Tidak ada kiriman barang yang sedang dalam perjalanan.</p>
+      {message && (
+        <div
+          className={`p-3 mb-4 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+            message.type === 'success'
+              ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+              : 'bg-red-50 border border-red-200 text-red-700'
+          }`}
+        >
+          {message.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+          ) : (
+            <AlertCircle className="w-4 h-4 shrink-0" />
+          )}
+          <span>{message.text}</span>
         </div>
-      ) : (
-        transfers.map((t) => (
-          <div key={t.id} className="bg-white border rounded-2xl p-4 shadow-sm space-y-3">
-            <div className="flex justify-between items-center text-xs text-gray-500 border-b pb-2">
-              <span className="font-bold text-gray-800">No. Transfer: {t.transfer_number || t.id.slice(0, 8)}</span>
-              <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-semibold uppercase">Dalam Perjalanan</span>
-            </div>
+      )}
 
-            <div className="space-y-2">
-              {t.stock_transfer_items?.map((item: any) => (
-                <div key={item.id} className="flex items-center justify-between gap-3 text-xs bg-gray-50 p-2.5 rounded-xl">
-                  <div className="flex-1">
-                    <p className="font-bold text-gray-800">{item.items?.name}</p>
-                    <p className="text-gray-500">Dikirim: {item.qty_dispatched || item.qty_requested} {item.items?.unit}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="font-semibold text-gray-600">Diterima Fisik:</label>
-                    <input
-                      type="number"
-                      defaultValue={item.qty_dispatched || item.qty_requested}
-                      onChange={(e) => setReceivedQty({ ...receivedQty, [item.id]: Number(e.target.value) })}
-                      className="w-20 p-1.5 border rounded-lg bg-white text-right font-bold"
-                    />
-                    <span className="text-gray-500">{item.items?.unit}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
+      <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        <div>
+          <label className="block font-bold text-neutral-700 uppercase tracking-wider mb-1">
+            Asal Pengiriman / Sumber
+          </label>
+          <div className="grid grid-cols-2 gap-2">
             <button
-              onClick={() => handleReceive(t)}
-              disabled={savingId === t.id}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow flex items-center justify-center gap-1.5 disabled:opacity-50"
+              type="button"
+              onClick={() => setSource('Dapur Pusat')}
+              className={`py-2 px-3 rounded-xl border text-center font-bold transition-all ${
+                source === 'Dapur Pusat'
+                  ? 'bg-amber-900 text-white border-amber-900'
+                  : 'bg-neutral-50 text-neutral-600 border-neutral-200 hover:bg-neutral-100'
+              }`}
             >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>{savingId === t.id ? 'Memproses Masuk...' : 'Konfirmasi Selesai Diterima'}</span>
+              Dapur Pusat
+            </button>
+            <button
+              type="button"
+              onClick={() => setSource('Belanja Luar / Supplier')}
+              className={`py-2 px-3 rounded-xl border text-center font-bold transition-all ${
+                source === 'Belanja Luar / Supplier'
+                  ? 'bg-amber-900 text-white border-amber-900'
+                  : 'bg-neutral-50 text-neutral-600 border-neutral-200 hover:bg-neutral-100'
+              }`}
+            >
+              Belanja Luar / Supplier
             </button>
           </div>
-        ))
-      )}
+        </div>
+
+        <div>
+          <label className="block font-bold text-neutral-700 uppercase tracking-wider mb-1">
+            Nama Barang
+          </label>
+          <select
+            value={itemName}
+            onChange={(e) => handleItemSelect(e.target.value)}
+            className="w-full px-3 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl font-semibold text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+          >
+            {itemsList.map((item) => (
+              <option key={item.id} value={item.name}>
+                {item.name} ({item.category})
+              </option>
+            ))}
+            <option value="__custom__">+ Input Barang Lainnya...</option>
+          </select>
+        </div>
+
+        {itemName === '__custom__' && (
+          <div>
+            <label className="block font-bold text-neutral-700 uppercase tracking-wider mb-1">
+              Ketik Nama Barang Baru
+            </label>
+            <input
+              type="text"
+              required
+              value={customItem}
+              onChange={(e) => setCustomItem(e.target.value)}
+              placeholder="Contoh: Saus Sambal Jerigen"
+              className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl font-semibold text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block font-bold text-neutral-700 uppercase tracking-wider mb-1">
+              Jumlah Diterima
+            </label>
+            <input
+              type="number"
+              step="any"
+              required
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              placeholder="0"
+              className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl font-semibold text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+          </div>
+
+          <div>
+            <label className="block font-bold text-neutral-700 uppercase tracking-wider mb-1">
+              Satuan
+            </label>
+            <select
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+              className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl font-semibold text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+            >
+              <option value="Porsi">Porsi</option>
+              <option value="Pcs">Pcs / Butir</option>
+              <option value="Kg">Kg</option>
+              <option value="Liter">Liter</option>
+              <option value="Pack">Pack</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block font-bold text-neutral-700 uppercase tracking-wider mb-1">
+            Catatan Kondisi Barang
+          </label>
+          <input
+            type="text"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Kondisi beku baik, plastik rapi, dll (opsional)"
+            className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl font-medium text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full py-2.5 bg-amber-900 hover:bg-amber-800 text-white font-bold rounded-xl shadow transition-all disabled:opacity-50"
+        >
+          {loading ? 'Menyimpan...' : 'Konfirmasi Barang Masuk'}
+        </button>
+      </form>
     </div>
   );
 }

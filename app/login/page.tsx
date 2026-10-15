@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
-import { Store, Lock, User, ShieldAlert, ArrowRight, MapPin } from 'lucide-react';
+import { Store, Lock, User, ShieldAlert, ArrowRight, MapPin, Briefcase } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [locations, setLocations] = useState<any[]>([]);
   const [selectedLocation, setSelectedLocation] = useState('');
   const [staffName, setStaffName] = useState('');
+  const [staffRole, setStaffRole] = useState('Kasir');
   const [username, setUsername] = useState('');
   const [pin, setPin] = useState('');
 
@@ -54,9 +55,13 @@ export default function LoginPage() {
         const userRecord = data[0];
         const selectedLocData = locations.find((l) => l.id === selectedLocation);
 
+        const fullNameWithRole = `${staffName.trim()} (${staffRole})`;
+
         const sessionData = {
           ...userRecord,
-          active_staff_name: staffName.trim(),
+          active_staff_name: fullNameWithRole,
+          staff_raw_name: staffName.trim(),
+          staff_role: staffRole,
           locations: selectedLocData || null,
         };
 
@@ -79,7 +84,9 @@ export default function LoginPage() {
 
         const sessionData = {
           ...userRecord,
-          active_staff_name: userRecord.username,
+          active_staff_name: `${userRecord.username} (${userRecord.role.toUpperCase()})`,
+          staff_raw_name: userRecord.username,
+          staff_role: userRecord.role,
           locations: locData || null,
         };
 
@@ -166,18 +173,37 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">Nama Petugas Bertugas</label>
-                <div className="relative">
-                  <User className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    required
-                    value={staffName}
-                    onChange={(e) => setStaffName(e.target.value)}
-                    placeholder="Contoh: Rian / Siti"
-                    className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                  />
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">Nama Petugas</label>
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      required
+                      value={staffName}
+                      onChange={(e) => setStaffName(e.target.value)}
+                      placeholder="Nama Anda"
+                      className="w-full pl-10 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">Posisi / Peran</label>
+                  <div className="relative">
+                    <Briefcase className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
+                    <select
+                      value={staffRole}
+                      onChange={(e) => setStaffRole(e.target.value)}
+                      className="w-full pl-10 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    >
+                      <option value="Kasir">Kasir</option>
+                      <option value="Leader Shift">Leader Shift</option>
+                      <option value="Kru Dapur">Kru Dapur</option>
+                      <option value="Kru Service">Kru Service</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             </>
