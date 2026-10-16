@@ -17,7 +17,8 @@ import {
   UserCheck,
   Flame,
   ShieldAlert,
-  Sparkles
+  Sparkles,
+  Lock
 } from 'lucide-react';
 
 interface MovementRow {
@@ -45,7 +46,7 @@ const CATEGORY_ORDER = [
   'Kemasan & Operasional',
 ];
 
-// Komponen Analitik Internal (Langsung menyatu agar tidak error import)
+// Analitik Ringkas
 function StockUsageAnalyticsView({ data }: { data: MovementRow[] }) {
   const topUsedItems = useMemo(() => {
     return [...data]
@@ -190,6 +191,7 @@ function StockUsageAnalyticsView({ data }: { data: MovementRow[] }) {
 }
 
 export default function BranchStockMonitor() {
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [dataList, setDataList] = useState<MovementRow[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [selectedLocation, setSelectedLocation] = useState('all');
@@ -201,11 +203,38 @@ export default function BranchStockMonitor() {
   const [editInitial, setEditInitial] = useState<number>(0);
   const [editRemaining, setEditRemaining] = useState<number>(0);
 
+  // Ambil sesi user yang login
+  useEffect(() => {
+    const saved = localStorage.getItem('baksoibu_active_staff');
+    if (saved) {
+      try {
+        const u = JSON.parse(saved);
+        setCurrentUser(u);
+        // Jika peran Outlet (LEADER / KASIR / CREW), kunci lokasi ke outlet bertugas
+        if (u.role === 'LEADER' || u.role === 'KASIR' || u.role === 'CREW') {
+          if (u.location_id) setSelectedLocation(u.location_id);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }, []);
+
+  const isOutletStaff = currentUser?.role === 'LEADER' || currentUser?.role === 'KASIR' || currentUser?.role === 'CREW';
+  const isAdmin = currentUser?.role === 'ADMIN';
+  const isOwner = currentUser?.role === 'OWNER';
+
   const fetchLiveStockMovement = async () => {
     setLoading(true);
     try {
       const { data: locs } = await supabase.from('locations').select('*');
-      if (locs) setLocations(locs);
+      if (locs) {
+        setLocations(locs);
+        // Jika Admin, default pilihan bisa ke BTP atau gabungan BTP & Perintis
+        if (isAdmin && selectedLocation === 'all') {
+          // Tetap 'all', tapi list terfilter khusus BTP & Perintis
+        }
+      }
 
       const { data: masterItems } = await supabase.from('items').select('name, category, uom');
       const itemMetaMap: Record<string, { category: string; uom: string }> = {};
@@ -281,7 +310,23 @@ export default function BranchStockMonitor() {
     fetchLiveStockMovement();
   }, []);
 
+  // Filter daftar lokasi yang boleh dilihat:
+  // - Admin: Hanya BTP dan Perintis
+  // - Owner: Semua cabang
+  // - Outlet: Terkunci pada outletnya sendiri
+  const allowedLocations = useMemo(() => {
+    if (isAdmin) {
+      return locations.filter((l) => /btp|perintis/i.test(l.name));
+    }
+    return locations;
+  }, [locations, isAdmin]);
+
   const handleStartEdit = (row: MovementRow) => {
+    // Validasi: Kru/Leader hanya boleh edit cabang tempat bertugas
+    if (isOutletStaff && row.location_id !== currentUser?.location_id) {
+      alert('Anda hanya berhak mengoreksi stok di outlet Anda sendiri.');
+      return;
+    }
     setEditingId(row.id);
     setEditInitial(row.initial_stock);
     setEditRemaining(row.remaining_stock);
@@ -289,14 +334,7 @@ export default function BranchStockMonitor() {
 
   const handleSaveEdit = async (row: MovementRow) => {
     try {
-      const savedUserStr = localStorage.getItem('baksoibu_active_staff');
-      let editorName = 'Petugas';
-      if (savedUserStr) {
-        try {
-          const parsed = JSON.parse(savedUserStr);
-          editorName = parsed.active_staff_name || parsed.username || 'Petugas';
-        } catch (e) {}
-      }
+      const editorName = currentUser?.active_staff_name || currentUser?.username || 'Petugas';
 
       const { error } = await supabase
         .from('branch_stocks')
@@ -318,12 +356,28 @@ export default function BranchStockMonitor() {
 
   const filteredData = useMemo(() => {
     return dataList.filter((item) => {
-      const matchLoc = selectedLocation === 'all' || item.location_id === selectedLocation;
+      // 1. Filter Role Outlet: Hanya outlet bertugas
+      if (isOutletStaff && currentUser?.location_id) {
+        if (item.location_id !== currentUser.location_id) return false;
+      }
+
+      // 2. Filter Role Admin: Hanya cabang BTP dan Perintis
+      if (isAdmin) {
+        const isBtpOrPerintis = /btp|perintis/i.test(item.location_name);
+        if (!isBtpOrPerintis) return false;
+        if (selectedLocation !== 'all' && item.location_id !== selectedLocation) return false;
+      }
+
+      // 3. Filter Role Owner / Pilihan Global
+      if (!isOutletStaff && !isAdmin) {
+        if (selectedLocation !== 'all' && item.location_id !== selectedLocation) return false;
+      }
+
       const matchCat = activeCategory === 'Semua' || item.category === activeCategory;
       const matchSearch = item.item_name.toLowerCase().includes(searchTerm.toLowerCase());
-      return matchLoc && matchCat && matchSearch;
+      return matchCat && matchSearch;
     });
-  }, [dataList, selectedLocation, activeCategory, searchTerm]);
+  }, [dataList, selectedLocation, activeCategory, searchTerm, isOutletStaff, isAdmin, currentUser]);
 
   const groupedData = useMemo(() => {
     const groups: Record<string, MovementRow[]> = {};
@@ -356,27 +410,41 @@ export default function BranchStockMonitor() {
               Monitor Pergerakan Stok & Analisa Bahan
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Stok Awal + Masuk - Sisa Fisik (Closing) - Waste = Akumulasi Pemakaian.
+              {isOutletStaff && `Data Khusus Outlet: ${currentUser?.location_name || 'Cabang Ini'}`}
+              {isAdmin && 'Akses Khusus Admin Operasional: Outlet BTP & Perintis'}
+              {isOwner && 'Akses Executive Owner: Pengawasan Seluruh Cabang'}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2.5 w-full sm:w-auto">
-          <div className="relative flex-1 sm:w-48">
-            <MapPin className="absolute left-3.5 top-3 w-3.5 h-3.5 text-slate-400" />
-            <select
-              value={selectedLocation}
-              onChange={(e) => setSelectedLocation(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-            >
-              <option value="all">Semua Cabang</option>
-              {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name}
+          {/* Pilihan Cabang */}
+          {isOutletStaff ? (
+            // Jika Crew/Leader: Dikunci pada cabang loginnya saja
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-600">
+              <Lock className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Outlet {currentUser?.location_name || 'Terkunci'}</span>
+            </div>
+          ) : (
+            // Admin (Hanya BTP & Perintis) atau Owner (Semua)
+            <div className="relative flex-1 sm:w-56">
+              <MapPin className="absolute left-3.5 top-3 w-3.5 h-3.5 text-slate-400" />
+              <select
+                value={selectedLocation}
+                onChange={(e) => setSelectedLocation(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              >
+                <option value="all">
+                  {isAdmin ? 'Gabungan BTP & Perintis' : 'Semua Cabang'}
                 </option>
-              ))}
-            </select>
-          </div>
+                {allowedLocations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    Outlet {loc.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <button
             onClick={fetchLiveStockMovement}
@@ -388,6 +456,7 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
+      {/* 4 Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-5 bg-[#fafbfe] border-b border-slate-100">
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
@@ -503,6 +572,9 @@ export default function BranchStockMonitor() {
                       ? new Date(row.updated_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })
                       : '-';
 
+                    // Cek hak izin koreksi per baris
+                    const canEdit = !isOutletStaff || (isOutletStaff && row.location_id === currentUser?.location_id);
+
                     return (
                       <tr key={row.id} className="hover:bg-slate-50/60 transition-colors">
                         <td className="py-3 px-4">
@@ -581,7 +653,7 @@ export default function BranchStockMonitor() {
                                 <X className="w-3.5 h-3.5" />
                               </button>
                             </div>
-                          ) : (
+                          ) : canEdit ? (
                             <button
                               onClick={() => handleStartEdit(row)}
                               className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
@@ -589,6 +661,8 @@ export default function BranchStockMonitor() {
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>
+                          ) : (
+                            <span className="text-slate-300 text-[10px]">Terkunci</span>
                           )}
                         </td>
                       </tr>
