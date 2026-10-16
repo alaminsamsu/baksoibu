@@ -13,7 +13,8 @@ import {
   X, 
   Search,
   Layers,
-  ArrowUpRight
+  Clock,
+  UserCheck
 } from 'lucide-react';
 
 interface MovementRow {
@@ -83,7 +84,7 @@ export default function BranchStockMonitor() {
 
       const { data: closingData } = await supabase
         .from('daily_closings')
-        .select('item_name, waste_qty, location_id')
+        .select('item_name, waste_qty, location_id, reported_by')
         .eq('closing_date', today);
 
       const computed: MovementRow[] = (stocks || []).map((s: any) => {
@@ -112,7 +113,7 @@ export default function BranchStockMonitor() {
           usage_qty: usage,
           unit: s.unit || itemMetaMap[s.item_name]?.uom || 'Pcs',
           updated_at: s.updated_at,
-          updated_by: s.updated_by,
+          updated_by: s.updated_by || 'Sistem Outlet',
         };
       });
 
@@ -136,13 +137,23 @@ export default function BranchStockMonitor() {
 
   const handleSaveEdit = async (row: MovementRow) => {
     try {
+      // Ambil identitas petugas login yang melakukan revisi
+      const savedUserStr = localStorage.getItem('baksoibu_active_staff');
+      let editorName = 'Petugas';
+      if (savedUserStr) {
+        try {
+          const parsed = JSON.parse(savedUserStr);
+          editorName = parsed.active_staff_name || parsed.username || 'Petugas';
+        } catch (e) {}
+      }
+
       const { error } = await supabase
         .from('branch_stocks')
         .update({
           initial_stock: editInitial,
           remaining_stock: editRemaining,
           updated_at: new Date().toISOString(),
-          updated_by: 'Leader / Admin (Koreksi)',
+          updated_by: `${editorName} (Revisi)`,
         })
         .eq('id', row.id);
 
@@ -192,10 +203,10 @@ export default function BranchStockMonitor() {
           </div>
           <div>
             <h2 className="text-lg font-black text-slate-900 tracking-tight">
-              Monitor Pergerakan Stok Harian
+              Monitor Pergerakan Stok & Log Audit
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Analisis pemakaian bahan riil, penerimaan, dan koreksi stok fisik outlet.
+              Lacak pemakaian bahan, barang masuk, waste, dan jejak petugas yang menginput/merevisi data.
             </p>
           </div>
         </div>
@@ -227,7 +238,7 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* 4 Metric Cards Ala Pinterest */}
+      {/* Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-5 bg-[#fafbfe] border-b border-slate-100">
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
@@ -235,7 +246,7 @@ export default function BranchStockMonitor() {
             <Layers className="w-3.5 h-3.5 text-indigo-500" />
           </div>
           <p className="text-xl font-black text-slate-900 mt-1">{filteredData.length}</p>
-          <span className="text-[10px] text-slate-400 font-medium">Bahan terdaftar aktif</span>
+          <span className="text-[10px] text-slate-400 font-medium">Bahan aktif</span>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
@@ -244,7 +255,7 @@ export default function BranchStockMonitor() {
             <TrendingDown className="w-3.5 h-3.5 text-emerald-600" />
           </div>
           <p className="text-xl font-black text-emerald-600 mt-1">{totalUsage.toLocaleString()}</p>
-          <span className="text-[10px] text-slate-400 font-medium">Satuan pemakaian hari ini</span>
+          <span className="text-[10px] text-slate-400 font-medium">Total pemakaian</span>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
@@ -253,16 +264,16 @@ export default function BranchStockMonitor() {
             <AlertTriangle className="w-3.5 h-3.5 text-[#ff6f3c]" />
           </div>
           <p className="text-xl font-black text-[#ff6f3c] mt-1">{totalWaste.toLocaleString()}</p>
-          <span className="text-[10px] text-slate-400 font-medium">Barang basi / sisa rusak</span>
+          <span className="text-[10px] text-slate-400 font-medium">Barang basi / sisa</span>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between text-indigo-600 text-[11px] font-bold">
-            <span>Koreksi Angka</span>
-            <ArrowUpRight className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Audit Trail</span>
+            <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
           </div>
-          <p className="text-xs font-black text-slate-800 mt-2">Bisa Diedit Langsung</p>
-          <span className="text-[10px] text-slate-400 font-medium">Klik ikon pensil di tabel</span>
+          <p className="text-xs font-black text-slate-800 mt-2">Pencatatan Otomatis</p>
+          <span className="text-[10px] text-slate-400 font-medium">Nama petugas tampil di tabel</span>
         </div>
       </div>
 
@@ -297,30 +308,31 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* Clean Modern Table */}
-      <div className="overflow-x-auto max-h-[32rem] overflow-y-auto">
+      {/* Tabel Lengkap dengan Info Terakhir Diperbarui Oleh */}
+      <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead className="bg-slate-50/80 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-sm">
             <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-              <th className="py-3 px-4">Nama Barang</th>
+              <th className="py-3 px-4">Nama Barang & Cabang</th>
               <th className="py-3 px-3 text-right">Stok Awal</th>
               <th className="py-3 px-3 text-right text-emerald-600">+ Masuk</th>
               <th className="py-3 px-3 text-right text-slate-900">Sisa Fisik</th>
               <th className="py-3 px-3 text-right text-[#ff6f3c]">Waste</th>
               <th className="py-3 px-3 text-right font-black text-indigo-600 bg-indigo-50/40">Pemakaian</th>
+              <th className="py-3 px-3">Terakhir Diperbarui Oleh</th>
               <th className="py-3 px-4 text-center">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-700">
             {loading ? (
               <tr>
-                <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
+                <td colSpan={8} className="py-12 text-center text-slate-400 font-medium">
                   Menghitung kalkulasi pergerakan stok...
                 </td>
               </tr>
             ) : Object.keys(groupedData).length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
+                <td colSpan={8} className="py-12 text-center text-slate-400 font-medium">
                   Tidak ada barang yang cocok.
                 </td>
               </tr>
@@ -328,13 +340,16 @@ export default function BranchStockMonitor() {
               Object.entries(groupedData).map(([groupName, groupList]) => (
                 <React.Fragment key={groupName}>
                   <tr className="bg-slate-50/50 border-y border-slate-100">
-                    <td colSpan={7} className="py-2.5 px-4 font-black text-slate-700 uppercase tracking-wider text-[11px]">
+                    <td colSpan={8} className="py-2.5 px-4 font-black text-slate-700 uppercase tracking-wider text-[11px]">
                       • {groupName} <span className="text-slate-400 font-medium lowercase">({groupList.length} item)</span>
                     </td>
                   </tr>
 
                   {groupList.map((row) => {
                     const isEditing = editingId === row.id;
+                    const formattedDate = row.updated_at 
+                      ? new Date(row.updated_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })
+                      : '-';
 
                     return (
                       <tr key={row.id} className="hover:bg-slate-50/60 transition-colors">
@@ -390,14 +405,26 @@ export default function BranchStockMonitor() {
                           {row.usage_qty} {row.unit}
                         </td>
 
-                        {/* Aksi */}
+                        {/* Audit Trail: Siapa yang update & kapan */}
+                        <td className="py-3 px-3">
+                          <div className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
+                            <UserCheck className="w-3 h-3 text-emerald-600" />
+                            <span>{row.updated_by}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                            <Clock className="w-2.5 h-2.5" />
+                            <span>{formattedDate}</span>
+                          </div>
+                        </td>
+
+                        {/* Aksi Koreksi */}
                         <td className="py-3 px-4 text-center">
                           {isEditing ? (
                             <div className="flex items-center justify-center gap-1.5">
                               <button
                                 onClick={() => handleSaveEdit(row)}
                                 className="p-1.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 shadow-sm transition-all"
-                                title="Simpan"
+                                title="Simpan Revisi"
                               >
                                 <Check className="w-3.5 h-3.5" />
                               </button>
@@ -413,7 +440,7 @@ export default function BranchStockMonitor() {
                             <button
                               onClick={() => handleStartEdit(row)}
                               className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
-                              title="Koreksi Stok Awal / Sisa Fisik"
+                              title="Koreksi Angka"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>
