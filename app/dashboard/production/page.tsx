@@ -1,260 +1,145 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-import { ChefHat, Truck, PlusCircle, CheckCircle2, LogOut } from 'lucide-react';
+import { Factory, LogOut, RefreshCw, ChefHat, Truck, Clock, CheckCircle2 } from 'lucide-react';
 
-export default function ProductionDashboardPage() {
+export default function ProductionDashboard() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'orders' | 'cook'>('orders');
   const [orders, setOrders] = useState<any[]>([]);
-  const [items, setItems] = useState<any[]>([]);
-  const [cookItemId, setCookItemId] = useState('');
-  const [cookQty, setCookQty] = useState('');
-  const [dispatchQty, setDispatchQty] = useState<{ [key: string]: number }>({});
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const saved = localStorage.getItem('bakso_ibu_user');
-    if (!saved) {
-      router.push('/login');
-      return;
-    }
-    setUser(JSON.parse(saved));
-  }, [router]);
-
-  const loadData = async () => {
+  const fetchOrders = async () => {
     setLoading(true);
-    const { data: orderData } = await supabase
-      .from('stock_transfers')
-      .select('*, locations!stock_transfers_to_location_id_fkey(name), stock_transfer_items(*, items(name, unit))')
-      .eq('status', 'requested')
-      .order('created_at', { ascending: false });
-
-    if (orderData) setOrders(orderData);
-
-    const { data: itemData } = await supabase
-      .from('items')
-      .select('*')
-      .eq('source_type', 'central_kitchen');
-
-    if (itemData) {
-      setItems(itemData);
-      if (itemData.length > 0) setCookItemId(itemData[0].id);
+    try {
+      const { data } = await supabase
+        .from('order_requests')
+        .select('*, locations(name)')
+        .order('created_at', { ascending: false });
+      if (data) setOrders(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
-    if (user) loadData();
-  }, [user]);
+    fetchOrders();
+  }, []);
 
-  const handleShipOrder = async (order: any) => {
-    try {
-      for (const item of order.stock_transfer_items) {
-        const qtyToShip = dispatchQty[item.id] ?? item.qty_requested;
-        await supabase
-          .from('stock_transfer_items')
-          .update({ qty_dispatched: qtyToShip })
-          .eq('id', item.id);
+  const handleStatusChange = async (id: string, status: string) => {
+    await supabase.from('order_requests').update({ status }).eq('id', id);
+    fetchOrders();
+  };
+
+  // Konsolidasi: Total kebutuhan produksi gabungan seluruh cabang
+  const consolidated = useMemo(() => {
+    const summary: Record<string, { qty: number; unit: string; count: number }> = {};
+    orders.filter(o => o.status !== 'completed').forEach(o => {
+      if (!summary[o.item_name]) {
+        summary[o.item_name] = { qty: 0, unit: o.unit || 'Pcs', count: 0 };
       }
-
-      await supabase
-        .from('stock_transfers')
-        .update({
-          status: 'shipped',
-          shipped_at: new Date().toISOString(),
-          shipped_by_staff_name: user.active_staff_name || user.username,
-        })
-        .eq('id', order.id);
-
-      alert('Pesanan berhasil ditandai DIKIRIM ke outlet!');
-      loadData();
-    } catch (err: any) {
-      alert('Gagal mengirim pesanan: ' + err.message);
-    }
-  };
-
-  const handleRecordCook = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!cookQty || Number(cookQty) <= 0) return;
-
-    try {
-      const { data: inv } = await supabase
-        .from('inventories')
-        .select('id, quantity')
-        .eq('location_id', user.location_id)
-        .eq('item_id', cookItemId)
-        .single();
-
-      if (inv) {
-        await supabase
-          .from('inventories')
-          .update({
-            quantity: Number(inv.quantity) + Number(cookQty),
-            last_updated: new Date().toISOString(),
-          })
-          .eq('id', inv.id);
-      } else {
-        await supabase.from('inventories').insert({
-          location_id: user.location_id,
-          item_id: cookItemId,
-          quantity: Number(cookQty),
-        });
-      }
-
-      alert('Hasil masak berhasil dicatat ke stok Dapur Pusat!');
-      setCookQty('');
-    } catch (err: any) {
-      alert('Gagal mencatat hasil masak: ' + err.message);
-    }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('bakso_ibu_user');
-    router.push('/login');
-  };
-
-  if (!user) return null;
+      summary[o.item_name].qty += Number(o.quantity || 0);
+      summary[o.item_name].count += 1;
+    });
+    return summary;
+  }, [orders]);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900">
-      <header className="bg-amber-950 text-white shadow-md sticky top-0 z-40">
-        <div className="max-w-5xl mx-auto px-4 flex items-center justify-between h-16">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-900 border border-amber-800 flex items-center justify-center">
-              <ChefHat className="w-5 h-5 text-amber-200" />
-            </div>
-            <div>
-              <h1 className="font-black text-base text-white">RUMAH PRODUKSI</h1>
-              <p className="text-[11px] text-amber-300">Dapur Pusat Bakso Ibu</p>
-            </div>
+    <div className="min-h-screen bg-[#f8f9fd] text-slate-800 font-sans">
+      <header className="max-w-6xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-lg shadow-emerald-600/20">
+            <Factory className="w-6 h-6" />
           </div>
-
-          <div className="flex items-center space-x-3">
-            <span className="text-xs font-bold text-amber-200 hidden sm:inline">
-              Koki: {user.active_staff_name || user.username}
-            </span>
-            <button
-              onClick={handleLogout}
-              className="p-2 bg-amber-900 hover:bg-amber-800 text-amber-200 rounded-xl"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
+          <div>
+            <h1 className="text-lg font-black text-slate-900 leading-tight">Rumah Produksi (Dapur Pusat)</h1>
+            <p className="text-xs text-slate-400 font-semibold">Konsolidasi Kebutuhan Masak & Dispatch Cabang</p>
           </div>
         </div>
+        <button
+          onClick={() => { localStorage.removeItem('baksoibu_active_staff'); router.push('/login'); }}
+          className="p-2.5 bg-white border border-slate-100 rounded-2xl text-slate-400 hover:text-red-600 shadow-xs"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
       </header>
 
-      <main className="flex-1 max-w-5xl mx-auto w-full px-4 py-6 space-y-5">
-        <div className="flex gap-2 bg-white p-1.5 rounded-2xl border shadow-xs">
-          <button
-            onClick={() => setActiveTab('orders')}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-              activeTab === 'orders' ? 'bg-amber-900 text-white shadow-xs' : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            <Truck className="w-4 h-4" /> Pesanan Masuk Cabang ({orders.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('cook')}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-              activeTab === 'cook' ? 'bg-amber-900 text-white shadow-xs' : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            <PlusCircle className="w-4 h-4" /> Input Hasil Masak Hari Ini
-          </button>
-        </div>
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-4 space-y-6">
+        {/* Konsolidasi Kebutuhan Masak */}
+        <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm shadow-slate-200/50">
+          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <ChefHat className="w-5 h-5 text-emerald-600" />
+              <h2 className="text-sm font-black text-slate-900">Total Kebutuhan Masak Malam Ini (Gabungan Cabang)</h2>
+            </div>
+            <button onClick={fetchOrders} className="p-2 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-100">
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
 
-        {activeTab === 'orders' && (
-          <div className="space-y-4">
-            {orders.length === 0 ? (
-              <div className="bg-white p-8 rounded-2xl border border-dashed text-center text-gray-400">
-                <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm font-semibold">Belum ada pesanan baru dari cabang.</p>
-              </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {Object.keys(consolidated).length === 0 ? (
+              <p className="text-xs text-slate-400 py-4 col-span-4">Belum ada request order masuk dari cabang.</p>
             ) : (
-              orders.map((o) => (
-                <div key={o.id} className="bg-white border rounded-2xl p-5 shadow-xs space-y-3">
-                  <div className="flex justify-between items-center text-xs border-b pb-2">
-                    <span className="font-bold text-gray-800">Tujuan: {o.locations?.name || 'Cabang'}</span>
-                    <span className="text-gray-500">Pemesan: {o.requested_by_staff_name || '-'}</span>
-                  </div>
-
-                  <div className="space-y-2">
-                    {o.stock_transfer_items?.map((item: any) => (
-                      <div key={item.id} className="flex justify-between items-center bg-gray-50 p-2.5 rounded-xl text-xs">
-                        <span className="font-bold">{item.items?.name}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-gray-500">Minta: {item.qty_requested} {item.items?.unit}</span>
-                          <span className="text-gray-400">|</span>
-                          <label className="font-bold">Kirim:</label>
-                          <input
-                            type="number"
-                            defaultValue={item.qty_requested}
-                            onChange={(e) => setDispatchQty({ ...dispatchQty, [item.id]: Number(e.target.value) })}
-                            className="w-16 p-1 border rounded-lg bg-white text-right font-bold"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <button
-                    onClick={() => handleShipOrder(o)}
-                    className="w-full py-2.5 bg-amber-900 hover:bg-amber-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs"
-                  >
-                    <Truck className="w-4 h-4" /> Kirim Barang Sekarang
-                  </button>
+              Object.entries(consolidated).map(([name, data]) => (
+                <div key={name} className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100/70">
+                  <span className="text-[11px] font-bold text-slate-600">{name}</span>
+                  <p className="text-xl font-black text-emerald-800 mt-1">{data.qty} {data.unit}</p>
+                  <span className="text-[10px] text-emerald-600 font-semibold">Dari {data.count} request cabang</span>
                 </div>
               ))
             )}
           </div>
-        )}
+        </div>
 
-        {activeTab === 'cook' && (
-          <form onSubmit={handleRecordCook} className="bg-white p-6 rounded-2xl border shadow-xs max-w-md mx-auto space-y-4">
-            <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2 border-b pb-3">
-              <PlusCircle className="text-amber-700" /> Catat Hasil Produksi Dapur
-            </h3>
-
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-600">Pilih Item Olahan</label>
-              <select
-                value={cookItemId}
-                onChange={(e) => setCookItemId(e.target.value)}
-                className="w-full p-2.5 border rounded-xl text-xs bg-white"
-              >
-                {items.map((i) => (
-                  <option key={i.id} value={i.id}>
-                    {i.name} ({i.unit})
-                  </option>
+        {/* Tabel Order & Status Dispatch */}
+        <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm shadow-slate-200/50">
+          <h2 className="text-sm font-black text-slate-900 mb-4">Rincian Permintaan Tiap Cabang</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50/80 text-slate-400 font-bold uppercase text-[10px]">
+                <tr>
+                  <th className="p-3 px-4">Cabang Pemesan</th>
+                  <th className="p-3">Barang & Qty</th>
+                  <th className="p-3">Catatan</th>
+                  <th className="p-3 text-center">Status Produksi & Kirim</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {orders.map((o) => (
+                  <tr key={o.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="p-3 px-4">
+                      <div className="font-extrabold text-slate-800">{o.locations?.name || 'Cabang'}</div>
+                      <div className="text-[10px] text-slate-400">Oleh: {o.requested_by || 'Petugas'}</div>
+                    </td>
+                    <td className="p-3 font-black text-slate-900">{o.item_name}: <span className="text-emerald-700">{o.quantity} {o.unit}</span></td>
+                    <td className="p-3 text-slate-500 text-[11px]">{o.notes || '-'}</td>
+                    <td className="p-3 text-center">
+                      <select
+                        value={o.status || 'pending'}
+                        onChange={(e) => handleStatusChange(o.id, e.target.value)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black border transition-all ${
+                          o.status === 'completed'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : o.status === 'processing'
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : 'bg-orange-50 text-orange-600 border-orange-200'
+                        }`}
+                      >
+                        <option value="pending">⏳ Antrian Masak</option>
+                        <option value="processing">🔥 Sedang Dimasak</option>
+                        <option value="completed">🚚 Siap Kirim</option>
+                      </select>
+                    </td>
+                  </tr>
                 ))}
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-600">Jumlah Hasil Masak</label>
-              <input
-                type="number"
-                required
-                min="1"
-                placeholder="Misal: 500"
-                value={cookQty}
-                onChange={(e) => setCookQty(e.target.value)}
-                className="w-full p-2.5 border rounded-xl text-sm font-bold text-amber-900"
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-3 bg-amber-900 hover:bg-amber-800 text-white font-bold rounded-xl text-xs shadow-xs"
-            >
-              Tambah ke Stok Dapur Pusat
-            </button>
-          </form>
-        )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </main>
     </div>
   );
