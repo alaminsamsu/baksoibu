@@ -2,14 +2,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabaseClient';
 import { 
   PackageCheck, 
   ShoppingBag, 
   Wallet, 
   Moon, 
   LogOut, 
-  Store
+  Store,
+  Search,
+  Sparkles,
+  TrendingDown,
+  ChevronRight,
+  UserCheck
 } from 'lucide-react';
 
 import ReceptionForm from '@/components/outlet/ReceptionForm';
@@ -24,7 +28,6 @@ export default function OutletDashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Ambil session kru aktif dari localStorage
     const savedStaff = localStorage.getItem('baksoibu_active_staff');
     if (savedStaff) {
       try {
@@ -43,51 +46,89 @@ export default function OutletDashboardPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#5c2a18] text-white">
-        <p className="text-sm font-semibold animate-pulse">Memuat data outlet...</p>
+      <div className="min-h-screen flex items-center justify-center bg-[#f8f9fd]">
+        <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#fcfaf8] flex flex-col">
-      {/* Header Bar */}
-      <header className="bg-[#5c2a18] text-white px-6 py-4 flex items-center justify-between shadow-md">
+    <div className="min-h-screen bg-[#f8f9fd] text-slate-800 flex flex-col font-sans">
+      {/* Top Floating Modern Navbar */}
+      <header className="max-w-6xl w-full mx-auto px-4 sm:px-6 pt-5 pb-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-900/60 border border-amber-700/50 flex items-center justify-center shadow-inner">
-            <Store className="w-5 h-5 text-amber-200" />
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center shadow-md shadow-indigo-200">
+            <Store className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-base font-extrabold tracking-wide text-amber-50">BAKSO IBU</h1>
-            <p className="text-xs text-amber-200/80 font-medium">
+            <h1 className="text-base font-black tracking-tight text-slate-900 leading-none">
+              Bakso Ibu
+            </h1>
+            <p className="text-[11px] font-semibold text-slate-400 mt-1">
               Outlet {user?.location_name || 'BTP'}
             </p>
           </div>
         </div>
 
+        {/* Menu Pill Nav */}
+        <div className="hidden md:flex items-center gap-1 bg-white px-3 py-1.5 rounded-full shadow-sm shadow-slate-200/60 border border-slate-100 text-xs font-bold text-slate-500">
+          <button 
+            onClick={() => setActiveTab('menu')}
+            className={`px-3 py-1 rounded-full transition-all ${
+              activeTab === 'menu' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:text-slate-800'
+            }`}
+          >
+            Dashboard
+          </button>
+          <button 
+            onClick={() => setActiveTab('reception')}
+            className={`px-3 py-1 rounded-full transition-all ${
+              activeTab === 'reception' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:text-slate-800'
+            }`}
+          >
+            Terima Barang
+          </button>
+          <button 
+            onClick={() => setActiveTab('order')}
+            className={`px-3 py-1 rounded-full transition-all ${
+              activeTab === 'order' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:text-slate-800'
+            }`}
+          >
+            Order Malam
+          </button>
+          <button 
+            onClick={() => setActiveTab('closing')}
+            className={`px-3 py-1 rounded-full transition-all ${
+              activeTab === 'closing' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:text-slate-800'
+            }`}
+          >
+            Closing
+          </button>
+        </div>
+
+        {/* User Info & Out */}
         <div className="flex items-center gap-3">
           <div className="text-right">
-            <p className="text-xs font-bold text-amber-100">
+            <div className="text-xs font-extrabold text-slate-900 leading-tight">
               {user?.active_staff_name || user?.username || 'Petugas'}
-            </p>
-            <span className="inline-block px-2 py-0.5 bg-amber-800 text-[10px] font-black tracking-wider uppercase text-amber-200 rounded">
+            </div>
+            <span className="inline-block text-[10px] font-bold text-orange-500 uppercase tracking-wider">
               {user?.role || 'LEADER'}
             </span>
           </div>
-
           <button
             onClick={handleLogout}
             title="Keluar"
-            className="p-2 hover:bg-amber-800 rounded-xl transition-colors text-amber-200 hover:text-white"
+            className="w-9 h-9 rounded-2xl bg-white border border-slate-200/80 hover:bg-red-50 hover:border-red-200 text-slate-400 hover:text-red-600 flex items-center justify-center transition-all shadow-sm shadow-slate-200/40"
           >
             <LogOut className="w-4 h-4" />
           </button>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 space-y-6">
-        {/* Tampilan Form Sesuai Tab yang Dipilih */}
+      {/* Main Container */}
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
+        {/* Konten Form Terbuka */}
         {activeTab === 'reception' && (
           <ReceptionForm 
             user={user} 
@@ -115,98 +156,94 @@ export default function OutletDashboardPage() {
           />
         )}
 
-        {/* Menu Utama (4 Kartu Operasional) */}
+        {/* Dashboard View */}
         {activeTab === 'menu' && (
           <>
-            {/* Banner Operasional */}
-            <div className="bg-[#5c2a18] text-white p-5 rounded-2xl shadow-sm">
-              <h2 className="text-base font-bold text-amber-100">Operasional Harian</h2>
-              <p className="text-xs text-amber-200/80 mt-1 font-medium">
-                Petugas aktif: <strong className="text-white">{user?.active_staff_name || user?.username || 'Petugas'}</strong> (Outlet {user?.location_name || 'BTP'})
-              </p>
-            </div>
-
-            {/* Grid 4 Menu */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* 1. Terima Barang */}
+            {/* Quick Action Pills (Sesuai Referensi Gambar) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {/* Tombol 1: Indigo Bold */}
               <button
                 type="button"
                 onClick={() => setActiveTab('reception')}
-                className="bg-white p-5 rounded-2xl border border-neutral-200 hover:border-amber-400 hover:shadow-md transition-all text-left group flex items-start gap-4"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white p-4 rounded-3xl shadow-lg shadow-indigo-600/20 text-left transition-all group flex flex-col justify-between h-32"
               >
-                <div className="p-3 bg-blue-50 text-blue-700 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                  <PackageCheck className="w-5 h-5" />
+                <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center">
+                  <PackageCheck className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-neutral-800 group-hover:text-amber-900 transition-colors">
-                    1. Terima Barang Datang
-                  </h3>
-                  <p className="text-xs text-neutral-500 mt-1">
-                    Konfirmasi fisik kiriman olahan dari Dapur Pusat atau belanja luar.
-                  </p>
+                  <h3 className="text-sm font-extrabold leading-tight">Terima Barang</h3>
+                  <p className="text-[11px] text-indigo-200 mt-0.5">Barang Pusat & Luar</p>
                 </div>
               </button>
 
-              {/* 2. Belanja Pasar (Kasir) */}
-              <button
-                type="button"
-                onClick={() => alert('Fitur catat kas kecil belanja pasar')}
-                className="bg-white p-5 rounded-2xl border border-neutral-200 hover:border-amber-400 hover:shadow-md transition-all text-left group flex items-start gap-4"
-              >
-                <div className="p-3 bg-emerald-50 text-emerald-700 rounded-xl group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                  <Wallet className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-neutral-800 group-hover:text-amber-900 transition-colors">
-                    2. Belanja Pasar (Kasir)
-                  </h3>
-                  <p className="text-xs text-neutral-500 mt-1">
-                    Catat kas kecil dan upload foto nota belanjaan.
-                  </p>
-                </div>
-              </button>
-
-              {/* 3. Request Order Malam */}
+              {/* Tombol 2: Vibrant Orange Bold */}
               <button
                 type="button"
                 onClick={() => setActiveTab('order')}
-                className="bg-white p-5 rounded-2xl border border-neutral-200 hover:border-amber-400 hover:shadow-md transition-all text-left group flex items-start gap-4"
+                className="bg-[#ff6f3c] hover:bg-[#f25c28] text-white p-4 rounded-3xl shadow-lg shadow-orange-500/20 text-left transition-all group flex flex-col justify-between h-32"
               >
-                <div className="p-3 bg-amber-50 text-amber-800 rounded-xl group-hover:bg-amber-800 group-hover:text-white transition-colors">
-                  <ShoppingBag className="w-5 h-5" />
+                <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center">
+                  <ShoppingBag className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-neutral-800 group-hover:text-amber-900 transition-colors">
-                    3. Request Order Malam
-                  </h3>
-                  <p className="text-xs text-neutral-500 mt-1">
-                    Permintaan stok bakso & bumbu untuk dikirim besok.
-                  </p>
+                  <h3 className="text-sm font-extrabold leading-tight">Request Order</h3>
+                  <p className="text-[11px] text-orange-100 mt-0.5">Order Stok Besok</p>
                 </div>
               </button>
 
-              {/* 4. Form Tutup Toko */}
+              {/* Tombol 3: Clean White Card */}
               <button
                 type="button"
                 onClick={() => setActiveTab('closing')}
-                className="bg-white p-5 rounded-2xl border border-neutral-200 hover:border-amber-400 hover:shadow-md transition-all text-left group flex items-start gap-4"
+                className="bg-white hover:bg-slate-50 text-slate-800 p-4 rounded-3xl border border-slate-100 shadow-sm shadow-slate-200/50 text-left transition-all group flex flex-col justify-between h-32"
               >
-                <div className="p-3 bg-purple-50 text-purple-700 rounded-xl group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                <div className="w-10 h-10 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center">
                   <Moon className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-neutral-800 group-hover:text-amber-900 transition-colors">
-                    4. Form Tutup Toko
-                  </h3>
-                  <p className="text-xs text-neutral-500 mt-1">
-                    Hitung sisa fisik kulkas/panci & catat barang basi (waste).
-                  </p>
+                  <h3 className="text-sm font-extrabold leading-tight text-slate-900">Closing Malam</h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Sisa Fisik & Waste</p>
+                </div>
+              </button>
+
+              {/* Tombol 4: Clean White Card */}
+              <button
+                type="button"
+                onClick={() => alert('Fitur catat kas kecil belanja pasar')}
+                className="bg-white hover:bg-slate-50 text-slate-800 p-4 rounded-3xl border border-slate-100 shadow-sm shadow-slate-200/50 text-left transition-all group flex flex-col justify-between h-32"
+              >
+                <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <Wallet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold leading-tight text-slate-900">Belanja Kasir</h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Kas Kecil & Nota</p>
                 </div>
               </button>
             </div>
 
-            {/* Komponen Monitor Pergerakan Stok & Insight Harian */}
-            <div className="pt-2">
+            {/* Banner Status Operasional Sesuai Gaya Pinterest */}
+            <div className="bg-[#fff6ee] border border-orange-200/60 p-4 rounded-3xl flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#ff6f3c] text-white flex items-center justify-center font-bold">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-extrabold text-[#d94814]">Status Operasional Hari Ini Aktif</p>
+                  <p className="text-[11px] text-orange-950/70 font-medium">
+                    Shift dipimpin oleh <strong className="text-slate-900">{user?.active_staff_name || user?.username || 'Leader'}</strong> di Outlet {user?.location_name || 'BTP'}.
+                  </p>
+                </div>
+              </div>
+              <div className="text-right hidden sm:block">
+                <span className="text-xs font-black text-slate-900 bg-white px-3 py-1.5 rounded-full border border-orange-200/80 shadow-xs">
+                  Sistem Realtime
+                </span>
+              </div>
+            </div>
+
+            {/* Dashboard Monitor Pergerakan Stok Berkelompok */}
+            <div>
               <BranchStockMonitor />
             </div>
           </>
