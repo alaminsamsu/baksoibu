@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { PackageCheck, ArrowLeft, CheckCircle2, AlertCircle, Search } from 'lucide-react';
+import { PackageCheck, ArrowLeft, CheckCircle2, AlertCircle, Search, Check } from 'lucide-react';
 
 interface Props {
   user?: any;
@@ -111,7 +111,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
           },
         ]);
 
-        // 2. Update atau tambah stok fisik cabang
+        // 2. Update saldo stok fisik cabang
         const { data: existingStock } = await supabase
           .from('branch_stocks')
           .select('id, remaining_stock')
@@ -157,102 +157,105 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-neutral-200 p-6 shadow-sm">
+    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-sm shadow-slate-200/50">
       {onBack && (
         <button
           type="button"
           onClick={onBack}
-          className="text-xs font-bold text-neutral-500 hover:text-amber-800 mb-4 flex items-center gap-1.5 transition-colors"
+          className="text-xs font-bold text-slate-400 hover:text-indigo-600 mb-5 flex items-center gap-1.5 transition-colors"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          Kembali ke Menu Utama
+          Kembali ke Dashboard
         </button>
       )}
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-4 border-b border-neutral-100 gap-2">
-        <div className="flex items-center gap-2">
-          <PackageCheck className="w-5 h-5 text-amber-800" />
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-slate-100 gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
+            <PackageCheck className="w-6 h-6" />
+          </div>
           <div>
-            <h2 className="text-base font-bold text-neutral-800">Lembar Penerimaan Barang Datang</h2>
-            <p className="text-xs text-neutral-500">Ketik jumlah fisik barang yang baru sampai di outlet.</p>
+            <h2 className="text-lg font-black text-slate-900 tracking-tight">Lembar Penerimaan Barang Datang</h2>
+            <p className="text-xs font-medium text-slate-400">Konfirmasi barang fisik yang tiba di outlet.</p>
           </div>
         </div>
-        <div className="text-xs font-bold px-3 py-1.5 bg-amber-50 text-amber-900 border border-amber-200 rounded-xl w-fit">
+        <div className="text-xs font-black px-4 py-2 bg-indigo-50 text-indigo-600 border border-indigo-200/60 rounded-full w-fit">
           {totalFilled} barang terisi
         </div>
       </div>
 
       {message && (
         <div
-          className={`p-3 mb-4 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+          className={`p-4 mb-6 rounded-2xl text-xs font-bold flex items-center gap-2.5 ${
             message.type === 'success'
               ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
               : 'bg-red-50 border border-red-200 text-red-700'
           }`}
         >
           {message.type === 'success' ? (
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
           ) : (
-            <AlertCircle className="w-4 h-4 shrink-0" />
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
           )}
           <span>{message.text}</span>
         </div>
       )}
 
-      {/* Pilihan Sumber Pengiriman */}
-      <div className="mb-4">
-        <label className="block text-[11px] font-bold text-neutral-600 uppercase tracking-wider mb-1.5">
-          Asal Barang / Sumber
+      {/* Modern Source Selector */}
+      <div className="mb-6">
+        <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
+          Asal Barang / Sumber Pengiriman
         </label>
-        <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
             onClick={() => setSource('Dapur Pusat')}
-            className={`py-2 px-3 rounded-xl border text-center font-bold transition-all ${
+            className={`py-3 px-4 rounded-2xl text-xs font-extrabold transition-all border ${
               source === 'Dapur Pusat'
-                ? 'bg-amber-900 text-white border-amber-900 shadow-sm'
-                : 'bg-neutral-50 text-neutral-600 border-neutral-200 hover:bg-neutral-100'
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
+                : 'bg-slate-50 text-slate-600 border-slate-100 hover:bg-slate-100'
             }`}
           >
-            Dapur Pusat
+            🏢 Dapur Pusat
           </button>
           <button
             type="button"
             onClick={() => setSource('Belanja Luar / Supplier')}
-            className={`py-2 px-3 rounded-xl border text-center font-bold transition-all ${
+            className={`py-3 px-4 rounded-2xl text-xs font-extrabold transition-all border ${
               source === 'Belanja Luar / Supplier'
-                ? 'bg-amber-900 text-white border-amber-900 shadow-sm'
-                : 'bg-neutral-50 text-neutral-600 border-neutral-200 hover:bg-neutral-100'
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
+                : 'bg-slate-50 text-slate-600 border-slate-100 hover:bg-slate-100'
             }`}
           >
-            Belanja Luar / Supplier
+            🛒 Belanja Luar / Supplier
           </button>
         </div>
       </div>
 
-      {/* Pencarian & Tab Kategori */}
-      <div className="space-y-3 mb-4">
+      {/* Search & Categories */}
+      <div className="space-y-3 mb-6">
         <div className="relative">
-          <Search className="absolute left-3 top-2.5 w-4 h-4 text-neutral-400" />
+          <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Cari barang diterima (misal: kuah, halus, minyak, gas)..."
-            className="w-full pl-9 pr-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-xs font-medium text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+            className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
           />
         </div>
 
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
           {CATEGORY_ORDER.map((cat) => (
             <button
               key={cat}
               type="button"
               onClick={() => setActiveCategory(cat)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+              className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
                 activeCategory === cat
-                  ? 'bg-amber-900 text-white shadow-sm'
-                  : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                  : 'bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-800'
               }`}
             >
               {cat}
@@ -261,29 +264,29 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         </div>
       </div>
 
-      {/* Tabel Checklist */}
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="border border-neutral-200 rounded-xl overflow-hidden max-h-[28rem] overflow-y-auto">
+      {/* Table Form */}
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-[30rem] overflow-y-auto">
           <table className="w-full text-left border-collapse text-xs">
-            <thead className="bg-neutral-100/90 sticky top-0 border-b border-neutral-200 z-10 backdrop-blur-sm">
-              <tr className="text-neutral-700 font-bold uppercase tracking-wider">
-                <th className="py-2.5 px-3">Nama Barang</th>
-                <th className="py-2.5 px-3 text-right w-36">Jumlah Diterima</th>
+            <thead className="bg-slate-50/80 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-sm">
+              <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                <th className="py-3 px-4">Nama Barang</th>
+                <th className="py-3 px-4 text-right w-36">Jumlah Diterima</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-100">
+            <tbody className="divide-y divide-slate-100">
               {Object.keys(groupedItems).length === 0 ? (
                 <tr>
-                  <td colSpan={2} className="py-8 text-center text-neutral-400">
+                  <td colSpan={2} className="py-12 text-center text-slate-400 font-medium">
                     Tidak ada barang ditemukan.
                   </td>
                 </tr>
               ) : (
                 Object.entries(groupedItems).map(([groupName, groupList]) => (
                   <React.Fragment key={groupName}>
-                    <tr className="bg-amber-50/70 border-y border-amber-200/60">
-                      <td colSpan={2} className="py-1.5 px-3 font-bold text-amber-900 uppercase tracking-wider text-[11px]">
-                        📦 {groupName} ({groupList.length} item)
+                    <tr className="bg-slate-50/50 border-y border-slate-100">
+                      <td colSpan={2} className="py-2.5 px-4 font-black text-slate-700 uppercase tracking-wider text-[11px]">
+                        • {groupName} <span className="text-slate-400 font-medium lowercase">({groupList.length} item)</span>
                       </td>
                     </tr>
                     {groupList.map((item) => {
@@ -293,12 +296,12 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
                         <tr
                           key={item.id}
                           className={`transition-colors ${
-                            isSelected ? 'bg-amber-100/50 font-semibold' : 'hover:bg-neutral-50'
+                            isSelected ? 'bg-indigo-50/40 font-bold' : 'hover:bg-slate-50/60'
                           }`}
                         >
-                          <td className="py-2 px-3 text-neutral-800">{item.name}</td>
-                          <td className="py-1.5 px-3 text-right">
-                            <div className="inline-flex items-center gap-1.5">
+                          <td className="py-2.5 px-4 text-slate-800">{item.name}</td>
+                          <td className="py-2 px-4 text-right">
+                            <div className="inline-flex items-center gap-2">
                               <input
                                 type="number"
                                 step="any"
@@ -306,9 +309,13 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
                                 value={val}
                                 onChange={(e) => handleQtyChange(item.name, e.target.value)}
                                 placeholder="0"
-                                className="w-20 px-2 py-1 text-right bg-white border border-neutral-200 rounded-lg text-xs font-bold text-neutral-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                className={`w-20 px-3 py-1.5 text-right rounded-xl text-xs font-bold border transition-all focus:outline-none ${
+                                  isSelected
+                                    ? 'bg-white border-indigo-600 text-indigo-600 ring-2 ring-indigo-500/20 shadow-xs'
+                                    : 'bg-slate-50 border-slate-200 text-slate-800 focus:border-indigo-500'
+                                }`}
                               />
-                              <span className="text-[11px] text-neutral-500 w-10 text-left">
+                              <span className="text-[11px] text-slate-400 w-10 text-left font-semibold">
                                 {item.uom || 'Pcs'}
                               </span>
                             </div>
@@ -324,7 +331,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1">
+          <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
             Catatan Kondisi Barang
           </label>
           <input
@@ -332,15 +339,16 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Kondisi beku baik, plastik utuh, dsb (opsional)"
-            className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-xs font-medium text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+            className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
           />
         </div>
 
         <button
           type="submit"
           disabled={loading || totalFilled === 0}
-          className="w-full py-2.5 bg-amber-900 hover:bg-amber-800 text-white text-xs font-bold rounded-xl shadow transition-all disabled:opacity-50"
+          className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-700 hover:to-indigo-600 text-white text-xs font-black rounded-2xl shadow-lg shadow-indigo-600/25 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
         >
+          <Check className="w-4 h-4" />
           {loading ? 'Menyimpan...' : `Konfirmasi Penerimaan (${totalFilled} Item)`}
         </button>
       </form>
