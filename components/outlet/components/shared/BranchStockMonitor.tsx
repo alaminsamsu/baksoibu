@@ -14,9 +14,11 @@ import {
   Search, 
   Layers, 
   Clock, 
-  UserCheck 
+  UserCheck,
+  Flame,
+  ShieldAlert,
+  Sparkles
 } from 'lucide-react';
-import StockUsageAnalytics from './StockUsageAnalytics';
 
 interface MovementRow {
   id: string;
@@ -42,6 +44,150 @@ const CATEGORY_ORDER = [
   'Minuman & Es',
   'Kemasan & Operasional',
 ];
+
+// Komponen Analitik Internal (Langsung menyatu agar tidak error import)
+function StockUsageAnalyticsView({ data }: { data: MovementRow[] }) {
+  const topUsedItems = useMemo(() => {
+    return [...data]
+      .filter((i) => i.usage_qty > 0)
+      .sort((a, b) => b.usage_qty - a.usage_qty)
+      .slice(0, 5);
+  }, [data]);
+
+  const highWasteItems = useMemo(() => {
+    return [...data]
+      .filter((i) => i.waste_qty > 0)
+      .sort((a, b) => b.waste_qty - a.waste_qty)
+      .slice(0, 3);
+  }, [data]);
+
+  const lowStockAlerts = useMemo(() => {
+    return data.filter(
+      (i) => i.remaining_stock <= 3 && (i.initial_stock > 0 || i.received_stock > 0)
+    );
+  }, [data]);
+
+  const totalUsage = useMemo(() => data.reduce((acc, curr) => acc + curr.usage_qty, 0), [data]);
+  const totalWaste = useMemo(() => data.reduce((acc, curr) => acc + curr.waste_qty, 0), [data]);
+  const wastePercentage = totalUsage + totalWaste > 0 
+    ? ((totalWaste / (totalUsage + totalWaste)) * 100).toFixed(1) 
+    : '0.0';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Sparkles className="w-4 h-4 text-indigo-600" />
+        <h3 className="text-xs font-black uppercase tracking-wider text-slate-700">
+          Analisis Pemakaian & Efisiensi Bahan
+        </h3>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Top 5 Pemakaian */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <Flame className="w-4 h-4 text-[#ff6f3c]" />
+              <span className="text-xs font-bold text-slate-800">Top Pemakaian Hari Ini</span>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 text-[#ff6f3c]">
+              Terlaris
+            </span>
+          </div>
+
+          {topUsedItems.length === 0 ? (
+            <p className="text-xs text-slate-400 py-3 text-center">Belum ada pemakaian tercatat.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {topUsedItems.map((item, idx) => (
+                <div key={item.id} className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-4 h-4 rounded-full bg-slate-100 text-slate-600 text-[10px] font-black flex items-center justify-center shrink-0">
+                      {idx + 1}
+                    </span>
+                    <span className="font-semibold text-slate-700 truncate">{item.item_name}</span>
+                  </div>
+                  <span className="font-black text-indigo-600 shrink-0 ml-2">
+                    {item.usage_qty} {item.unit}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Rasio Waste */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-500" />
+              <span className="text-xs font-bold text-slate-800">Rasio Terbuang (Waste)</span>
+            </div>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+              Number(wastePercentage) > 3 
+                ? 'bg-red-50 text-red-600 border border-red-200' 
+                : 'bg-emerald-50 text-emerald-600'
+            }`}>
+              {wastePercentage}%
+            </span>
+          </div>
+
+          {highWasteItems.length === 0 ? (
+            <div className="py-4 text-center">
+              <span className="text-xs font-bold text-emerald-600">Zero Waste</span>
+              <p className="text-[11px] text-slate-400 mt-0.5">Tidak ada bahan basi/rusak hari ini.</p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {highWasteItems.map((item) => (
+                <div key={item.id} className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-700 truncate">{item.item_name}</span>
+                  <span className="font-black text-red-600">
+                    -{item.waste_qty} {item.unit}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Stok Menipis */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-indigo-600" />
+              <span className="text-xs font-bold text-slate-800">Perlu Restock</span>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+              {lowStockAlerts.length} item
+            </span>
+          </div>
+
+          {lowStockAlerts.length === 0 ? (
+            <div className="py-4 text-center">
+              <span className="text-xs font-bold text-indigo-600">Stok Aman</span>
+              <p className="text-[11px] text-slate-400 mt-0.5">Seluruh sisa fisik aman.</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+              {lowStockAlerts.map((item) => (
+                <div key={item.id} className="flex items-center justify-between text-xs bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-100">
+                  <div className="truncate min-w-0 pr-2">
+                    <div className="font-bold text-slate-800 truncate">{item.item_name}</div>
+                    <div className="text-[9px] text-slate-400">{item.location_name}</div>
+                  </div>
+                  <span className="font-black text-amber-600 shrink-0">
+                    Sisa {item.remaining_stock} {item.unit}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function BranchStockMonitor() {
   const [dataList, setDataList] = useState<MovementRow[]>([]);
@@ -70,7 +216,6 @@ export default function BranchStockMonitor() {
         };
       });
 
-      // 1. Ambil data master stok cabang
       const { data: stocks, error: stockErr } = await supabase
         .from('branch_stocks')
         .select('*, locations(name)')
@@ -78,41 +223,32 @@ export default function BranchStockMonitor() {
 
       if (stockErr) throw stockErr;
 
-      // 2. Ambil akumulasi penerimaan hari ini
       const today = new Date().toISOString().split('T')[0];
       const { data: recData } = await supabase
         .from('receptions')
         .select('item_name, quantity, location_id')
         .gte('created_at', `${today}T00:00:00Z`);
 
-      // 3. Ambil data sisa fisik dan waste dari closing malam hari ini
       const { data: closingData } = await supabase
         .from('daily_closings')
         .select('item_name, remaining_stock, waste_qty, location_id, reported_by, created_at')
         .eq('closing_date', today);
 
       const computed: MovementRow[] = (stocks || []).map((s: any) => {
-        // Total barang masuk hari ini
         const totalReceived = (recData || [])
           .filter((r) => r.location_id === s.location_id && r.item_name === s.item_name)
           .reduce((acc, curr) => acc + Number(curr.quantity || 0), 0);
 
-        // Cari record closing hari ini jika kru sudah melakukan closing
         const closingRecord = (closingData || []).find(
           (c) => c.location_id === s.location_id && c.item_name === s.item_name
         );
 
         const init = Number(s.initial_stock || 0);
-
-        // Sisa fisik: jika sudah closing hari ini ambil dari closing, jika belum ambil sisa sebelumnya
         const remain = closingRecord !== undefined 
           ? Number(closingRecord.remaining_stock || 0) 
           : Number(s.remaining_stock || 0);
 
-        // Waste: dari form closing
         const waste = closingRecord !== undefined ? Number(closingRecord.waste_qty || 0) : 0;
-
-        // Akumulasi pemakaian: (Awal + Masuk) - Sisa Fisik - Waste
         const calculatedUsage = (init + totalReceived) - remain - waste;
         const usage = Math.max(0, calculatedUsage);
 
@@ -210,7 +346,6 @@ export default function BranchStockMonitor() {
 
   return (
     <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm shadow-slate-200/50">
-      {/* Header Bar */}
       <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center shadow-md shadow-indigo-200">
@@ -253,7 +388,6 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* 4 Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-5 bg-[#fafbfe] border-b border-slate-100">
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
@@ -292,12 +426,11 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* KARTU ANALISIS PEMAKAIAN BAHAN (TOP PENGELUARAN, WASTE & STOK KRITIS) */}
+      {/* Kartu Analisa Internal */}
       <div className="p-5 border-b border-slate-100 bg-slate-50/50">
-        <StockUsageAnalytics data={filteredData} />
+        <StockUsageAnalyticsView data={filteredData} />
       </div>
 
-      {/* Search Bar & Kategori Pills */}
       <div className="p-5 space-y-3 border-b border-slate-100">
         <div className="relative">
           <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
@@ -328,7 +461,6 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* Tabel Data Lengkap */}
       <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead className="bg-slate-50/80 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-sm">
@@ -380,7 +512,6 @@ export default function BranchStockMonitor() {
                           </div>
                         </td>
 
-                        {/* 1. Stok Awal */}
                         <td className="py-3 px-3 text-right font-semibold">
                           {isEditing ? (
                             <input
@@ -395,12 +526,10 @@ export default function BranchStockMonitor() {
                           )}
                         </td>
 
-                        {/* 2. Masuk */}
                         <td className="py-3 px-3 text-right font-bold text-emerald-600">
                           +{row.received_stock}
                         </td>
 
-                        {/* 3. Sisa Fisik (Closing) */}
                         <td className="py-3 px-3 text-right font-black text-slate-900">
                           {isEditing ? (
                             <input
@@ -415,17 +544,14 @@ export default function BranchStockMonitor() {
                           )}
                         </td>
 
-                        {/* 4. Waste */}
                         <td className="py-3 px-3 text-right font-bold text-[#ff6f3c]">
                           {row.waste_qty > 0 ? `-${row.waste_qty}` : '0'}
                         </td>
 
-                        {/* 5. Akumulasi Pemakaian */}
                         <td className="py-3 px-3 text-right font-black text-indigo-600 bg-indigo-50/40">
                           {row.usage_qty} {row.unit}
                         </td>
 
-                        {/* Audit Trail Info */}
                         <td className="py-3 px-3">
                           <div className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
                             <UserCheck className="w-3 h-3 text-emerald-600" />
@@ -437,7 +563,6 @@ export default function BranchStockMonitor() {
                           </div>
                         </td>
 
-                        {/* Aksi Koreksi */}
                         <td className="py-3 px-4 text-center">
                           {isEditing ? (
                             <div className="flex items-center justify-center gap-1.5">
