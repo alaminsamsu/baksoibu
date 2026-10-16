@@ -45,7 +45,6 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
       const { data: itemData } = await supabase.from('items').select('*').order('name');
       if (itemData) setItems(itemData);
 
-      // Ambil data sisa stok yang tercatat sebelumnya
       if (activeLocationId) {
         const { data: stockData } = await supabase
           .from('branch_stocks')
@@ -55,7 +54,7 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
         if (stockData) {
           const initMap: Record<string, string> = {};
           stockData.forEach((s) => {
-            initMap[s.item_name] = String(s.remaining_stock);
+            initMap[s.item_name] = String(s.remaining_stock ?? '');
           });
           setClosingStocks(initMap);
         }
@@ -98,7 +97,6 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
         const remainQty = parseFloat(closingStocks[item.name] || '0');
         const wasteQty = parseFloat(wasteStocks[item.name] || '0');
 
-        // 1. Simpan rekap penutupan harian ke daily_closings
         await supabase.from('daily_closings').upsert(
           {
             closing_date: todayStr,
@@ -113,7 +111,6 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
           { onConflict: 'closing_date, location_id, item_name' }
         );
 
-        // 2. Perbarui saldo sisa fisik cabang di branch_stocks
         await supabase.from('branch_stocks').upsert(
           {
             location_id: activeLocationId,
@@ -128,7 +125,7 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
       }
 
       setMessage({
-        text: `Sukses menyimpan laporan closing sisa stok fisik & waste hari ini!`,
+        text: 'Sukses menyimpan laporan closing sisa stok fisik & waste hari ini!',
         type: 'success',
       });
     } catch (err: any) {
@@ -144,4 +141,56 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
         <button
           type="button"
           onClick={onBack}
-          className="text-xs font-bold text-neutral-500 hover:text-amber-800 mb-4 flex items-center gap-1.5 transition-colors
+          className="text-xs font-bold text-neutral-500 hover:text-amber-800 mb-4 flex items-center gap-1.5 transition-colors"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Kembali ke Menu Utama
+        </button>
+      )}
+
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-4 border-b border-neutral-100 gap-2">
+        <div className="flex items-center gap-2">
+          <Moon className="w-5 h-5 text-amber-800" />
+          <div>
+            <h2 className="text-base font-bold text-neutral-800">Form Closing & Opname Malam</h2>
+            <p className="text-xs text-neutral-500">Catat sisa fisik barang di etalase dan barang rusak/waste.</p>
+          </div>
+        </div>
+      </div>
+
+      {message && (
+        <div
+          className={`p-3 mb-4 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+            message.type === 'success'
+              ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+              : 'bg-red-50 border border-red-200 text-red-700'
+          }`}
+        >
+          {message.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+          ) : (
+            <AlertCircle className="w-4 h-4 shrink-0" />
+          )}
+          <span>{message.text}</span>
+        </div>
+      )}
+
+      <div className="space-y-3 mb-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 w-4 h-4 text-neutral-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Cari barang closing..."
+            className="w-full pl-9 pr-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-xs font-medium text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
+
+        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          {CATEGORY_ORDER.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setActiveCategory(cat)}
+              className={`px-3 py-1.5 rounded-xl text
