@@ -11,7 +11,9 @@ import {
   Edit3, 
   Check, 
   X, 
-  Search 
+  Search,
+  Layers,
+  ArrowUpRight
 } from 'lucide-react';
 
 interface MovementRow {
@@ -181,30 +183,30 @@ export default function BranchStockMonitor() {
   );
 
   return (
-    <div className="bg-white rounded-2xl border border-neutral-200 overflow-hidden shadow-sm">
-      {/* Header & Filter Cabang */}
-      <div className="p-5 border-b border-neutral-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="flex items-center gap-2.5">
-          <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center border border-amber-200 text-amber-800">
-            <Activity className="w-5 h-5" />
+    <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm shadow-slate-200/50">
+      {/* Top Header Card */}
+      <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center shadow-md shadow-indigo-200">
+            <Activity className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-neutral-800">
-              Insight & Monitor Pergerakan Stok Harian
+            <h2 className="text-lg font-black text-slate-900 tracking-tight">
+              Monitor Pergerakan Stok Harian
             </h2>
-            <p className="text-xs text-neutral-500">
-              Pantau pemakaian bahan, barang masuk, waste, serta atur stok awal dan koreksi sisa fisik per grup.
+            <p className="text-xs font-medium text-slate-400">
+              Analisis pemakaian bahan riil, penerimaan, dan koreksi stok fisik outlet.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex items-center gap-2.5 w-full sm:w-auto">
           <div className="relative flex-1 sm:w-48">
-            <MapPin className="absolute left-3 top-2.5 w-3.5 h-3.5 text-neutral-400" />
+            <MapPin className="absolute left-3.5 top-3 w-3.5 h-3.5 text-slate-400" />
             <select
               value={selectedLocation}
               onChange={(e) => setSelectedLocation(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 bg-neutral-50 border border-neutral-200 rounded-xl text-xs font-semibold text-neutral-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             >
               <option value="all">Semua Cabang</option>
               {locations.map((loc) => (
@@ -218,60 +220,75 @@ export default function BranchStockMonitor() {
           <button
             onClick={fetchLiveStockMovement}
             title="Refresh Data"
-            className="p-2 text-neutral-600 hover:text-amber-800 bg-neutral-50 hover:bg-neutral-100 rounded-xl border border-neutral-200 transition-colors"
+            className="p-2.5 text-slate-400 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 rounded-2xl border border-slate-100 transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* Ringkasan Insight */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-neutral-50/70 border-b border-neutral-100 text-xs">
-        <div className="bg-white p-3 rounded-xl border border-neutral-200">
-          <span className="text-neutral-500 text-[11px] font-semibold">Total Item Dipantau</span>
-          <p className="text-base font-extrabold text-neutral-800 mt-0.5">{filteredData.length} Barang</p>
+      {/* 4 Metric Cards Ala Pinterest */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-5 bg-[#fafbfe] border-b border-slate-100">
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
+            <span>Item Dipantau</span>
+            <Layers className="w-3.5 h-3.5 text-indigo-500" />
+          </div>
+          <p className="text-xl font-black text-slate-900 mt-1">{filteredData.length}</p>
+          <span className="text-[10px] text-slate-400 font-medium">Bahan terdaftar aktif</span>
         </div>
-        <div className="bg-white p-3 rounded-xl border border-neutral-200">
-          <span className="text-emerald-700 text-[11px] font-semibold flex items-center gap-1">
-            <TrendingDown className="w-3.5 h-3.5" /> Total Estimasi Pemakaian
-          </span>
-          <p className="text-base font-extrabold text-emerald-800 mt-0.5">{totalUsage.toLocaleString()}</p>
+
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between text-emerald-600 text-[11px] font-bold">
+            <span>Estimasi Terpakai</span>
+            <TrendingDown className="w-3.5 h-3.5 text-emerald-600" />
+          </div>
+          <p className="text-xl font-black text-emerald-600 mt-1">{totalUsage.toLocaleString()}</p>
+          <span className="text-[10px] text-slate-400 font-medium">Satuan pemakaian hari ini</span>
         </div>
-        <div className="bg-white p-3 rounded-xl border border-neutral-200">
-          <span className="text-red-700 text-[11px] font-semibold flex items-center gap-1">
-            <AlertTriangle className="w-3.5 h-3.5" /> Total Waste / Basi
-          </span>
-          <p className="text-base font-extrabold text-red-700 mt-0.5">{totalWaste.toLocaleString()}</p>
+
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between text-[#ff6f3c] text-[11px] font-bold">
+            <span>Total Waste</span>
+            <AlertTriangle className="w-3.5 h-3.5 text-[#ff6f3c]" />
+          </div>
+          <p className="text-xl font-black text-[#ff6f3c] mt-1">{totalWaste.toLocaleString()}</p>
+          <span className="text-[10px] text-slate-400 font-medium">Barang basi / sisa rusak</span>
         </div>
-        <div className="bg-white p-3 rounded-xl border border-neutral-200">
-          <span className="text-amber-800 text-[11px] font-semibold">Atur Stok Awal</span>
-          <p className="text-[11px] text-neutral-600 mt-1">Klik ikon pensil di tiap baris barang</p>
+
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between text-indigo-600 text-[11px] font-bold">
+            <span>Koreksi Angka</span>
+            <ArrowUpRight className="w-3.5 h-3.5 text-indigo-600" />
+          </div>
+          <p className="text-xs font-black text-slate-800 mt-2">Bisa Diedit Langsung</p>
+          <span className="text-[10px] text-slate-400 font-medium">Klik ikon pensil di tabel</span>
         </div>
       </div>
 
-      {/* Filter Pencarian & Tab Grup Kategori */}
-      <div className="p-4 space-y-3 border-b border-neutral-100 bg-white">
+      {/* Search & Pills */}
+      <div className="p-5 space-y-3 border-b border-slate-100">
         <div className="relative">
-          <Search className="absolute left-3 top-2.5 w-4 h-4 text-neutral-400" />
+          <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Cari nama barang di tabel monitor..."
-            className="w-full pl-9 pr-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-xs font-medium text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+            placeholder="Cari barang di tabel monitor..."
+            className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
           />
         </div>
 
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
           {CATEGORY_ORDER.map((cat) => (
             <button
               key={cat}
               type="button"
               onClick={() => setActiveCategory(cat)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+              className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
                 activeCategory === cat
-                  ? 'bg-amber-900 text-white shadow-sm'
-                  : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
+                  : 'bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-800'
               }`}
             >
               {cat}
@@ -280,87 +297,83 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* Tabel Pergerakan Stok Berkelompok */}
+      {/* Clean Modern Table */}
       <div className="overflow-x-auto max-h-[32rem] overflow-y-auto">
         <table className="w-full text-left border-collapse text-xs">
-          <thead className="bg-neutral-100/90 sticky top-0 border-b border-neutral-200 z-10 backdrop-blur-sm">
-            <tr className="text-neutral-700 font-bold uppercase tracking-wider">
-              <th className="py-3 px-3">Barang & Cabang</th>
-              <th className="py-3 px-2 text-right">Stok Awal</th>
-              <th className="py-3 px-2 text-right text-emerald-700">+ Masuk</th>
-              <th className="py-3 px-2 text-right text-neutral-800">Sisa Fisik</th>
-              <th className="py-3 px-2 text-right text-red-700">Waste</th>
-              <th className="py-3 px-2 text-right font-extrabold text-amber-900 bg-amber-50/50">Pemakaian</th>
-              <th className="py-3 px-3 text-center">Atur / Revisi</th>
+          <thead className="bg-slate-50/80 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-sm">
+            <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+              <th className="py-3 px-4">Nama Barang</th>
+              <th className="py-3 px-3 text-right">Stok Awal</th>
+              <th className="py-3 px-3 text-right text-emerald-600">+ Masuk</th>
+              <th className="py-3 px-3 text-right text-slate-900">Sisa Fisik</th>
+              <th className="py-3 px-3 text-right text-[#ff6f3c]">Waste</th>
+              <th className="py-3 px-3 text-right font-black text-indigo-600 bg-indigo-50/40">Pemakaian</th>
+              <th className="py-3 px-4 text-center">Aksi</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-neutral-100 text-neutral-700">
+          <tbody className="divide-y divide-slate-100 text-slate-700">
             {loading ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-neutral-400">
-                  Menghitung pergerakan stok per kategori...
+                <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
+                  Menghitung kalkulasi pergerakan stok...
                 </td>
               </tr>
             ) : Object.keys(groupedData).length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-neutral-400">
-                  Tidak ada barang yang sesuai filter.
+                <td colSpan={7} className="py-12 text-center text-slate-400 font-medium">
+                  Tidak ada barang yang cocok.
                 </td>
               </tr>
             ) : (
               Object.entries(groupedData).map(([groupName, groupList]) => (
                 <React.Fragment key={groupName}>
-                  {/* Pemisah Header Grup */}
-                  <tr className="bg-amber-50/80 border-y border-amber-200/70">
-                    <td colSpan={7} className="py-1.5 px-3 font-bold text-amber-950 uppercase tracking-wider text-[11px]">
-                      📁 {groupName} ({groupList.length} item)
+                  <tr className="bg-slate-50/50 border-y border-slate-100">
+                    <td colSpan={7} className="py-2.5 px-4 font-black text-slate-700 uppercase tracking-wider text-[11px]">
+                      • {groupName} <span className="text-slate-400 font-medium lowercase">({groupList.length} item)</span>
                     </td>
                   </tr>
 
-                  {/* Baris Barang */}
                   {groupList.map((row) => {
                     const isEditing = editingId === row.id;
 
                     return (
-                      <tr key={row.id} className="hover:bg-neutral-50/70 transition-colors">
-                        <td className="py-2.5 px-3">
-                          <div className="font-bold text-neutral-800">{row.item_name}</div>
-                          <div className="text-[10px] text-neutral-400 font-medium">
-                            {row.location_name} • Satuan: {row.unit}
+                      <tr key={row.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-3 px-4">
+                          <div className="font-extrabold text-slate-800">{row.item_name}</div>
+                          <div className="text-[10px] text-slate-400 font-medium">
+                            {row.location_name} • {row.unit}
                           </div>
                         </td>
 
                         {/* Stok Awal */}
-                        <td className="py-2.5 px-2 text-right font-medium">
+                        <td className="py-3 px-3 text-right font-semibold">
                           {isEditing ? (
                             <input
                               type="number"
                               step="any"
                               value={editInitial}
                               onChange={(e) => setEditInitial(parseFloat(e.target.value) || 0)}
-                              className="w-16 px-1.5 py-0.5 border border-amber-500 rounded text-right text-xs font-bold bg-amber-50"
+                              className="w-18 px-2 py-1 border border-indigo-500 rounded-xl text-right text-xs font-bold bg-white focus:outline-none ring-2 ring-indigo-500/20"
                             />
                           ) : (
-                            <span className="font-semibold text-neutral-700">
-                              {row.initial_stock} {row.unit}
-                            </span>
+                            <span className="text-slate-700">{row.initial_stock} {row.unit}</span>
                           )}
                         </td>
 
-                        {/* Barang Masuk */}
-                        <td className="py-2.5 px-2 text-right font-semibold text-emerald-700">
+                        {/* Masuk */}
+                        <td className="py-3 px-3 text-right font-bold text-emerald-600">
                           +{row.received_stock}
                         </td>
 
                         {/* Sisa Fisik */}
-                        <td className="py-2.5 px-2 text-right font-bold text-neutral-900">
+                        <td className="py-3 px-3 text-right font-black text-slate-900">
                           {isEditing ? (
                             <input
                               type="number"
                               step="any"
                               value={editRemaining}
                               onChange={(e) => setEditRemaining(parseFloat(e.target.value) || 0)}
-                              className="w-16 px-1.5 py-0.5 border border-amber-500 rounded text-right text-xs font-bold bg-amber-50"
+                              className="w-18 px-2 py-1 border border-indigo-500 rounded-xl text-right text-xs font-bold bg-white focus:outline-none ring-2 ring-indigo-500/20"
                             />
                           ) : (
                             `${row.remaining_stock} ${row.unit}`
@@ -368,29 +381,29 @@ export default function BranchStockMonitor() {
                         </td>
 
                         {/* Waste */}
-                        <td className="py-2.5 px-2 text-right font-semibold text-red-600">
+                        <td className="py-3 px-3 text-right font-bold text-[#ff6f3c]">
                           {row.waste_qty > 0 ? `-${row.waste_qty}` : '0'}
                         </td>
 
                         {/* Pemakaian Riil */}
-                        <td className="py-2.5 px-2 text-right font-extrabold text-amber-950 bg-amber-50/50">
+                        <td className="py-3 px-3 text-right font-black text-indigo-600 bg-indigo-50/40">
                           {row.usage_qty} {row.unit}
                         </td>
 
-                        {/* Tombol Aksi */}
-                        <td className="py-2.5 px-3 text-center">
+                        {/* Aksi */}
+                        <td className="py-3 px-4 text-center">
                           {isEditing ? (
-                            <div className="flex items-center justify-center gap-1">
+                            <div className="flex items-center justify-center gap-1.5">
                               <button
                                 onClick={() => handleSaveEdit(row)}
-                                className="p-1 bg-emerald-600 text-white rounded hover:bg-emerald-700 shadow-sm"
-                                title="Simpan Stok Awal & Sisa"
+                                className="p-1.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 shadow-sm transition-all"
+                                title="Simpan"
                               >
                                 <Check className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={() => setEditingId(null)}
-                                className="p-1 bg-neutral-200 text-neutral-600 rounded hover:bg-neutral-300"
+                                className="p-1.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-all"
                                 title="Batal"
                               >
                                 <X className="w-3.5 h-3.5" />
@@ -399,8 +412,8 @@ export default function BranchStockMonitor() {
                           ) : (
                             <button
                               onClick={() => handleStartEdit(row)}
-                              className="p-1.5 text-neutral-400 hover:text-amber-800 hover:bg-amber-50 rounded-lg transition-colors"
-                              title="Input Stok Awal / Koreksi"
+                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                              title="Koreksi Stok Awal / Sisa Fisik"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>

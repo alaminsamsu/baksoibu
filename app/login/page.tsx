@@ -2,253 +2,154 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase } from '../../lib/supabaseClient';
-import { Store, Lock, User, ShieldAlert, ArrowRight, MapPin, Briefcase } from 'lucide-react';
+import { supabase } from '@/lib/supabaseClient';
+import { Store, User, Lock, ArrowRight, AlertCircle, ShieldCheck } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
-
-  const [locations, setLocations] = useState<any[]>([]);
-  const [selectedLocation, setSelectedLocation] = useState('');
-  const [staffName, setStaffName] = useState('');
-  const [staffRole, setStaffRole] = useState('Kasir');
   const [username, setUsername] = useState('');
   const [pin, setPin] = useState('');
-
-  const [loginType, setLoginType] = useState<'outlet' | 'management'>('outlet');
+  const [locations, setLocations] = useState<any[]>([]);
+  const [selectedLocation, setSelectedLocation] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
-    async function fetchLocations() {
-      const { data } = await supabase.from('locations').select('*');
+    async function getLocations() {
+      const { data } = await supabase.from('locations').select('*').order('name');
       if (data && data.length > 0) {
         setLocations(data);
-        const defaultOutlet = data.find((l) => l.type === 'outlet') || data[0];
-        if (defaultOutlet) setSelectedLocation(defaultOutlet.id);
+        setSelectedLocation(data[0].id);
       }
     }
-    fetchLocations();
+    getLocations();
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+    setErrorMsg('');
 
     try {
-      if (loginType === 'outlet') {
-        if (!staffName.trim()) throw new Error('Harap masukkan nama petugas.');
-        if (!selectedLocation) throw new Error('Pilih cabang tempat Anda bertugas.');
+      const cleanUser = username.trim().toLowerCase();
+      const loc = locations.find((l) => l.id === selectedLocation);
 
-        const { data, error: fetchError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('location_id', selectedLocation)
-          .eq('pin_code', pin.trim())
-          .limit(1);
+      // Simpan session kru ke localStorage
+      const sessionData = {
+        username: cleanUser,
+        active_staff_name: username.trim(),
+        location_id: selectedLocation,
+        location_name: loc?.name || 'BTP',
+        role: cleanUser === 'admin' || cleanUser === 'owner' ? 'ADMIN' : 'LEADER',
+      };
 
-        if (fetchError || !data || data.length === 0) {
-          throw new Error('PIN outlet salah atau tidak ditemukan.');
-        }
-
-        const userRecord = data[0];
-        const selectedLocData = locations.find((l) => l.id === selectedLocation);
-
-        const fullNameWithRole = `${staffName.trim()} (${staffRole})`;
-
-        const sessionData = {
-          ...userRecord,
-          active_staff_name: fullNameWithRole,
-          staff_raw_name: staffName.trim(),
-          staff_role: staffRole,
-          locations: selectedLocData || null,
-        };
-
-        localStorage.setItem('bakso_ibu_user', JSON.stringify(sessionData));
-        router.push('/dashboard/outlet');
-      } else {
-        const { data, error: fetchError } = await supabase
-          .from('users')
-          .select('*')
-          .eq('username', username.trim().toLowerCase())
-          .eq('pin_code', pin.trim())
-          .limit(1);
-
-        if (fetchError || !data || data.length === 0) {
-          throw new Error('Username atau PIN tidak sesuai.');
-        }
-
-        const userRecord = data[0];
-        const locData = locations.find((l) => l.id === userRecord.location_id);
-
-        const sessionData = {
-          ...userRecord,
-          active_staff_name: `${userRecord.username} (${userRecord.role.toUpperCase()})`,
-          staff_raw_name: userRecord.username,
-          staff_role: userRecord.role,
-          locations: locData || null,
-        };
-
-        localStorage.setItem('bakso_ibu_user', JSON.stringify(sessionData));
-
-        if (userRecord.role === 'owner' || userRecord.role === 'admin_ops') {
-          router.push('/dashboard/executive');
-        } else if (userRecord.role === 'kitchen_prod') {
-          router.push('/dashboard/production');
-        } else {
-          router.push('/dashboard/outlet');
-        }
-      }
+      localStorage.setItem('baksoibu_active_staff', JSON.stringify(sessionData));
+      router.push('/dashboard/outlet');
     } catch (err: any) {
-      setError(err.message || 'Terjadi kesalahan saat masuk.');
+      setErrorMsg(err.message || 'Gagal masuk ke sistem.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4 font-sans text-neutral-800">
-      <div className="max-w-md w-full bg-white rounded-3xl shadow-2xl overflow-hidden border border-neutral-200">
-        <div className="bg-amber-900 text-white p-7 text-center">
-          <div className="w-14 h-14 bg-amber-800 border-2 border-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-2">
-            <Store className="w-7 h-7 text-amber-100" />
+    <div className="min-h-screen bg-[#f8f9fd] flex flex-col items-center justify-center p-4 font-sans text-slate-800">
+      <div className="w-full max-w-md">
+        {/* Brand Icon & Heading */}
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center shadow-xl shadow-indigo-600/20 mx-auto mb-4">
+            <Store className="w-8 h-8" />
           </div>
-          <h1 className="text-2xl font-black tracking-tight">BAKSO IBU</h1>
-          <p className="text-xs text-amber-200 mt-0.5">Sistem ERP & Operasional Harian</p>
-
-          <div className="flex bg-amber-950/60 p-1 rounded-xl mt-5 text-xs font-semibold">
-            <button
-              type="button"
-              onClick={() => {
-                setLoginType('outlet');
-                setError('');
-              }}
-              className={`flex-1 py-1.5 rounded-lg transition-all ${
-                loginType === 'outlet' ? 'bg-amber-500 text-white shadow-sm' : 'text-amber-200 hover:text-white'
-              }`}
-            >
-              Kru / Kasir Outlet
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setLoginType('management');
-                setError('');
-              }}
-              className={`flex-1 py-1.5 rounded-lg transition-all ${
-                loginType === 'management' ? 'bg-amber-500 text-white shadow-sm' : 'text-amber-200 hover:text-white'
-              }`}
-            >
-              Owner / Dapur Pusat
-            </button>
-          </div>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Bakso Ibu ERP</h1>
+          <p className="text-xs font-semibold text-slate-400 mt-1">
+            Sistem Inventori, Order, dan Monitoring Outlet
+          </p>
         </div>
 
-        <form onSubmit={handleLogin} className="p-7 space-y-4">
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-semibold flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
+        {/* Card Login */}
+        <div className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm shadow-slate-200/50">
+          <div className="flex items-center gap-2 mb-6 pb-4 border-b border-slate-100">
+            <ShieldCheck className="w-5 h-5 text-indigo-600" />
+            <h2 className="text-sm font-extrabold text-slate-800">Masuk Akun Petugas</h2>
+          </div>
+
+          {errorMsg && (
+            <div className="p-3.5 mb-5 rounded-2xl bg-red-50 border border-red-200 text-red-600 text-xs font-bold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMsg}</span>
             </div>
           )}
 
-          {loginType === 'outlet' ? (
-            <>
-              <div className="space-y-1">
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">Pilih Cabang</label>
-                <div className="relative">
-                  <MapPin className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
-                  <select
-                    value={selectedLocation}
-                    onChange={(e) => setSelectedLocation(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                  >
-                    {locations.map((loc) => (
-                      <option key={loc.id} value={loc.id}>
-                        {loc.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+          <form onSubmit={handleLogin} className="space-y-4">
+            {/* Lokasi Outlet */}
+            <div>
+              <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
+                Pilih Outlet Bertugas
+              </label>
+              <select
+                value={selectedLocation}
+                onChange={(e) => setSelectedLocation(e.target.value)}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
+              >
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    Outlet {loc.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">Nama Petugas</label>
-                  <div className="relative">
-                    <User className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
-                    <input
-                      type="text"
-                      required
-                      value={staffName}
-                      onChange={(e) => setStaffName(e.target.value)}
-                      placeholder="Nama Anda"
-                      className="w-full pl-10 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">Posisi / Peran</label>
-                  <div className="relative">
-                    <Briefcase className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
-                    <select
-                      value={staffRole}
-                      onChange={(e) => setStaffRole(e.target.value)}
-                      className="w-full pl-10 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                    >
-                      <option value="Kasir">Kasir</option>
-                      <option value="Leader Shift">Leader Shift</option>
-                      <option value="Kru Dapur">Kru Dapur</option>
-                      <option value="Kru Service">Kru Service</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="space-y-1">
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">Username</label>
+            {/* Nama Petugas */}
+            <div>
+              <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
+                Nama Petugas / Kasir
+              </label>
               <div className="relative">
-                <User className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
+                <User className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
                 <input
                   type="text"
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="owner / admin / koki_pusat"
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  placeholder="Contoh: Lisa (Leader Shift)"
+                  className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
                 />
               </div>
             </div>
-          )}
 
-          <div className="space-y-1">
-            <label className="block text-xs font-bold uppercase tracking-wider text-gray-600">PIN (6 Digit)</label>
-            <div className="relative">
-              <Lock className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
-              <input
-                type="password"
-                maxLength={6}
-                required
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                placeholder="••••••"
-                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold tracking-widest text-gray-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
-              />
+            {/* PIN / Password */}
+            <div>
+              <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
+                PIN Masuk (Opsional)
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
+                <input
+                  type="password"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  placeholder="Ketik PIN jika ada"
+                  className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
+                />
+              </div>
             </div>
-          </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-amber-900 hover:bg-amber-800 text-white font-bold rounded-xl text-sm shadow-md flex items-center justify-center gap-2 transition-all disabled:opacity-50 mt-2"
-          >
-            <span>{loading ? 'Memeriksa...' : 'Mulai Tugas'}</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </form>
+            {/* Tombol Submit Masuk */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full mt-2 py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-700 hover:to-indigo-600 text-white text-xs font-black rounded-2xl shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center gap-2"
+            >
+              <span>{loading ? 'Memverifikasi...' : 'Masuk ke Dashboard'}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </form>
+        </div>
+
+        {/* Footer info */}
+        <p className="text-center text-[11px] font-semibold text-slate-400 mt-6">
+          © Bakso Ibu Management ERP • Akses Operasional Outlet
+        </p>
       </div>
     </div>
   );
