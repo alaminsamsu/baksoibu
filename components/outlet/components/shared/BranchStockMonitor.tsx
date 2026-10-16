@@ -16,6 +16,7 @@ import {
   Clock, 
   UserCheck 
 } from 'lucide-react';
+import StockUsageAnalytics from './StockUsageAnalytics';
 
 interface MovementRow {
   id: string;
@@ -103,12 +104,12 @@ export default function BranchStockMonitor() {
 
         const init = Number(s.initial_stock || 0);
 
-        // Sisa fisik: jika hari ini sudah closing, ambil dari closing. Jika belum, ambil remaining_stock sebelumnya.
+        // Sisa fisik: jika sudah closing hari ini ambil dari closing, jika belum ambil sisa sebelumnya
         const remain = closingRecord !== undefined 
           ? Number(closingRecord.remaining_stock || 0) 
           : Number(s.remaining_stock || 0);
 
-        // Waste: dari formulir closing hari ini
+        // Waste: dari form closing
         const waste = closingRecord !== undefined ? Number(closingRecord.waste_qty || 0) : 0;
 
         // Akumulasi pemakaian: (Awal + Masuk) - Sisa Fisik - Waste
@@ -209,6 +210,7 @@ export default function BranchStockMonitor() {
 
   return (
     <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm shadow-slate-200/50">
+      {/* Header Bar */}
       <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center shadow-md shadow-indigo-200">
@@ -216,7 +218,7 @@ export default function BranchStockMonitor() {
           </div>
           <div>
             <h2 className="text-lg font-black text-slate-900 tracking-tight">
-              Monitor Pergerakan Stok & Audit Alur
+              Monitor Pergerakan Stok & Analisa Bahan
             </h2>
             <p className="text-xs font-medium text-slate-400">
               Stok Awal + Masuk - Sisa Fisik (Closing) - Waste = Akumulasi Pemakaian.
@@ -251,6 +253,7 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
+      {/* 4 Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-5 bg-[#fafbfe] border-b border-slate-100">
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
@@ -267,7 +270,7 @@ export default function BranchStockMonitor() {
             <TrendingDown className="w-3.5 h-3.5 text-emerald-600" />
           </div>
           <p className="text-xl font-black text-emerald-600 mt-1">{totalUsage.toLocaleString()}</p>
-          <span className="text-[10px] text-slate-400 font-medium">Akumulasi hasil hitung</span>
+          <span className="text-[10px] text-slate-400 font-medium">Akumulasi pemakaian</span>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
@@ -276,7 +279,7 @@ export default function BranchStockMonitor() {
             <AlertTriangle className="w-3.5 h-3.5 text-[#ff6f3c]" />
           </div>
           <p className="text-xl font-black text-[#ff6f3c] mt-1">{totalWaste.toLocaleString()}</p>
-          <span className="text-[10px] text-slate-400 font-medium">Barang basi / sisa rusak</span>
+          <span className="text-[10px] text-slate-400 font-medium">Barang basi / sisa</span>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
@@ -285,10 +288,16 @@ export default function BranchStockMonitor() {
             <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
           </div>
           <p className="text-xs font-black text-slate-800 mt-2">Pencatatan Otomatis</p>
-          <span className="text-[10px] text-slate-400 font-medium">Petugas & waktu closing/edit</span>
+          <span className="text-[10px] text-slate-400 font-medium">Nama petugas & waktu</span>
         </div>
       </div>
 
+      {/* KARTU ANALISIS PEMAKAIAN BAHAN (TOP PENGELUARAN, WASTE & STOK KRITIS) */}
+      <div className="p-5 border-b border-slate-100 bg-slate-50/50">
+        <StockUsageAnalytics data={filteredData} />
+      </div>
+
+      {/* Search Bar & Kategori Pills */}
       <div className="p-5 space-y-3 border-b border-slate-100">
         <div className="relative">
           <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
@@ -319,6 +328,7 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
+      {/* Tabel Data Lengkap */}
       <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead className="bg-slate-50/80 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-sm">
@@ -427,7 +437,7 @@ export default function BranchStockMonitor() {
                           </div>
                         </td>
 
-                        {/* Aksi Koreksi (Khusus Leader / Admin) */}
+                        {/* Aksi Koreksi */}
                         <td className="py-3 px-4 text-center">
                           {isEditing ? (
                             <div className="flex items-center justify-center gap-1.5">
