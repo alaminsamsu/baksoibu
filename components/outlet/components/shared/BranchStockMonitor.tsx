@@ -199,7 +199,7 @@ export default function BranchStockMonitor() {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
 
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editInitial, setEditInitial] = useState<number>(0);
   const [editRemaining, setEditRemaining] = useState<number>(0);
 
@@ -210,7 +210,6 @@ export default function BranchStockMonitor() {
       try {
         const u = JSON.parse(saved);
         setCurrentUser(u);
-        // Jika peran Outlet (LEADER / KASIR / CREW), kunci lokasi ke outlet bertugas
         if (u.role === 'LEADER' || u.role === 'KASIR' || u.role === 'CREW') {
           if (u.location_id) setSelectedLocation(u.location_id);
         }
@@ -228,27 +227,13 @@ export default function BranchStockMonitor() {
     setLoading(true);
     try {
       const { data: locs } = await supabase.from('locations').select('*');
-      if (locs) {
-        setLocations(locs);
-        // Jika Admin, default pilihan bisa ke BTP atau gabungan BTP & Perintis
-        if (isAdmin && selectedLocation === 'all') {
-          // Tetap 'all', tapi list terfilter khusus BTP & Perintis
-        }
-      }
+      if (locs) setLocations(locs);
 
       const { data: masterItems } = await supabase.from('items').select('name, category, uom');
-      const itemMetaMap: Record<string, { category: string; uom: string }> = {};
-      (masterItems || []).forEach((m) => {
-        itemMetaMap[m.name] = {
-          category: m.category || 'Lain-lain',
-          uom: m.uom || 'Pcs',
-        };
-      });
-
+      
       const { data: stocks, error: stockErr } = await supabase
         .from('branch_stocks')
-        .select('*, locations(name)')
-        .order('item_name');
+        .select('*, locations(name)');
 
       if (stockErr) throw stockErr;
 
@@ -263,39 +248,48 @@ export default function BranchStockMonitor() {
         .select('item_name, remaining_stock, waste_qty, location_id, reported_by, created_at')
         .eq('closing_date', today);
 
-      const computed: MovementRow[] = (stocks || []).map((s: any) => {
-        const totalReceived = (recData || [])
-          .filter((r) => r.location_id === s.location_id && r.item_name === s.item_name)
-          .reduce((acc, curr) => acc + Number(curr.quantity || 0), 0);
+      // Pastikan SEMUA cabang (BTP & Perintis) memiliki baris untuk setiap master item
+      const computed: MovementRow[] = [];
 
-        const closingRecord = (closingData || []).find(
-          (c) => c.location_id === s.location_id && c.item_name === s.item_name
-        );
+      (locs || []).forEach((loc) => {
+        (masterItems || []).forEach((item) => {
+          const s = (stocks || []).find(
+            (st: any) => st.location_id === loc.id && st.item_name === item.name
+          );
 
-        const init = Number(s.initial_stock || 0);
-        const remain = closingRecord !== undefined 
-          ? Number(closingRecord.remaining_stock || 0) 
-          : Number(s.remaining_stock || 0);
+          const totalReceived = (recData || [])
+            .filter((r) => r.location_id === loc.id && r.item_name === item.name)
+            .reduce((acc, curr) => acc + Number(curr.quantity || 0), 0);
 
-        const waste = closingRecord !== undefined ? Number(closingRecord.waste_qty || 0) : 0;
-        const calculatedUsage = (init + totalReceived) - remain - waste;
-        const usage = Math.max(0, calculatedUsage);
+          const closingRecord = (closingData || []).find(
+            (c) => c.location_id === loc.id && c.item_name === item.name
+          );
 
-        return {
-          id: s.id,
-          item_name: s.item_name,
-          category: itemMetaMap[s.item_name]?.category || 'Lain-lain',
-          location_id: s.location_id,
-          location_name: s.locations?.name || 'Cabang',
-          initial_stock: init,
-          received_stock: totalReceived,
-          remaining_stock: remain,
-          waste_qty: waste,
-          usage_qty: usage,
-          unit: s.unit || itemMetaMap[s.item_name]?.uom || 'Pcs',
-          updated_at: closingRecord?.created_at || s.updated_at,
-          updated_by: closingRecord?.reported_by || s.updated_by || 'Sistem',
-        };
+          const init = Number(s?.initial_stock || 0);
+          const remain = closingRecord !== undefined 
+            ? Number(closingRecord.remaining_stock || 0) 
+            : Number(s?.remaining_stock || 0);
+
+          const waste = closingRecord !== undefined ? Number(closingRecord.waste_qty || 0) : 0;
+          const calculatedUsage = (init + totalReceived) - remain - waste;
+          const usage = Math.max(0, calculatedUsage);
+
+          computed.push({
+            id: s?.id || `${loc.id}_${item.name}`,
+            item_name: item.name,
+            category: item.category || 'Lain-lain',
+            location_id: loc.id,
+            location_name: loc.name || 'Cabang',
+            initial_stock: init,
+            received_stock: totalReceived,
+            remaining_stock: remain,
+            waste_qty: waste,
+            usage_qty: usage,
+            unit: s?.unit || item.uom || 'Pcs',
+            updated_at: closingRecord?.created_at || s?.updated_at || '',
+            updated_by: closingRecord?.reported_by || s?.updated_by || 'Belum diisi',
+          });
+        });
       });
 
       setDataList(computed);
@@ -310,10 +304,7 @@ export default function BranchStockMonitor() {
     fetchLiveStockMovement();
   }, []);
 
-  // Filter daftar lokasi yang boleh dilihat:
-  // - Admin: Hanya BTP dan Perintis
-  // - Owner: Semua cabang
-  // - Outlet: Terkunci pada outletnya sendiri
+  // Filter daftar lokasi yang boleh dilihat
   const allowedLocations = useMemo(() => {
     if (isAdmin) {
       return locations.filter((l) => /btp|perintis/i.test(l.name));
@@ -322,12 +313,11 @@ export default function BranchStockMonitor() {
   }, [locations, isAdmin]);
 
   const handleStartEdit = (row: MovementRow) => {
-    // Validasi: Kru/Leader hanya boleh edit cabang tempat bertugas
     if (isOutletStaff && row.location_id !== currentUser?.location_id) {
       alert('Anda hanya berhak mengoreksi stok di outlet Anda sendiri.');
       return;
     }
-    setEditingId(row.id);
+    setEditingKey(`${row.location_id}_${row.item_name}`);
     setEditInitial(row.initial_stock);
     setEditRemaining(row.remaining_stock);
   };
@@ -336,18 +326,24 @@ export default function BranchStockMonitor() {
     try {
       const editorName = currentUser?.active_staff_name || currentUser?.username || 'Petugas';
 
+      // Gunakan UPSERT agar jika barang belum ada di Perintis, langsung otomatis dibuat
       const { error } = await supabase
         .from('branch_stocks')
-        .update({
-          initial_stock: editInitial,
-          remaining_stock: editRemaining,
-          updated_at: new Date().toISOString(),
-          updated_by: `${editorName} (Koreksi)`,
-        })
-        .eq('id', row.id);
+        .upsert(
+          {
+            location_id: row.location_id,
+            item_name: row.item_name,
+            initial_stock: editInitial,
+            remaining_stock: editRemaining,
+            unit: row.unit,
+            updated_at: new Date().toISOString(),
+            updated_by: `${editorName} (Koreksi)`,
+          },
+          { onConflict: 'location_id, item_name' }
+        );
 
       if (error) throw error;
-      setEditingId(null);
+      setEditingKey(null);
       fetchLiveStockMovement();
     } catch (err: any) {
       alert('Gagal menyimpan koreksi: ' + err.message);
@@ -356,12 +352,12 @@ export default function BranchStockMonitor() {
 
   const filteredData = useMemo(() => {
     return dataList.filter((item) => {
-      // 1. Filter Role Outlet: Hanya outlet bertugas
+      // 1. Filter Role Outlet: Hanya cabang bertugas
       if (isOutletStaff && currentUser?.location_id) {
         if (item.location_id !== currentUser.location_id) return false;
       }
 
-      // 2. Filter Role Admin: Hanya cabang BTP dan Perintis
+      // 2. Filter Role Admin: Hanya BTP dan Perintis
       if (isAdmin) {
         const isBtpOrPerintis = /btp|perintis/i.test(item.location_name);
         if (!isBtpOrPerintis) return false;
@@ -420,13 +416,11 @@ export default function BranchStockMonitor() {
         <div className="flex items-center gap-2.5 w-full sm:w-auto">
           {/* Pilihan Cabang */}
           {isOutletStaff ? (
-            // Jika Crew/Leader: Dikunci pada cabang loginnya saja
             <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-600">
               <Lock className="w-3.5 h-3.5 text-indigo-600" />
               <span>Outlet {currentUser?.location_name || 'Terkunci'}</span>
             </div>
           ) : (
-            // Admin (Hanya BTP & Perintis) atau Owner (Semua)
             <div className="relative flex-1 sm:w-56">
               <MapPin className="absolute left-3.5 top-3 w-3.5 h-3.5 text-slate-400" />
               <select
@@ -495,7 +489,7 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* Kartu Analisa Internal */}
+      {/* Kartu Analisa */}
       <div className="p-5 border-b border-slate-100 bg-slate-50/50">
         <StockUsageAnalyticsView data={filteredData} />
       </div>
@@ -567,16 +561,16 @@ export default function BranchStockMonitor() {
                   </tr>
 
                   {groupList.map((row) => {
-                    const isEditing = editingId === row.id;
+                    const rowKey = `${row.location_id}_${row.item_name}`;
+                    const isEditing = editingKey === rowKey;
                     const formattedDate = row.updated_at 
                       ? new Date(row.updated_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })
                       : '-';
 
-                    // Cek hak izin koreksi per baris
                     const canEdit = !isOutletStaff || (isOutletStaff && row.location_id === currentUser?.location_id);
 
                     return (
-                      <tr key={row.id} className="hover:bg-slate-50/60 transition-colors">
+                      <tr key={rowKey} className="hover:bg-slate-50/60 transition-colors">
                         <td className="py-3 px-4">
                           <div className="font-extrabold text-slate-800">{row.item_name}</div>
                           <div className="text-[10px] text-slate-400 font-medium">
@@ -646,7 +640,7 @@ export default function BranchStockMonitor() {
                                 <Check className="w-3.5 h-3.5" />
                               </button>
                               <button
-                                onClick={() => setEditingId(null)}
+                                onClick={() => setEditingKey(null)}
                                 className="p-1.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-all"
                                 title="Batal"
                               >
