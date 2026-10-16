@@ -98,7 +98,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         const itemMeta = items.find((i) => i.name === itemName);
         const unit = itemMeta?.uom || 'Pcs';
 
-        // 1. Simpan riwayat penerimaan
+        // 1. Simpan ke tabel receptions (hanya mencatat transaksi masuk)
         await supabase.from('receptions').insert([
           {
             location_id: activeLocationId,
@@ -111,40 +111,21 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
           },
         ]);
 
-        // 2. Update saldo stok fisik cabang
-        const { data: existingStock } = await supabase
-          .from('branch_stocks')
-          .select('id, remaining_stock')
-          .eq('location_id', activeLocationId)
-          .eq('item_name', itemName)
-          .maybeSingle();
-
-        if (existingStock) {
-          const newStock = Number(existingStock.remaining_stock || 0) + qtyNum;
-          await supabase
-            .from('branch_stocks')
-            .update({
-              remaining_stock: newStock,
-              updated_by: activeStaffName,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingStock.id);
-        } else {
-          await supabase.from('branch_stocks').insert([
-            {
-              location_id: activeLocationId,
-              item_name: itemName,
-              initial_stock: qtyNum,
-              remaining_stock: qtyNum,
-              unit,
-              updated_by: activeStaffName,
-            },
-          ]);
-        }
+        // 2. Perbarui catatan updated_by dan updated_at di branch_stocks TANPA mengubah remaining_stock
+        await supabase.from('branch_stocks').upsert(
+          {
+            location_id: activeLocationId,
+            item_name: itemName,
+            unit,
+            updated_by: `${activeStaffName} (Terima Barang)`,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'location_id, item_name', ignoreDuplicates: false }
+        );
       }
 
       setMessage({
-        text: `Sukses menerima dan menambahkan ${validEntries.length} barang ke stok cabang!`,
+        text: `Sukses mencatat ${validEntries.length} barang masuk dari ${source}!`,
         type: 'success',
       });
       setQuantities({});
@@ -169,7 +150,6 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         </button>
       )}
 
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-slate-100 gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
@@ -202,7 +182,6 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         </div>
       )}
 
-      {/* Modern Source Selector */}
       <div className="mb-6">
         <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
           Asal Barang / Sumber Pengiriman
@@ -233,7 +212,6 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         </div>
       </div>
 
-      {/* Search & Categories */}
       <div className="space-y-3 mb-6">
         <div className="relative">
           <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
@@ -264,7 +242,6 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         </div>
       </div>
 
-      {/* Table Form */}
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-[30rem] overflow-y-auto">
           <table className="w-full text-left border-collapse text-xs">
