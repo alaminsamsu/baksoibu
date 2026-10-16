@@ -45,92 +45,71 @@ export default function LoginPage() {
     try {
       const cleanUser = username.trim().toLowerCase();
       const cleanPass = password.trim();
-      const loc = locations.find((l) => l.id === selectedLocation);
-
-      // Cek ke tabel users di Supabase jika ada
-      let dbUser: any = null;
-      try {
-        const { data } = await supabase
-          .from('users')
-          .select('*')
-          .ilike('username', cleanUser)
-          .maybeSingle();
-        dbUser = data;
-      } catch (err) {
-        // Lewati jika tabel users belum diset
-      }
+      const defaultLoc = locations[0]?.id || '';
+      const loc = locations.find((l) => l.id === selectedLocation) || locations[0];
 
       // ==========================================
-      // 1. LOGIN OWNER (Password: 123456)
+      // 1. LOGIN OWNER (Simpel: Langsung masuk ke Dashboard Utama)
       // ==========================================
       if (roleType === 'owner') {
-        const isDefaultOwner = cleanUser === 'owner' && (cleanPass === '123456' || cleanPass === 'owner123' || cleanPass === '');
-        const isDbOwner = dbUser && (dbUser.password === cleanPass || cleanPass === '123456');
-
-        if (!isDefaultOwner && !isDbOwner && cleanUser !== 'owner') {
-          throw new Error('ID atau Password Owner salah. Gunakan ID: owner | Pass: 123456');
+        if (cleanPass !== '123456' && cleanPass !== '') {
+          throw new Error('Password Owner salah. Password default: 123456');
         }
 
         const sessionData = {
-          username: dbUser?.username || 'owner',
-          active_staff_name: dbUser?.name || 'Owner Bakso Ibu',
+          username: 'owner',
+          active_staff_name: 'Owner (Pemilik)',
           role: 'OWNER',
-          location_id: null,
-          location_name: 'Semua Cabang (Pusat)',
+          location_id: defaultLoc,
+          location_name: 'Pusat (Semua Cabang)',
         };
         localStorage.setItem('baksoibu_active_staff', JSON.stringify(sessionData));
-        router.push('/dashboard/executive');
+        router.push('/dashboard/outlet');
         return;
       }
 
       // ==========================================
-      // 2. LOGIN ADMIN (Password: 123456)
+      // 2. LOGIN ADMIN
       // ==========================================
       if (roleType === 'admin') {
-        const isDefaultAdmin = cleanUser === 'admin' && (cleanPass === '123456' || cleanPass === 'admin123' || cleanPass === '');
-        const isDbAdmin = dbUser && (dbUser.password === cleanPass || cleanPass === '123456');
-
-        if (!isDefaultAdmin && !isDbAdmin && cleanUser !== 'admin') {
-          throw new Error('ID atau Password Admin salah. Gunakan ID: admin | Pass: 123456');
+        if (cleanPass !== '123456' && cleanPass !== '') {
+          throw new Error('Password Admin salah. Password default: 123456');
         }
 
         const sessionData = {
-          username: dbUser?.username || 'admin',
-          active_staff_name: dbUser?.name || 'Administrator',
+          username: 'admin',
+          active_staff_name: 'Admin Operasional',
           role: 'ADMIN',
-          location_id: null,
+          location_id: defaultLoc,
           location_name: 'Pusat Manajemen',
         };
         localStorage.setItem('baksoibu_active_staff', JSON.stringify(sessionData));
-        router.push('/dashboard/admin');
+        router.push('/dashboard/outlet');
         return;
       }
 
       // ==========================================
-      // 3. LOGIN RUMAH PRODUKSI (Password: 123456)
+      // 3. LOGIN RUMAH PRODUKSI
       // ==========================================
       if (roleType === 'produksi') {
-        const isDefaultProduksi = cleanUser === 'produksi' && (cleanPass === '123456' || cleanPass === 'produksi123' || cleanPass === '');
-        const isDbProduksi = dbUser && (dbUser.password === cleanPass || cleanPass === '123456');
-
-        if (!isDefaultProduksi && !isDbProduksi && cleanUser !== 'produksi') {
-          throw new Error('ID atau Password Produksi salah. Gunakan ID: produksi | Pass: 123456');
+        if (cleanPass !== '123456' && cleanPass !== '') {
+          throw new Error('Password Produksi salah. Password default: 123456');
         }
 
         const sessionData = {
-          username: dbUser?.username || 'produksi',
-          active_staff_name: dbUser?.name || 'Tim Rumah Produksi',
+          username: 'produksi',
+          active_staff_name: 'Tim Rumah Produksi',
           role: 'PRODUKSI',
-          location_id: null,
-          location_name: 'Dapur Rumah Produksi Pusat',
+          location_id: defaultLoc,
+          location_name: 'Dapur Pusat Produksi',
         };
         localStorage.setItem('baksoibu_active_staff', JSON.stringify(sessionData));
-        router.push('/dashboard/admin');
+        router.push('/dashboard/outlet');
         return;
       }
 
       // ==========================================
-      // 4. LOGIN OUTLET (Leader, Kasir, Crew)
+      // 4. LOGIN OUTLET (Leader / Kasir / Crew)
       // ==========================================
       if (roleType === 'outlet') {
         if (!username.trim()) {
@@ -140,7 +119,7 @@ export default function LoginPage() {
         const sessionData = {
           username: username.trim(),
           active_staff_name: `${username.trim()} (${outletRole})`,
-          location_id: selectedLocation || (locations[0]?.id ?? ''),
+          location_id: selectedLocation || defaultLoc,
           location_name: loc?.name?.replace(/Outlet\s+/i, '') || 'BTP',
           role: outletRole,
         };
@@ -148,7 +127,7 @@ export default function LoginPage() {
         router.push('/dashboard/outlet');
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Gagal masuk. Periksa kembali ID dan Password.');
+      setErrorMsg(err.message || 'Gagal masuk ke sistem.');
     } finally {
       setLoading(false);
     }
@@ -164,7 +143,7 @@ export default function LoginPage() {
           </div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Bakso Ibu ERP</h1>
           <p className="text-xs font-semibold text-slate-400 mt-1">
-            Portal Operasional Multi-Divisi
+            Sistem Inventori, Order, dan Monitoring Outlet
           </p>
         </div>
 
@@ -193,7 +172,7 @@ export default function LoginPage() {
             onClick={() => {
               setRoleType('produksi');
               setUsername('produksi');
-              setPassword('');
+              setPassword('123456');
               setErrorMsg('');
             }}
             className={`py-2 rounded-xl transition-all flex flex-col items-center gap-1 ${
@@ -211,7 +190,7 @@ export default function LoginPage() {
             onClick={() => {
               setRoleType('admin');
               setUsername('admin');
-              setPassword('');
+              setPassword('123456');
               setErrorMsg('');
             }}
             className={`py-2 rounded-xl transition-all flex flex-col items-center gap-1 ${
@@ -229,7 +208,7 @@ export default function LoginPage() {
             onClick={() => {
               setRoleType('owner');
               setUsername('owner');
-              setPassword('');
+              setPassword('123456');
               setErrorMsg('');
             }}
             className={`py-2 rounded-xl transition-all flex flex-col items-center gap-1 ${
@@ -263,7 +242,7 @@ export default function LoginPage() {
           )}
 
           <form onSubmit={handleLogin} className="space-y-4">
-            {/* Bagian Khusus Outlet */}
+            {/* Opsi khusus Outlet: Pilihan Cabang & Peran */}
             {roleType === 'outlet' && (
               <>
                 <div>
@@ -307,10 +286,10 @@ export default function LoginPage() {
               </>
             )}
 
-            {/* Field ID / Username */}
+            {/* Field Username */}
             <div>
               <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
-                {roleType === 'outlet' ? 'Nama Petugas' : 'ID / Username'}
+                {roleType === 'outlet' ? 'Nama Petugas' : 'ID Akun'}
               </label>
               <div className="relative">
                 <User className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
@@ -320,13 +299,7 @@ export default function LoginPage() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder={
-                    roleType === 'outlet'
-                      ? 'Contoh: Lisa'
-                      : roleType === 'produksi'
-                      ? 'produksi'
-                      : roleType === 'admin'
-                      ? 'admin'
-                      : 'owner'
+                    roleType === 'outlet' ? 'Contoh: Lisa' : roleType
                   }
                   className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
                 />
@@ -336,7 +309,7 @@ export default function LoginPage() {
             {/* Field Password */}
             <div>
               <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
-                Password / PIN {roleType === 'outlet' ? '(Opsional)' : ''}
+                Password {roleType === 'outlet' ? '(Opsional)' : ''}
               </label>
               <div className="relative">
                 <Lock className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
@@ -362,18 +335,15 @@ export default function LoginPage() {
                   : 'bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-700 hover:to-indigo-600 shadow-indigo-600/25'
               }`}
             >
-              <span>{loading ? 'Memverifikasi...' : 'Masuk ke Sistem'}</span>
+              <span>{loading ? 'Memverifikasi...' : 'Masuk ke Dashboard'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
         </div>
 
-        {/* Info Kredensial */}
-        <div className="mt-4 text-center">
-          <p className="text-[11px] text-slate-400 font-medium">
-            Password semua akun manajemen: <code className="text-slate-700 font-extrabold bg-slate-100 px-2 py-0.5 rounded-md">123456</code>
-          </p>
-        </div>
+        <p className="text-center text-[11px] font-semibold text-slate-400 mt-6">
+          Password Default: <strong className="text-slate-600">123456</strong>
+        </p>
       </div>
     </div>
   );
