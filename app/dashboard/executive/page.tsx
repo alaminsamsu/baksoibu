@@ -1,231 +1,417 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { 
-  Briefcase, 
+  Crown, 
   LogOut, 
-  ShoppingBag, 
+  Store, 
+  DollarSign, 
+  Calendar, 
+  QrCode, 
+  Banknote, 
   Activity, 
-  RefreshCw,
-  MapPin,
-  Calendar,
-  UserCheck
+  RefreshCw, 
+  MapPin, 
+  TrendingUp, 
+  AlertCircle, 
+  ExternalLink,
+  ChevronDown
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 
-export default function AdminDashboardPage() {
+interface SettlementRecord {
+  id: string;
+  location_id: string;
+  settlement_date: string;
+  cash_nominal: number;
+  qris_nominal: number;
+  online_nominal: number;
+  total_omset: number;
+  actual_cash_deposited: number;
+  cash_difference: number;
+  proof_photo_url: string | null;
+  notes: string | null;
+  reported_by: string;
+  locations?: { name: string };
+}
+
+export default function ExecutiveDashboard() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'monitor' | 'orders'>('monitor');
-  const [orderRequests, setOrderRequests] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
-  const [selectedLoc, setSelectedLoc] = useState('all');
-  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'omset' | 'stok'>('omset');
+  
+  // State Filter Keuangan & Kalender
+  const [filterMode, setFilterMode] = useState<'today' | 'weekly' | 'monthly' | 'custom'>('today');
+  const [customDate, setCustomDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedLocation, setSelectedLocation] = useState<string>('all');
+  
+  const [settlements, setSettlements] = useState<SettlementRecord[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  useEffect(() => {
-    const saved = localStorage.getItem('baksoibu_active_staff');
-    if (saved) {
-      try {
-        setUser(JSON.parse(saved));
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    fetchOrders();
-  }, []);
-
-  const fetchOrders = async () => {
+  // Ambil Data Lokasi & Setoran
+  const fetchFinancialData = async () => {
     setLoading(true);
     try {
-      const { data: locs } = await supabase.from('locations').select('*');
+      const { data: locs } = await supabase.from('locations').select('*').order('name');
       if (locs) setLocations(locs);
 
-      const { data: orders } = await supabase
-        .from('order_requests')
+      let query = supabase
+        .from('cash_settlements')
         .select('*, locations(name)')
-        .order('created_at', { ascending: false });
+        .order('settlement_date', { ascending: false });
 
-      if (orders) setOrderRequests(orders);
+      const today = new Date();
+      if (filterMode === 'today') {
+        const todayStr = today.toISOString().split('T')[0];
+        query = query.eq('settlement_date', todayStr);
+      } else if (filterMode === 'weekly') {
+        const past7 = new Date();
+        past7.setDate(today.getDate() - 7);
+        query = query.gte('settlement_date', past7.toISOString().split('T')[0]);
+      } else if (filterMode === 'monthly') {
+        const past30 = new Date();
+        past30.setDate(today.getDate() - 30);
+        query = query.gte('settlement_date', past30.toISOString().split('T')[0]);
+      } else if (filterMode === 'custom') {
+        query = query.eq('settlement_date', customDate);
+      }
+
+      if (selectedLocation !== 'all') {
+        query = query.eq('location_id', selectedLocation);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      if (data) setSettlements(data);
     } catch (err) {
-      console.error(err);
+      console.error('Gagal mengambil data keuangan:', err);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchFinancialData();
+  }, [filterMode, customDate, selectedLocation]);
 
   const handleLogout = () => {
     localStorage.removeItem('baksoibu_active_staff');
     router.push('/login');
   };
 
-  const filteredOrders = selectedLoc === 'all'
-    ? orderRequests
-    : orderRequests.filter((o) => o.location_id === selectedLoc);
+  // Ringkasan Finansial Akumulatif
+  const metrics = useMemo(() => {
+    const totalOmset = settlements.reduce((acc, curr) => acc + Number(curr.total_omset || 0), 0);
+    const totalCash = settlements.reduce((acc, curr) => acc + Number(curr.cash_nominal || 0), 0);
+    const totalQris = settlements.reduce((acc, curr) => acc + Number(curr.qris_nominal || 0), 0);
+    const totalOnline = settlements.reduce((acc, curr) => acc + Number(curr.online_nominal || 0), 0);
+    const totalDiff = settlements.reduce((acc, curr) => acc + Number(curr.cash_difference || 0), 0);
+    return { totalOmset, totalCash, totalQris, totalOnline, totalDiff };
+  }, [settlements]);
 
   return (
-    <div className="min-h-screen bg-[#f8f9fd] text-slate-800 flex flex-col font-sans">
-      {/* Navbar Header */}
+    <div className="min-h-screen bg-[#f8f9fd] text-slate-800 font-sans flex flex-col">
+      {/* Top Navbar Header */}
       <header className="max-w-6xl w-full mx-auto px-4 sm:px-6 pt-5 pb-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center shadow-md shadow-indigo-200">
-            <Briefcase className="w-5 h-5" />
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-[#ff6f3c] to-orange-500 text-white flex items-center justify-center shadow-md shadow-orange-500/20">
+            <Crown className="w-5 h-5" />
           </div>
           <div>
             <h1 className="text-base font-black tracking-tight text-slate-900 leading-none">
-              Bakso Ibu Admin Operasional
+              Bakso Ibu Executive Owner
             </h1>
             <p className="text-[11px] font-semibold text-slate-400 mt-1">
-              Pusat Pengawasan Stok, Koreksi & Audit Logistik
+              Pantauan Omset Kasir, Performa Finansial & Inventori
             </p>
           </div>
         </div>
 
-        {/* Tab Navigasi Admin */}
-        <div className="flex items-center gap-1 bg-white px-3 py-1.5 rounded-full shadow-sm shadow-slate-200/60 border border-slate-100 text-xs font-bold text-slate-500">
+        {/* Tab Navigasi Owner */}
+        <div className="flex items-center gap-1 bg-white px-3 py-1.5 rounded-full shadow-xs border border-slate-100 text-xs font-bold text-slate-500">
           <button
-            onClick={() => setActiveTab('monitor')}
+            onClick={() => setActiveTab('omset')}
             className={`px-3.5 py-1 rounded-full transition-all flex items-center gap-1.5 ${
-              activeTab === 'monitor' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:text-slate-800'
+              activeTab === 'omset' ? 'bg-[#ff6f3c] text-white shadow-sm' : 'hover:text-slate-800'
+            }`}
+          >
+            <DollarSign className="w-3.5 h-3.5" />
+            Laporan Omset
+          </button>
+          <button
+            onClick={() => setActiveTab('stok')}
+            className={`px-3.5 py-1 rounded-full transition-all flex items-center gap-1.5 ${
+              activeTab === 'stok' ? 'bg-[#ff6f3c] text-white shadow-sm' : 'hover:text-slate-800'
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            Monitor & Koreksi Stok
-          </button>
-          <button
-            onClick={() => setActiveTab('orders')}
-            className={`px-3.5 py-1 rounded-full transition-all flex items-center gap-1.5 ${
-              activeTab === 'orders' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:text-slate-800'
-            }`}
-          >
-            <ShoppingBag className="w-3.5 h-3.5" />
-            Log Permintaan Cabang
+            Pengawasan Stok
           </button>
         </div>
 
-        {/* User Info & Logout */}
-        <div className="flex items-center gap-3">
-          <div className="text-right hidden sm:block">
-            <div className="text-xs font-extrabold text-slate-900 leading-tight">
-              {user?.active_staff_name || 'Admin'}
-            </div>
-            <span className="inline-block text-[10px] font-bold text-indigo-600 uppercase tracking-wider">
-              {user?.role || 'ADMIN'}
-            </span>
-          </div>
-          <button
-            onClick={handleLogout}
-            title="Keluar"
-            className="w-9 h-9 rounded-2xl bg-white border border-slate-200/80 hover:bg-red-50 hover:border-red-200 text-slate-400 hover:text-red-600 flex items-center justify-center transition-all shadow-sm"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
+        {/* Logout */}
+        <button
+          onClick={handleLogout}
+          title="Keluar"
+          className="w-9 h-9 rounded-2xl bg-white border border-slate-200/80 hover:bg-red-50 hover:border-red-200 text-slate-400 hover:text-red-600 flex items-center justify-center transition-all shadow-xs"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
       </header>
 
-      {/* Main Content */}
+      {/* Main Body */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
-        {activeTab === 'monitor' ? (
+        {activeTab === 'stok' ? (
           <div>
             <BranchStockMonitor />
           </div>
         ) : (
-          <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm shadow-slate-200/50 space-y-5">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-slate-100">
-              <div>
-                <h2 className="text-base font-extrabold text-slate-900">
-                  Log Permintaan Masuk dari Seluruh Cabang
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Pantau pesanan bahan dan petugas cabang yang mengirim permintaan.
-                </p>
+          <div className="space-y-6">
+            {/* Filter Bar: Kalender & Pilihan Cabang */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm shadow-slate-200/40 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              {/* Opsi Mode Periode */}
+              <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 p-1.5 rounded-2xl border border-slate-100 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setFilterMode('today')}
+                  className={`px-3 py-1.5 rounded-xl transition-all ${
+                    filterMode === 'today' ? 'bg-white text-[#ff6f3c] shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Hari Ini
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterMode('weekly')}
+                  className={`px-3 py-1.5 rounded-xl transition-all ${
+                    filterMode === 'weekly' ? 'bg-white text-[#ff6f3c] shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  7 Hari (Mingguan)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterMode('monthly')}
+                  className={`px-3 py-1.5 rounded-xl transition-all ${
+                    filterMode === 'monthly' ? 'bg-white text-[#ff6f3c] shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  30 Hari (Bulanan)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterMode('custom')}
+                  className={`px-3 py-1.5 rounded-xl transition-all ${
+                    filterMode === 'custom' ? 'bg-white text-[#ff6f3c] shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Pilih Kalender
+                </button>
               </div>
 
-              <div className="flex items-center gap-2">
-                <div className="relative">
+              {/* Input Kalender Bebas & Dropdown Cabang */}
+              <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+                {filterMode === 'custom' && (
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
+                    <input
+                      type="date"
+                      value={customDate}
+                      onChange={(e) => setCustomDate(e.target.value)}
+                      className="pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+                    />
+                  </div>
+                )}
+
+                <div className="relative flex-1 md:w-48">
                   <MapPin className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
                   <select
-                    value={selectedLoc}
-                    onChange={(e) => setSelectedLoc(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+                    value={selectedLocation}
+                    onChange={(e) => setSelectedLocation(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
                   >
-                    <option value="all">Semua Outlet</option>
-                    {locations.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
+                    <option value="all">Semua Cabang</option>
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <button
-                  onClick={fetchOrders}
-                  className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-100"
+                  onClick={fetchFinancialData}
+                  className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-100 transition-colors"
+                  title="Segarkan Data"
                 >
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                 </button>
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                  <tr>
-                    <th className="py-3 px-4">Waktu & Outlet</th>
-                    <th className="py-3 px-3">Petugas Pengaju</th>
-                    <th className="py-3 px-3">Nama Barang</th>
-                    <th className="py-3 px-3 text-right">Jumlah</th>
-                    <th className="py-3 px-3 text-center">Status Produksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {loading ? (
+            {/* 4 Kartu Metrik Keuangan Eksekutif */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
+                <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
+                  <span>Total Omset Bersih</span>
+                  <TrendingUp className="w-4 h-4 text-emerald-600" />
+                </div>
+                <p className="text-2xl font-black text-slate-900 mt-2">
+                  Rp {metrics.totalOmset.toLocaleString('id-ID')}
+                </p>
+                <span className="text-[10px] text-slate-400 font-medium">Akumulasi seluruh transaksi</span>
+              </div>
+
+              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
+                <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
+                  <span>Total Uang Tunai (Cash)</span>
+                  <Banknote className="w-4 h-4 text-emerald-600" />
+                </div>
+                <p className="text-2xl font-black text-emerald-700 mt-2">
+                  Rp {metrics.totalCash.toLocaleString('id-ID')}
+                </p>
+                <span className="text-[10px] text-slate-400 font-medium">Uang laci kasir cabang</span>
+              </div>
+
+              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
+                <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
+                  <span>QRIS & Delivery App</span>
+                  <QrCode className="w-4 h-4 text-indigo-600" />
+                </div>
+                <p className="text-2xl font-black text-indigo-600 mt-2">
+                  Rp {(metrics.totalQris + metrics.totalOnline).toLocaleString('id-ID')}
+                </p>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  QRIS: Rp {metrics.totalQris.toLocaleString('id-ID')} • App: Rp {metrics.totalOnline.toLocaleString('id-ID')}
+                </span>
+              </div>
+
+              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
+                <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
+                  <span>Selisih Setoran Fisik</span>
+                  <AlertCircle className={`w-4 h-4 ${metrics.totalDiff < 0 ? 'text-red-500' : 'text-emerald-500'}`} />
+                </div>
+                <p className={`text-2xl font-black mt-2 ${metrics.totalDiff < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                  {metrics.totalDiff < 0 ? `-Rp ${Math.abs(metrics.totalDiff).toLocaleString('id-ID')}` : `Rp ${metrics.totalDiff.toLocaleString('id-ID')}`}
+                </p>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  {metrics.totalDiff === 0 ? 'Klop (Tidak ada selisih)' : metrics.totalDiff < 0 ? 'Terdapat uang setoran kurang' : 'Kelebihan kas'}
+                </span>
+              </div>
+            </div>
+
+            {/* Tabel Rincian Data Tutup Kas per Cabang */}
+            <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm shadow-slate-200/40 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <h2 className="text-sm font-black text-slate-900">Rincian Laporan Setoran Kasir Harian</h2>
+                  <p className="text-xs text-slate-400">Jejak pelaporan kasir, rincian pembayaran, dan verifikasi bukti foto.</p>
+                </div>
+                <span className="text-xs font-bold px-3 py-1 bg-orange-50 text-[#ff6f3c] rounded-full">
+                  {settlements.length} Laporan Ditemukan
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
                     <tr>
-                      <td colSpan={5} className="py-10 text-center text-slate-400 font-medium">
-                        Memuat data pesanan...
-                      </td>
+                      <th className="py-3 px-4">Tanggal & Outlet</th>
+                      <th className="py-3 px-3">Kasir Bertugas</th>
+                      <th className="py-3 px-3 text-right">Cash</th>
+                      <th className="py-3 px-3 text-right">QRIS</th>
+                      <th className="py-3 px-3 text-right">Online App</th>
+                      <th className="py-3 px-3 text-right font-black text-slate-900">Total Omset</th>
+                      <th className="py-3 px-3 text-right">Uang Fisik Disetor</th>
+                      <th className="py-3 px-3 text-center">Selisih</th>
+                      <th className="py-3 px-4 text-center">Bukti Foto</th>
                     </tr>
-                  ) : filteredOrders.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-10 text-center text-slate-400 font-medium">
-                        Belum ada order masuk dari outlet.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredOrders.map((ord) => (
-                      <tr key={ord.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="py-3 px-4">
-                          <div className="font-extrabold text-slate-800">
-                            {ord.locations?.name || 'Outlet'}
-                          </div>
-                          <div className="text-[10px] text-slate-400">
-                            {new Date(ord.created_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })}
-                          </div>
-                        </td>
-                        <td className="py-3 px-3 font-semibold text-slate-700">
-                          {ord.requested_by || 'Petugas Outlet'}
-                        </td>
-                        <td className="py-3 px-3 font-bold text-slate-900">{ord.item_name}</td>
-                        <td className="py-3 px-3 text-right font-black text-indigo-600">
-                          {ord.quantity} {ord.unit}
-                        </td>
-                        <td className="py-3 px-3 text-center">
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                            ord.status === 'completed'
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : ord.status === 'processing'
-                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                              : 'bg-orange-50 text-orange-600 border border-orange-200'
-                          }`}>
-                            {ord.status || 'pending'}
-                          </span>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {loading ? (
+                      <tr>
+                        <td colSpan={9} className="py-12 text-center text-slate-400 font-medium">
+                          Memuat data laporan setoran...
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : settlements.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="py-12 text-center text-slate-400 font-medium">
+                          Tidak ada rekaman omset pada periode atau tanggal yang dipilih.
+                        </td>
+                      </tr>
+                    ) : (
+                      settlements.map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="py-3 px-4">
+                            <div className="font-extrabold text-slate-900">
+                              {item.locations?.name || 'Cabang'}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-medium">
+                              {new Date(item.settlement_date).toLocaleDateString('id-ID', {
+                                weekday: 'short',
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric',
+                              })}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 font-semibold text-slate-700">
+                            {item.reported_by}
+                          </td>
+                          <td className="py-3 px-3 text-right font-semibold text-slate-800">
+                            Rp {Number(item.cash_nominal || 0).toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-3 px-3 text-right font-semibold text-slate-800">
+                            Rp {Number(item.qris_nominal || 0).toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-3 px-3 text-right font-semibold text-slate-800">
+                            Rp {Number(item.online_nominal || 0).toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-3 px-3 text-right font-black text-[#ff6f3c] bg-orange-50/30">
+                            Rp {Number(item.total_omset || 0).toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-3 px-3 text-right font-bold text-slate-900">
+                            Rp {Number(item.actual_cash_deposited || 0).toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            {Number(item.cash_difference || 0) === 0 ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700">
+                                Pas (Rp 0)
+                              </span>
+                            ) : Number(item.cash_difference || 0) < 0 ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-50 text-red-600">
+                                Kurang Rp {Math.abs(Number(item.cash_difference)).toLocaleString('id-ID')}
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-50 text-blue-600">
+                                +Rp {Number(item.cash_difference).toLocaleString('id-ID')}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            {item.proof_photo_url ? (
+                              <a
+                                href={item.proof_photo_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl font-bold text-[10px] transition-colors"
+                              >
+                                <span>Lihat Struk</span>
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-slate-300 font-medium">Tanpa Foto</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
