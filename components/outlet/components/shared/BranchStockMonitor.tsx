@@ -25,7 +25,6 @@ export default function BranchStockMonitor() {
   const [selectedLocation, setSelectedLocation] = useState('all');
   const [loading, setLoading] = useState(true);
 
-  // State untuk form edit cepat
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editInitial, setEditInitial] = useState<number>(0);
   const [editRemaining, setEditRemaining] = useState<number>(0);
@@ -36,7 +35,6 @@ export default function BranchStockMonitor() {
       const { data: locs } = await supabase.from('locations').select('*');
       if (locs) setLocations(locs);
 
-      // Ambil data branch_stocks
       const { data: stocks, error: stockErr } = await supabase
         .from('branch_stocks')
         .select('*, locations(name)')
@@ -44,14 +42,12 @@ export default function BranchStockMonitor() {
 
       if (stockErr) throw stockErr;
 
-      // Ambil akumulasi penerimaan hari ini
       const today = new Date().toISOString().split('T')[0];
       const { data: recData } = await supabase
         .from('receptions')
         .select('item_name, quantity, location_id')
         .gte('created_at', `${today}T00:00:00Z`);
 
-      // Ambil waste dari daily_closings hari ini
       const { data: closingData } = await supabase
         .from('daily_closings')
         .select('item_name, waste_qty, location_id')
@@ -128,13 +124,11 @@ export default function BranchStockMonitor() {
     ? dataList
     : dataList.filter((d) => d.location_id === selectedLocation);
 
-  // Hitung total insight
   const totalUsage = filteredData.reduce((acc, curr) => acc + curr.usage_qty, 0);
   const totalWaste = filteredData.reduce((acc, curr) => acc + curr.waste_qty, 0);
 
   return (
     <div className="bg-white rounded-2xl border border-neutral-200 overflow-hidden shadow-sm">
-      {/* Header & Filter */}
       <div className="p-5 border-b border-neutral-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-2.5">
           <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center border border-amber-200 text-amber-800">
@@ -177,7 +171,6 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* Ringkasan Insight Cepat */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-neutral-50/70 border-b border-neutral-100 text-xs">
         <div className="bg-white p-3 rounded-xl border border-neutral-200">
           <span className="text-neutral-500 text-[11px] font-semibold">Total Item Dipantau</span>
@@ -196,12 +189,11 @@ export default function BranchStockMonitor() {
           <p className="text-base font-extrabold text-red-700 mt-0.5">{totalWaste.toLocaleString()}</p>
         </div>
         <div className="bg-white p-3 rounded-xl border border-neutral-200">
-          <span className="text-amber-800 text-[11px] font-semibold">Status Koreksi</span>
-          <p className="text-[11px] text-neutral-600 mt-1">Leader/Admin dapat klik ikon pensil untuk revisi</p>
+          <span className="text-amber-800 text-[11px] font-semibold">Fitur Koreksi</span>
+          <p className="text-[11px] text-neutral-600 mt-1">Klik ikon pensil di tabel untuk revisi angka</p>
         </div>
       </div>
 
-      {/* Tabel Pergerakan Lengkap */}
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead>
@@ -241,7 +233,6 @@ export default function BranchStockMonitor() {
                       </div>
                     </td>
 
-                    {/* Stok Awal (Editable) */}
                     <td className="py-2.5 px-2 text-right font-medium">
                       {isEditing ? (
                         <input
@@ -256,12 +247,10 @@ export default function BranchStockMonitor() {
                       )}
                     </td>
 
-                    {/* Masuk */}
                     <td className="py-2.5 px-2 text-right font-semibold text-emerald-700">
                       +{row.received_stock}
                     </td>
 
-                    {/* Sisa Fisik (Editable) */}
                     <td className="py-2.5 px-2 text-right font-bold text-neutral-900">
                       {isEditing ? (
                         <input
@@ -276,17 +265,14 @@ export default function BranchStockMonitor() {
                       )}
                     </td>
 
-                    {/* Waste */}
                     <td className="py-2.5 px-2 text-right font-semibold text-red-600">
                       {row.waste_qty > 0 ? `-${row.waste_qty}` : '0'}
                     </td>
 
-                    {/* Pemakaian Riil Terhitung */}
                     <td className="py-2.5 px-2 text-right font-extrabold text-amber-950 bg-amber-50/50">
                       {row.usage_qty} {row.unit}
                     </td>
 
-                    {/* Tombol Koreksi */}
                     <td className="py-2.5 px-3 text-center">
                       {isEditing ? (
                         <div className="flex items-center justify-center gap-1">
