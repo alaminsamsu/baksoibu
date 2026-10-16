@@ -193,4 +193,97 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
               key={cat}
               type="button"
               onClick={() => setActiveCategory(cat)}
-              className={`px-3 py-1.5 rounded-xl text
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                activeCategory === cat
+                  ? 'bg-amber-900 text-white shadow-sm'
+                  : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="border border-neutral-200 rounded-xl overflow-hidden max-h-[28rem] overflow-y-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead className="bg-neutral-100/90 sticky top-0 border-b border-neutral-200 z-10 backdrop-blur-sm">
+              <tr className="text-neutral-700 font-bold uppercase tracking-wider">
+                <th className="py-2.5 px-3">Nama Barang</th>
+                <th className="py-2.5 px-2 text-right w-28">Sisa Bersih</th>
+                <th className="py-2.5 px-2 text-right w-28 text-red-700">Waste / Basi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-100">
+              {Object.entries(groupedItems).map(([groupName, groupList]) => (
+                <React.Fragment key={groupName}>
+                  <tr className="bg-amber-50/70 border-y border-amber-200/60">
+                    <td colSpan={3} className="py-1.5 px-3 font-bold text-amber-900 uppercase tracking-wider text-[11px]">
+                      📁 {groupName}
+                    </td>
+                  </tr>
+                  {groupList.map((item) => (
+                    <tr key={item.id} className="hover:bg-neutral-50 transition-colors">
+                      <td className="py-2 px-3 text-neutral-800">
+                        {item.name}
+                        <span className="text-[10px] text-neutral-400 ml-1">({item.uom})</span>
+                      </td>
+                      <td className="py-1.5 px-2 text-right">
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={closingStocks[item.name] || ''}
+                          onChange={(e) =>
+                            setClosingStocks({ ...closingStocks, [item.name]: e.target.value })
+                          }
+                          placeholder="0"
+                          className="w-20 px-2 py-1 text-right bg-white border border-neutral-200 rounded-lg text-xs font-bold text-neutral-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2 text-right">
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={wasteStocks[item.name] || ''}
+                          onChange={(e) =>
+                            setWasteStocks({ ...wasteStocks, [item.name]: e.target.value })
+                          }
+                          placeholder="0"
+                          className="w-20 px-2 py-1 text-right bg-red-50/40 border border-red-200 rounded-lg text-xs font-bold text-red-700 focus:outline-none focus:ring-1 focus:ring-red-500"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold text-neutral-700 uppercase tracking-wider mb-1">
+            Catatan Penjelasan Waste / Kejadian Outlet
+          </label>
+          <input
+            type="text"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Misal: 4 porsi bakso kuah tumpah, 2 sawi kuning dibuang (opsional)"
+            className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-xs font-medium text-neutral-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full py-2.5 bg-amber-900 hover:bg-amber-800 text-white text-xs font-bold rounded-xl shadow transition-all disabled:opacity-50"
+        >
+          {loading ? 'Menyimpan Closing...' : 'Simpan Laporan Closing & Opname Malam'}
+        </button>
+      </form>
+    </div>
+  );
+}
