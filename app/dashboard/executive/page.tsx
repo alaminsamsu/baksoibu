@@ -25,9 +25,13 @@ interface SettlementRecord {
   location_id: string;
   settlement_date: string;
   shift?: string;
+  opening_cash?: number;
   cash_nominal: number;
   qris_nominal: number;
   online_nominal: number;
+  grab_nominal?: number;
+  gofood_nominal?: number;
+  shopee_nominal?: number;
   expense_nominal?: number;
   expense_notes?: string;
   total_omset: number;
@@ -107,12 +111,10 @@ export default function ExecutiveDashboard() {
     const totalCash = settlements.reduce((acc, curr) => acc + Number(curr.cash_nominal || 0), 0);
     const totalQris = settlements.reduce((acc, curr) => acc + Number(curr.qris_nominal || 0), 0);
     const totalOnline = settlements.reduce((acc, curr) => acc + Number(curr.online_nominal || 0), 0);
-    const totalExpense = settlements.reduce((acc, curr) => acc + Number(curr.expense_nominal || 0), 0);
     const totalDiff = settlements.reduce((acc, curr) => acc + Number(curr.cash_difference || 0), 0);
-    return { totalOmset, totalCash, totalQris, totalOnline, totalExpense, totalDiff };
+    return { totalOmset, totalCash, totalQris, totalOnline, totalDiff };
   }, [settlements]);
 
-  // Fungsi Download Rekap Omset & Kasir ke CSV / Excel
   const handleDownloadOmsetReport = () => {
     setDownloading(true);
     try {
@@ -126,13 +128,16 @@ export default function ExecutiveDashboard() {
         'Outlet',
         'Shift',
         'Kasir Pelapor',
+        'Modal Awal Laci',
         'Tunai (Cash)',
         'QRIS / Transfer',
-        'Grab / GoFood',
+        'GrabFood',
+        'GoFood',
+        'ShopeeFood',
         'Pengeluaran Kas Kecil',
         'Rincian Pengeluaran',
         'Total Omset Bersih',
-        'Uang Fisik Disetor',
+        'Uang Fisik di Laci/Disetor',
         'Selisih Kas',
         'Catatan Kasir'
       ];
@@ -144,9 +149,12 @@ export default function ExecutiveDashboard() {
           `"${item.locations?.name || 'Outlet'}"`,
           `"${shiftLabel}"`,
           `"${item.reported_by || '-'}"`,
+          Number(item.opening_cash || 0),
           Number(item.cash_nominal || 0),
           Number(item.qris_nominal || 0),
-          Number(item.online_nominal || 0),
+          Number(item.grab_nominal || 0),
+          Number(item.gofood_nominal || 0),
+          Number(item.shopee_nominal || 0),
           Number(item.expense_nominal || 0),
           `"${(item.expense_notes || '-').replace(/"/g, '""')}"`,
           Number(item.total_omset || 0),
@@ -227,7 +235,7 @@ export default function ExecutiveDashboard() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Filter Bar & Tombol Download */}
+            {/* Filter Bar & Tombol Unduh */}
             <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm shadow-slate-200/40 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 p-1.5 rounded-2xl border border-slate-100 text-xs font-bold">
                 <button
@@ -305,7 +313,6 @@ export default function ExecutiveDashboard() {
                   <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                 </button>
 
-                {/* TOMBOL DOWNLOAD REKAP EXCEL / CSV */}
                 <button
                   onClick={handleDownloadOmsetReport}
                   disabled={downloading || settlements.length === 0}
@@ -339,7 +346,7 @@ export default function ExecutiveDashboard() {
                 <p className="text-2xl font-black text-emerald-700 mt-2">
                   Rp {metrics.totalCash.toLocaleString('id-ID')}
                 </p>
-                <span className="text-[10px] text-slate-400 font-medium">Uang laci kasir cabang</span>
+                <span className="text-[10px] text-slate-400 font-medium">Penjualan tunai kasir</span>
               </div>
 
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
@@ -357,14 +364,14 @@ export default function ExecutiveDashboard() {
 
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
                 <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
-                  <span>Selisih Setoran Fisik</span>
+                  <span>Selisih Fisik Laci</span>
                   <AlertCircle className={`w-4 h-4 ${metrics.totalDiff < 0 ? 'text-red-500' : 'text-emerald-500'}`} />
                 </div>
                 <p className={`text-2xl font-black mt-2 ${metrics.totalDiff < 0 ? 'text-red-600' : 'text-slate-800'}`}>
                   {metrics.totalDiff < 0 ? `-Rp ${Math.abs(metrics.totalDiff).toLocaleString('id-ID')}` : `Rp ${metrics.totalDiff.toLocaleString('id-ID')}`}
                 </p>
                 <span className="text-[10px] text-slate-400 font-medium">
-                  {metrics.totalDiff === 0 ? 'Klop (Tidak ada selisih)' : metrics.totalDiff < 0 ? 'Terdapat uang setoran kurang' : 'Kelebihan kas'}
+                  {metrics.totalDiff === 0 ? 'Klop (Tidak ada selisih)' : metrics.totalDiff < 0 ? 'Terdapat uang laci kurang' : 'Kelebihan kas'}
                 </span>
               </div>
             </div>
@@ -374,7 +381,7 @@ export default function ExecutiveDashboard() {
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div>
                   <h2 className="text-sm font-black text-slate-900">Rincian Laporan Setoran Kasir Harian</h2>
-                  <p className="text-xs text-slate-400">Jejak pelaporan kasir, rincian pembayaran, dan verifikasi bukti foto.</p>
+                  <p className="text-xs text-slate-400">Modal awal, rincian pembayaran (Tunai, QRIS, Grab, GoFood, Shopee), dan fisik laci.</p>
                 </div>
                 <span className="text-xs font-bold px-3 py-1 bg-orange-50 text-[#ff6f3c] rounded-full">
                   {settlements.length} Laporan Ditemukan
@@ -385,63 +392,72 @@ export default function ExecutiveDashboard() {
                 <table className="w-full text-left border-collapse text-xs">
                   <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
                     <tr>
-                      <th className="py-3 px-4">Tanggal & Outlet</th>
-                      <th className="py-3 px-3">Kasir & Shift</th>
-                      <th className="py-3 px-3 text-right">Cash</th>
-                      <th className="py-3 px-3 text-right">QRIS</th>
-                      <th className="py-3 px-3 text-right">Online</th>
-                      <th className="py-3 px-3 text-right text-orange-600">Pengeluaran</th>
+                      <th className="py-3 px-3">Tanggal & Outlet</th>
+                      <th className="py-3 px-2">Kasir / Shift</th>
+                      <th className="py-3 px-2 text-right text-indigo-700">Modal Kas</th>
+                      <th className="py-3 px-2 text-right">Cash</th>
+                      <th className="py-3 px-2 text-right">QRIS</th>
+                      <th className="py-3 px-2 text-right text-emerald-700">Grab</th>
+                      <th className="py-3 px-2 text-right text-red-600">GoFood</th>
+                      <th className="py-3 px-2 text-right text-[#ff6f3c]">Shopee</th>
+                      <th className="py-3 px-2 text-right text-orange-600">Pengeluaran</th>
                       <th className="py-3 px-3 text-right font-black text-slate-900">Total Omset</th>
-                      <th className="py-3 px-3 text-right">Uang Fisik Setor</th>
-                      <th className="py-3 px-3 text-center">Selisih</th>
-                      <th className="py-3 px-4 text-center">Bukti Foto</th>
+                      <th className="py-3 px-2 text-right">Fisik Laci</th>
+                      <th className="py-3 px-2 text-center">Selisih</th>
+                      <th className="py-3 px-3 text-center">Bukti</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {loading ? (
                       <tr>
-                        <td colSpan={10} className="py-12 text-center text-slate-400 font-medium">
+                        <td colSpan={13} className="py-12 text-center text-slate-400 font-medium">
                           Memuat data laporan setoran...
                         </td>
                       </tr>
                     ) : settlements.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="py-12 text-center text-slate-400 font-medium">
+                        <td colSpan={13} className="py-12 text-center text-slate-400 font-medium">
                           Tidak ada rekaman omset pada periode atau tanggal yang dipilih.
                         </td>
                       </tr>
                     ) : (
                       settlements.map((item) => (
                         <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
-                          <td className="py-3 px-4">
-                            <div className="font-extrabold text-slate-900">
-                              {item.locations?.name || 'Cabang'}
-                            </div>
+                          <td className="py-3 px-3">
+                            <div className="font-extrabold text-slate-900">{item.locations?.name || 'Cabang'}</div>
                             <div className="text-[10px] text-slate-400 font-medium">
                               {new Date(item.settlement_date).toLocaleDateString('id-ID', {
                                 weekday: 'short',
-                                year: 'numeric',
                                 month: 'short',
                                 day: 'numeric',
                               })}
                             </div>
                           </td>
-                          <td className="py-3 px-3">
+                          <td className="py-3 px-2">
                             <div className="font-semibold text-slate-800">{item.reported_by}</div>
                             <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 mt-0.5">
                               {item.shift === 'SHIFT_2' ? 'Shift 2' : 'Shift 1'}
                             </span>
                           </td>
-                          <td className="py-3 px-3 text-right font-semibold text-slate-800">
+                          <td className="py-3 px-2 text-right font-bold text-indigo-700">
+                            Rp {Number(item.opening_cash || 0).toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-3 px-2 text-right font-semibold text-slate-800">
                             Rp {Number(item.cash_nominal || 0).toLocaleString('id-ID')}
                           </td>
-                          <td className="py-3 px-3 text-right font-semibold text-slate-800">
+                          <td className="py-3 px-2 text-right font-semibold text-slate-800">
                             Rp {Number(item.qris_nominal || 0).toLocaleString('id-ID')}
                           </td>
-                          <td className="py-3 px-3 text-right font-semibold text-slate-800">
-                            Rp {Number(item.online_nominal || 0).toLocaleString('id-ID')}
+                          <td className="py-3 px-2 text-right font-semibold text-emerald-700">
+                            Rp {Number(item.grab_nominal || 0).toLocaleString('id-ID')}
                           </td>
-                          <td className="py-3 px-3 text-right font-semibold text-orange-600">
+                          <td className="py-3 px-2 text-right font-semibold text-red-600">
+                            Rp {Number(item.gofood_nominal || 0).toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-3 px-2 text-right font-semibold text-[#ff6f3c]">
+                            Rp {Number(item.shopee_nominal || 0).toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-3 px-2 text-right font-semibold text-orange-600">
                             {Number(item.expense_nominal || 0) > 0 
                               ? `-Rp ${Number(item.expense_nominal).toLocaleString('id-ID')}` 
                               : 'Rp 0'}
@@ -449,10 +465,10 @@ export default function ExecutiveDashboard() {
                           <td className="py-3 px-3 text-right font-black text-[#ff6f3c] bg-orange-50/30">
                             Rp {Number(item.total_omset || 0).toLocaleString('id-ID')}
                           </td>
-                          <td className="py-3 px-3 text-right font-bold text-slate-900">
+                          <td className="py-3 px-2 text-right font-bold text-slate-900">
                             Rp {Number(item.actual_cash_deposited || 0).toLocaleString('id-ID')}
                           </td>
-                          <td className="py-3 px-3 text-center">
+                          <td className="py-3 px-2 text-center">
                             {Number(item.cash_difference || 0) === 0 ? (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700">
                                 Pas
@@ -467,7 +483,7 @@ export default function ExecutiveDashboard() {
                               </span>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-center">
+                          <td className="py-3 px-3 text-center">
                             {item.proof_photo_url ? (
                               <a
                                 href={item.proof_photo_url}

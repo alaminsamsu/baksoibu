@@ -9,9 +9,9 @@ import {
   CheckCircle2, 
   AlertCircle, 
   Camera, 
-  Upload, 
   Trash2, 
-  Receipt 
+  Receipt,
+  Wallet
 } from 'lucide-react';
 
 interface Props {
@@ -26,9 +26,12 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
   const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Kasir Outlet';
 
   const [shift, setShift] = useState<'SHIFT_1' | 'SHIFT_2'>('SHIFT_1');
+  const [openingCash, setOpeningCash] = useState(''); // Modal kas kasir di laci
   const [cashNominal, setCashNominal] = useState('');
   const [qrisNominal, setQrisNominal] = useState('');
-  const [onlineNominal, setOnlineNominal] = useState('');
+  const [grabNominal, setGrabNominal] = useState('');
+  const [gofoodNominal, setGofoodNominal] = useState('');
+  const [shopeeNominal, setShopeeNominal] = useState('');
   const [expenseNominal, setExpenseNominal] = useState('');
   const [expenseNotes, setExpenseNotes] = useState('');
   const [actualCashDeposited, setActualCashDeposited] = useState('');
@@ -41,21 +44,30 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // Total Omset Shift
+  // Total Omset Shift (Penjualan Bersih)
   const totalOmset = useMemo(() => {
     const c = parseFloat(cashNominal) || 0;
     const q = parseFloat(qrisNominal) || 0;
-    const o = parseFloat(onlineNominal) || 0;
-    return c + q + o;
-  }, [cashNominal, qrisNominal, onlineNominal]);
+    const g = parseFloat(grabNominal) || 0;
+    const gf = parseFloat(gofoodNominal) || 0;
+    const s = parseFloat(shopeeNominal) || 0;
+    return c + q + g + gf + s;
+  }, [cashNominal, qrisNominal, grabNominal, gofoodNominal, shopeeNominal]);
 
-  // Selisih Kas Tunai
+  // Target Fisik Kas di Laci = Modal Kas Kasir + Penjualan Tunai - Pengeluaran Kas
+  const expectedCashInDrawer = useMemo(() => {
+    const open = parseFloat(openingCash) || 0;
+    const c = parseFloat(cashNominal) || 0;
+    const exp = parseFloat(expenseNominal) || 0;
+    return open + c - exp;
+  }, [openingCash, cashNominal, expenseNominal]);
+
+  // Selisih Uang Fisik Nyata vs Target Laci
   const cashDifference = useMemo(() => {
-    if (!cashNominal && !actualCashDeposited) return 0;
-    const target = parseFloat(cashNominal) || 0;
+    if (!cashNominal && !actualCashDeposited && !openingCash) return 0;
     const actual = parseFloat(actualCashDeposited) || 0;
-    return actual - target;
-  }, [cashNominal, actualCashDeposited]);
+    return actual - expectedCashInDrawer;
+  }, [expectedCashInDrawer, actualCashDeposited, cashNominal, openingCash]);
 
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -100,13 +112,19 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
         }
       }
 
+      const totalOnline = (parseFloat(grabNominal) || 0) + (parseFloat(gofoodNominal) || 0) + (parseFloat(shopeeNominal) || 0);
+
       const { error } = await supabase.from('cash_settlements').upsert({
         location_id: activeLocationId,
         settlement_date: today,
         shift,
+        opening_cash: parseFloat(openingCash) || 0,
         cash_nominal: parseFloat(cashNominal) || 0,
         qris_nominal: parseFloat(qrisNominal) || 0,
-        online_nominal: parseFloat(onlineNominal) || 0,
+        online_nominal: totalOnline,
+        grab_nominal: parseFloat(grabNominal) || 0,
+        gofood_nominal: parseFloat(gofoodNominal) || 0,
+        shopee_nominal: parseFloat(shopeeNominal) || 0,
         expense_nominal: parseFloat(expenseNominal) || 0,
         expense_notes: expenseNotes.trim() || null,
         actual_cash_deposited: parseFloat(actualCashDeposited) || 0,
@@ -119,13 +137,16 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
       if (error) throw error;
 
       setMessage({
-        text: `Sukses menyimpan Rekap ${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'}! (Rp ${totalOmset.toLocaleString('id-ID')})`,
+        text: `Sukses menyimpan Rekap ${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'}! Total Omset: Rp ${totalOmset.toLocaleString('id-ID')}`,
         type: 'success',
       });
 
+      setOpeningCash('');
       setCashNominal('');
       setQrisNominal('');
-      setOnlineNominal('');
+      setGrabNominal('');
+      setGofoodNominal('');
+      setShopeeNominal('');
       setExpenseNominal('');
       setExpenseNotes('');
       setActualCashDeposited('');
@@ -158,12 +179,11 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
             <Banknote className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-base font-black text-slate-900 leading-tight">Rekap Omset Kasir</h2>
-            <p className="text-xs text-slate-400">Pemasukan, pengeluaran & setoran kasir</p>
+            <h2 className="text-base font-black text-slate-900 leading-tight">Rekap Omset & Kas Kasir</h2>
+            <p className="text-xs text-slate-400">Modal laci, omset tunai/online, pengeluaran & setoran</p>
           </div>
         </div>
 
-        {/* Pilihan Shift: Cukup Shift 1 / Shift 2 */}
         <div className="flex bg-slate-100 p-1 rounded-2xl text-xs font-black">
           <button
             type="button"
@@ -204,14 +224,33 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-        {/* 1. Pemasukan (Omset) */}
+        {/* 1. Modal Kas Kasir Awal */}
+        <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100">
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5 text-indigo-700 font-black">
+              <Wallet className="w-4 h-4" />
+              <label>1. Uang Kas / Modal Awal Laci Kasir</label>
+            </div>
+            <span className="text-[10px] text-indigo-500 font-semibold">Kas kecil awal shift</span>
+          </div>
+          <input
+            type="number"
+            min="0"
+            value={openingCash}
+            onChange={(e) => setOpeningCash(e.target.value)}
+            placeholder="Rp 0 (Uang kembalian awal di laci)"
+            className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+          />
+        </div>
+
+        {/* 2. Pemasukan (Omset) */}
         <div>
           <span className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
-            Pemasukan (Omset)
+            2. Pemasukan Penjualan (Omset)
           </span>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
             <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">Uang Tunai (Cash)</label>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">Tunai (Cash)</label>
               <input
                 type="number"
                 min="0"
@@ -221,6 +260,7 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
               />
             </div>
+
             <div>
               <label className="block text-[11px] font-bold text-slate-600 mb-1">QRIS / Transfer</label>
               <input
@@ -232,24 +272,49 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               />
             </div>
+
             <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">Grab / GoFood</label>
+              <label className="block text-[11px] font-bold text-emerald-700 mb-1">GrabFood</label>
               <input
                 type="number"
                 min="0"
-                value={onlineNominal}
-                onChange={(e) => setOnlineNominal(e.target.value)}
+                value={grabNominal}
+                onChange={(e) => setGrabNominal(e.target.value)}
                 placeholder="Rp 0"
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                className="w-full px-3 py-2 bg-emerald-50/40 border border-emerald-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-red-600 mb-1">GoFood</label>
+              <input
+                type="number"
+                min="0"
+                value={gofoodNominal}
+                onChange={(e) => setGofoodNominal(e.target.value)}
+                placeholder="Rp 0"
+                className="w-full px-3 py-2 bg-red-50/40 border border-red-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-red-500/20"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-[#ff6f3c] mb-1">ShopeeFood</label>
+              <input
+                type="number"
+                min="0"
+                value={shopeeNominal}
+                onChange={(e) => setShopeeNominal(e.target.value)}
+                placeholder="Rp 0"
+                className="w-full px-3 py-2 bg-orange-50/40 border border-orange-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500/20"
               />
             </div>
           </div>
         </div>
 
-        {/* 2. Pengeluaran (Bebas / Fleksibel) */}
+        {/* 3. Pengeluaran */}
         <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
           <span className="block text-[11px] font-black text-slate-500 uppercase tracking-wider">
-            Pengeluaran di Shift Ini (Opsional)
+            3. Pengeluaran / Belanja Kas di Shift Ini (Opsional)
           </span>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <input
@@ -264,20 +329,25 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
               type="text"
               value={expenseNotes}
               onChange={(e) => setExpenseNotes(e.target.value)}
-              placeholder="Keterangan pengeluaran (misal: Beli es batu / bumbu)"
+              placeholder="Keterangan pengeluaran (misal: Es batu, toge, bumbu)"
               className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500/20"
             />
           </div>
         </div>
 
-        {/* 3. Uang Fisik Disetor */}
+        {/* 4. Total Uang Tunai Fisik di Laci */}
         <div className="p-4 rounded-2xl bg-emerald-50/40 border border-emerald-100 space-y-2">
           <div className="flex justify-between items-center">
-            <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider">
-              Uang Tunai Nyata yang Disetor
-            </span>
+            <div>
+              <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider block">
+                4. Uang Tunai Fisik Riil di Laci (Wajib Ada: Rp {expectedCashInDrawer.toLocaleString('id-ID')})
+              </span>
+              <span className="text-[10px] text-slate-400">
+                Rumus: Modal Laci ({Number(openingCash || 0).toLocaleString()}) + Omset Tunai ({Number(cashNominal || 0).toLocaleString()}) - Pengeluaran ({Number(expenseNominal || 0).toLocaleString()})
+              </span>
+            </div>
             {cashDifference !== 0 && (
-              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+              <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full ${
                 cashDifference < 0 ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'
               }`}>
                 {cashDifference < 0 ? `Kurang Rp ${Math.abs(cashDifference).toLocaleString('id-ID')}` : `Lebih Rp ${cashDifference.toLocaleString('id-ID')}`}
@@ -289,12 +359,12 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
             min="0"
             value={actualCashDeposited}
             onChange={(e) => setActualCashDeposited(e.target.value)}
-            placeholder="Ketik total uang tunai yang disetor..."
+            placeholder="Ketik total uang tunai nyata hasil hitungan fisik..."
             className="w-full px-3 py-2.5 bg-white border border-emerald-200 rounded-xl font-black text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
           />
         </div>
 
-        {/* 4. Upload Bukti Foto (Auto-Compress) */}
+        {/* 5. Upload Bukti Foto (Auto-Compress) */}
         <div>
           <input
             type="file"
@@ -322,7 +392,7 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
               className="w-full py-3 border border-dashed border-slate-200 rounded-xl bg-slate-50 hover:bg-slate-100/60 flex items-center justify-center gap-2 text-slate-500 transition-colors"
             >
               <Camera className="w-4 h-4 text-slate-400" />
-              <span className="font-bold">Foto Struk / Nota (Opsional)</span>
+              <span className="font-bold">Foto Struk EDC / Ringkasan Grab-Gojek-Shopee (Opsional)</span>
             </button>
           )}
         </div>
@@ -332,18 +402,18 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
           type="text"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Catatan tambahan (opsional)"
+          placeholder="Catatan kasir tambahan (opsional)"
           className="w-full px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl font-semibold text-slate-800 focus:outline-none"
         />
 
-        {/* Tombol Simpan */}
+        {/* Tombol Simpan Rekap */}
         <button
           type="submit"
           disabled={loading || totalOmset <= 0}
           className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50"
         >
           <Receipt className="w-4 h-4" />
-          <span>{loading ? 'Menyimpan...' : `Simpan Rekap ${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'} (Rp ${totalOmset.toLocaleString('id-ID')})`}</span>
+          <span>{loading ? 'Menyimpan...' : `Simpan Rekap ${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'} (Omset: Rp ${totalOmset.toLocaleString('id-ID')})`}</span>
         </button>
       </form>
     </div>
