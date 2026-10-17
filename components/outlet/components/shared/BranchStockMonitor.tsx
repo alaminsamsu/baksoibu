@@ -14,11 +14,12 @@ import {
   Search, 
   Layers, 
   Clock, 
-  UserCheck,
-  Flame,
-  ShieldAlert,
-  Sparkles,
-  Lock
+  UserCheck, 
+  Flame, 
+  ShieldAlert, 
+  Sparkles, 
+  Lock,
+  KeyRound
 } from 'lucide-react';
 
 interface MovementRow {
@@ -46,7 +47,9 @@ const CATEGORY_ORDER = [
   'Kemasan & Operasional',
 ];
 
-// Analitik Ringkas
+// PIN Rahasia Admin untuk Buka Kunci Koreksi Stok
+const ADMIN_CORRECTION_PIN = '8899';
+
 function StockUsageAnalyticsView({ data }: { data: MovementRow[] }) {
   const topUsedItems = useMemo(() => {
     return [...data]
@@ -84,7 +87,6 @@ function StockUsageAnalyticsView({ data }: { data: MovementRow[] }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Top 5 Pemakaian */}
         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
@@ -117,7 +119,6 @@ function StockUsageAnalyticsView({ data }: { data: MovementRow[] }) {
           )}
         </div>
 
-        {/* Rasio Waste */}
         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
@@ -152,7 +153,6 @@ function StockUsageAnalyticsView({ data }: { data: MovementRow[] }) {
           )}
         </div>
 
-        {/* Stok Menipis */}
         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
@@ -199,11 +199,15 @@ export default function BranchStockMonitor() {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // State Edit & Otorisasi PIN Admin
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editInitial, setEditInitial] = useState<number>(0);
   const [editRemaining, setEditRemaining] = useState<number>(0);
+  const [showPinModal, setShowPinModal] = useState<boolean>(false);
+  const [inputPin, setInputPin] = useState<string>('');
+  const [pinError, setPinError] = useState<string>('');
+  const [targetRowToEdit, setTargetRowToEdit] = useState<MovementRow | null>(null);
 
-  // Ambil sesi user yang login
   useEffect(() => {
     const saved = localStorage.getItem('baksoibu_active_staff');
     if (saved) {
@@ -248,7 +252,6 @@ export default function BranchStockMonitor() {
         .select('item_name, remaining_stock, waste_qty, location_id, reported_by, created_at')
         .eq('closing_date', today);
 
-      // Pastikan SEMUA cabang (BTP & Perintis) memiliki baris untuk setiap master item
       const computed: MovementRow[] = [];
 
       (locs || []).forEach((loc) => {
@@ -304,7 +307,6 @@ export default function BranchStockMonitor() {
     fetchLiveStockMovement();
   }, []);
 
-  // Filter daftar lokasi yang boleh dilihat
   const allowedLocations = useMemo(() => {
     if (isAdmin) {
       return locations.filter((l) => /btp|perintis/i.test(l.name));
@@ -312,21 +314,37 @@ export default function BranchStockMonitor() {
     return locations;
   }, [locations, isAdmin]);
 
-  const handleStartEdit = (row: MovementRow) => {
+  // Trigger Klik Pensil -> Minta PIN Admin
+  const handleRequestEdit = (row: MovementRow) => {
     if (isOutletStaff && row.location_id !== currentUser?.location_id) {
       alert('Anda hanya berhak mengoreksi stok di outlet Anda sendiri.');
       return;
     }
-    setEditingKey(`${row.location_id}_${row.item_name}`);
-    setEditInitial(row.initial_stock);
-    setEditRemaining(row.remaining_stock);
+    setTargetRowToEdit(row);
+    setInputPin('');
+    setPinError('');
+    setShowPinModal(true);
+  };
+
+  // Verifikasi PIN
+  const handleVerifyPin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (inputPin === ADMIN_CORRECTION_PIN) {
+      if (targetRowToEdit) {
+        setEditingKey(`${targetRowToEdit.location_id}_${targetRowToEdit.item_name}`);
+        setEditInitial(targetRowToEdit.initial_stock);
+        setEditRemaining(targetRowToEdit.remaining_stock);
+      }
+      setShowPinModal(false);
+    } else {
+      setPinError('PIN Otorisasi Admin salah!');
+    }
   };
 
   const handleSaveEdit = async (row: MovementRow) => {
     try {
       const editorName = currentUser?.active_staff_name || currentUser?.username || 'Petugas';
 
-      // Gunakan UPSERT agar jika barang belum ada di Perintis, langsung otomatis dibuat
       const { error } = await supabase
         .from('branch_stocks')
         .upsert(
@@ -337,7 +355,7 @@ export default function BranchStockMonitor() {
             remaining_stock: editRemaining,
             unit: row.unit,
             updated_at: new Date().toISOString(),
-            updated_by: `${editorName} (Koreksi)`,
+            updated_by: `${editorName} (Koreksi PIN)`,
           },
           { onConflict: 'location_id, item_name' }
         );
@@ -352,19 +370,14 @@ export default function BranchStockMonitor() {
 
   const filteredData = useMemo(() => {
     return dataList.filter((item) => {
-      // 1. Filter Role Outlet: Hanya cabang bertugas
       if (isOutletStaff && currentUser?.location_id) {
         if (item.location_id !== currentUser.location_id) return false;
       }
-
-      // 2. Filter Role Admin: Hanya BTP dan Perintis
       if (isAdmin) {
         const isBtpOrPerintis = /btp|perintis/i.test(item.location_name);
         if (!isBtpOrPerintis) return false;
         if (selectedLocation !== 'all' && item.location_id !== selectedLocation) return false;
       }
-
-      // 3. Filter Role Owner / Pilihan Global
       if (!isOutletStaff && !isAdmin) {
         if (selectedLocation !== 'all' && item.location_id !== selectedLocation) return false;
       }
@@ -395,7 +408,57 @@ export default function BranchStockMonitor() {
   );
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm shadow-slate-200/50">
+    <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm shadow-slate-200/50 relative">
+      {/* POPUP MODAL VALIDASI PIN ADMIN */}
+      {showPinModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
+              <KeyRound className="w-6 h-6" />
+            </div>
+            <div className="text-center">
+              <h3 className="text-base font-black text-slate-900">Otorisasi Koreksi Stok</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Masukkan PIN khusus Admin untuk mengubah angka barang <b>{targetRowToEdit?.item_name}</b>
+              </p>
+            </div>
+
+            <form onSubmit={handleVerifyPin} className="space-y-3">
+              <input
+                type="password"
+                maxLength={6}
+                autoFocus
+                value={inputPin}
+                onChange={(e) => setInputPin(e.target.value)}
+                placeholder="Ketik PIN Admin"
+                className="w-full text-center tracking-widest text-lg font-black py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              />
+
+              {pinError && (
+                <p className="text-center text-xs font-bold text-red-600">{pinError}</p>
+              )}
+
+              <div className="grid grid-cols-2 gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPinModal(false)}
+                  className="py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-md shadow-indigo-600/20 transition-all"
+                >
+                  Buka Kunci
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Header Bar */}
       <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center shadow-md shadow-indigo-200">
@@ -414,7 +477,6 @@ export default function BranchStockMonitor() {
         </div>
 
         <div className="flex items-center gap-2.5 w-full sm:w-auto">
-          {/* Pilihan Cabang */}
           {isOutletStaff ? (
             <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-600">
               <Lock className="w-3.5 h-3.5 text-indigo-600" />
@@ -450,7 +512,7 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* 4 Metric Cards */}
+      {/* 4 Cards Ringkasan */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-5 bg-[#fafbfe] border-b border-slate-100">
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
@@ -481,15 +543,14 @@ export default function BranchStockMonitor() {
 
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between text-indigo-600 text-[11px] font-bold">
-            <span>Audit Trail</span>
-            <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Keamanan Data</span>
+            <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
           </div>
-          <p className="text-xs font-black text-slate-800 mt-2">Pencatatan Otomatis</p>
-          <span className="text-[10px] text-slate-400 font-medium">Nama petugas & waktu</span>
+          <p className="text-xs font-black text-slate-800 mt-2">PIN Otorisasi Aktif</p>
+          <span className="text-[10px] text-slate-400 font-medium">Koreksi dilindungi admin</span>
         </div>
       </div>
 
-      {/* Kartu Analisa */}
       <div className="p-5 border-b border-slate-100 bg-slate-50/50">
         <StockUsageAnalyticsView data={filteredData} />
       </div>
@@ -502,7 +563,7 @@ export default function BranchStockMonitor() {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Cari barang di tabel monitor..."
-            className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
+            className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
           />
         </div>
 
@@ -566,8 +627,6 @@ export default function BranchStockMonitor() {
                     const formattedDate = row.updated_at 
                       ? new Date(row.updated_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })
                       : '-';
-
-                    const canEdit = !isOutletStaff || (isOutletStaff && row.location_id === currentUser?.location_id);
 
                     return (
                       <tr key={rowKey} className="hover:bg-slate-50/60 transition-colors">
@@ -647,16 +706,14 @@ export default function BranchStockMonitor() {
                                 <X className="w-3.5 h-3.5" />
                               </button>
                             </div>
-                          ) : canEdit ? (
+                          ) : (
                             <button
-                              onClick={() => handleStartEdit(row)}
+                              onClick={() => handleRequestEdit(row)}
                               className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
-                              title="Koreksi Angka"
+                              title="Koreksi Angka (Perlu PIN Admin)"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>
-                          ) : (
-                            <span className="text-slate-300 text-[10px]">Terkunci</span>
                           )}
                         </td>
                       </tr>

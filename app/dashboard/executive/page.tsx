@@ -6,7 +6,6 @@ import { supabase } from '@/lib/supabaseClient';
 import { 
   Crown, 
   LogOut, 
-  Store, 
   DollarSign, 
   Calendar, 
   QrCode, 
@@ -17,7 +16,7 @@ import {
   TrendingUp, 
   AlertCircle, 
   ExternalLink,
-  ChevronDown
+  Download
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 
@@ -25,9 +24,12 @@ interface SettlementRecord {
   id: string;
   location_id: string;
   settlement_date: string;
+  shift?: string;
   cash_nominal: number;
   qris_nominal: number;
   online_nominal: number;
+  expense_nominal?: number;
+  expense_notes?: string;
   total_omset: number;
   actual_cash_deposited: number;
   cash_difference: number;
@@ -42,15 +44,14 @@ export default function ExecutiveDashboard() {
   const [locations, setLocations] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'omset' | 'stok'>('omset');
   
-  // State Filter Keuangan & Kalender
   const [filterMode, setFilterMode] = useState<'today' | 'weekly' | 'monthly' | 'custom'>('today');
   const [customDate, setCustomDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [selectedLocation, setSelectedLocation] = useState<string>('all');
   
   const [settlements, setSettlements] = useState<SettlementRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [downloading, setDownloading] = useState<boolean>(false);
 
-  // Ambil Data Lokasi & Setoran
   const fetchFinancialData = async () => {
     setLoading(true);
     try {
@@ -101,19 +102,79 @@ export default function ExecutiveDashboard() {
     router.push('/login');
   };
 
-  // Ringkasan Finansial Akumulatif
   const metrics = useMemo(() => {
     const totalOmset = settlements.reduce((acc, curr) => acc + Number(curr.total_omset || 0), 0);
     const totalCash = settlements.reduce((acc, curr) => acc + Number(curr.cash_nominal || 0), 0);
     const totalQris = settlements.reduce((acc, curr) => acc + Number(curr.qris_nominal || 0), 0);
     const totalOnline = settlements.reduce((acc, curr) => acc + Number(curr.online_nominal || 0), 0);
+    const totalExpense = settlements.reduce((acc, curr) => acc + Number(curr.expense_nominal || 0), 0);
     const totalDiff = settlements.reduce((acc, curr) => acc + Number(curr.cash_difference || 0), 0);
-    return { totalOmset, totalCash, totalQris, totalOnline, totalDiff };
+    return { totalOmset, totalCash, totalQris, totalOnline, totalExpense, totalDiff };
   }, [settlements]);
+
+  // Fungsi Download Rekap Omset & Kasir ke CSV / Excel
+  const handleDownloadOmsetReport = () => {
+    setDownloading(true);
+    try {
+      if (settlements.length === 0) {
+        alert('Tidak ada data omset pada filter ini untuk diunduh.');
+        return;
+      }
+
+      const headers = [
+        'Tanggal',
+        'Outlet',
+        'Shift',
+        'Kasir Pelapor',
+        'Tunai (Cash)',
+        'QRIS / Transfer',
+        'Grab / GoFood',
+        'Pengeluaran Kas Kecil',
+        'Rincian Pengeluaran',
+        'Total Omset Bersih',
+        'Uang Fisik Disetor',
+        'Selisih Kas',
+        'Catatan Kasir'
+      ];
+
+      const csvRows = settlements.map((item) => {
+        const shiftLabel = item.shift === 'SHIFT_2' ? 'Shift 2' : 'Shift 1';
+        return [
+          `"${item.settlement_date}"`,
+          `"${item.locations?.name || 'Outlet'}"`,
+          `"${shiftLabel}"`,
+          `"${item.reported_by || '-'}"`,
+          Number(item.cash_nominal || 0),
+          Number(item.qris_nominal || 0),
+          Number(item.online_nominal || 0),
+          Number(item.expense_nominal || 0),
+          `"${(item.expense_notes || '-').replace(/"/g, '""')}"`,
+          Number(item.total_omset || 0),
+          Number(item.actual_cash_deposited || 0),
+          Number(item.cash_difference || 0),
+          `"${(item.notes || '-').replace(/"/g, '""')}"`
+        ].join(';');
+      });
+
+      const csvContent = [headers.join(';'), ...csvRows].join('\r\n');
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const todayStr = new Date().toISOString().split('T')[0];
+      link.setAttribute('href', url);
+      link.setAttribute('download', `Rekap_Omset_BaksoIbu_${filterMode}_${todayStr}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err: any) {
+      alert('Gagal mendownload rekap omset: ' + err.message);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#f8f9fd] text-slate-800 font-sans flex flex-col">
-      {/* Top Navbar Header */}
       <header className="max-w-6xl w-full mx-auto px-4 sm:px-6 pt-5 pb-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-[#ff6f3c] to-orange-500 text-white flex items-center justify-center shadow-md shadow-orange-500/20">
@@ -129,7 +190,6 @@ export default function ExecutiveDashboard() {
           </div>
         </div>
 
-        {/* Tab Navigasi Owner */}
         <div className="flex items-center gap-1 bg-white px-3 py-1.5 rounded-full shadow-xs border border-slate-100 text-xs font-bold text-slate-500">
           <button
             onClick={() => setActiveTab('omset')}
@@ -151,7 +211,6 @@ export default function ExecutiveDashboard() {
           </button>
         </div>
 
-        {/* Logout */}
         <button
           onClick={handleLogout}
           title="Keluar"
@@ -161,7 +220,6 @@ export default function ExecutiveDashboard() {
         </button>
       </header>
 
-      {/* Main Body */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
         {activeTab === 'stok' ? (
           <div>
@@ -169,9 +227,8 @@ export default function ExecutiveDashboard() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Filter Bar: Kalender & Pilihan Cabang */}
+            {/* Filter Bar & Tombol Download */}
             <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm shadow-slate-200/40 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-              {/* Opsi Mode Periode */}
               <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 p-1.5 rounded-2xl border border-slate-100 text-xs font-bold">
                 <button
                   type="button"
@@ -211,7 +268,6 @@ export default function ExecutiveDashboard() {
                 </button>
               </div>
 
-              {/* Input Kalender Bebas & Dropdown Cabang */}
               <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
                 {filterMode === 'custom' && (
                   <div className="relative">
@@ -225,7 +281,7 @@ export default function ExecutiveDashboard() {
                   </div>
                 )}
 
-                <div className="relative flex-1 md:w-48">
+                <div className="relative flex-1 md:w-44">
                   <MapPin className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
                   <select
                     value={selectedLocation}
@@ -248,10 +304,21 @@ export default function ExecutiveDashboard() {
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                 </button>
+
+                {/* TOMBOL DOWNLOAD REKAP EXCEL / CSV */}
+                <button
+                  onClick={handleDownloadOmsetReport}
+                  disabled={downloading || settlements.length === 0}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-sm flex items-center gap-1.5 transition-all"
+                  title="Unduh Rekap Spreadsheet"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{downloading ? 'Mengunduh...' : 'Unduh Rekap (.CSV)'}</span>
+                </button>
               </div>
             </div>
 
-            {/* 4 Kartu Metrik Keuangan Eksekutif */}
+            {/* 4 Kartu Metrik Keuangan */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
                 <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
@@ -302,7 +369,7 @@ export default function ExecutiveDashboard() {
               </div>
             </div>
 
-            {/* Tabel Rincian Data Tutup Kas per Cabang */}
+            {/* Tabel Rincian Data Tutup Kas */}
             <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm shadow-slate-200/40 space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                 <div>
@@ -319,12 +386,13 @@ export default function ExecutiveDashboard() {
                   <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
                     <tr>
                       <th className="py-3 px-4">Tanggal & Outlet</th>
-                      <th className="py-3 px-3">Kasir Bertugas</th>
+                      <th className="py-3 px-3">Kasir & Shift</th>
                       <th className="py-3 px-3 text-right">Cash</th>
                       <th className="py-3 px-3 text-right">QRIS</th>
-                      <th className="py-3 px-3 text-right">Online App</th>
+                      <th className="py-3 px-3 text-right">Online</th>
+                      <th className="py-3 px-3 text-right text-orange-600">Pengeluaran</th>
                       <th className="py-3 px-3 text-right font-black text-slate-900">Total Omset</th>
-                      <th className="py-3 px-3 text-right">Uang Fisik Disetor</th>
+                      <th className="py-3 px-3 text-right">Uang Fisik Setor</th>
                       <th className="py-3 px-3 text-center">Selisih</th>
                       <th className="py-3 px-4 text-center">Bukti Foto</th>
                     </tr>
@@ -332,13 +400,13 @@ export default function ExecutiveDashboard() {
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {loading ? (
                       <tr>
-                        <td colSpan={9} className="py-12 text-center text-slate-400 font-medium">
+                        <td colSpan={10} className="py-12 text-center text-slate-400 font-medium">
                           Memuat data laporan setoran...
                         </td>
                       </tr>
                     ) : settlements.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-12 text-center text-slate-400 font-medium">
+                        <td colSpan={10} className="py-12 text-center text-slate-400 font-medium">
                           Tidak ada rekaman omset pada periode atau tanggal yang dipilih.
                         </td>
                       </tr>
@@ -358,8 +426,11 @@ export default function ExecutiveDashboard() {
                               })}
                             </div>
                           </td>
-                          <td className="py-3 px-3 font-semibold text-slate-700">
-                            {item.reported_by}
+                          <td className="py-3 px-3">
+                            <div className="font-semibold text-slate-800">{item.reported_by}</div>
+                            <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 mt-0.5">
+                              {item.shift === 'SHIFT_2' ? 'Shift 2' : 'Shift 1'}
+                            </span>
                           </td>
                           <td className="py-3 px-3 text-right font-semibold text-slate-800">
                             Rp {Number(item.cash_nominal || 0).toLocaleString('id-ID')}
@@ -370,6 +441,11 @@ export default function ExecutiveDashboard() {
                           <td className="py-3 px-3 text-right font-semibold text-slate-800">
                             Rp {Number(item.online_nominal || 0).toLocaleString('id-ID')}
                           </td>
+                          <td className="py-3 px-3 text-right font-semibold text-orange-600">
+                            {Number(item.expense_nominal || 0) > 0 
+                              ? `-Rp ${Number(item.expense_nominal).toLocaleString('id-ID')}` 
+                              : 'Rp 0'}
+                          </td>
                           <td className="py-3 px-3 text-right font-black text-[#ff6f3c] bg-orange-50/30">
                             Rp {Number(item.total_omset || 0).toLocaleString('id-ID')}
                           </td>
@@ -379,11 +455,11 @@ export default function ExecutiveDashboard() {
                           <td className="py-3 px-3 text-center">
                             {Number(item.cash_difference || 0) === 0 ? (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700">
-                                Pas (Rp 0)
+                                Pas
                               </span>
                             ) : Number(item.cash_difference || 0) < 0 ? (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-50 text-red-600">
-                                Kurang Rp {Math.abs(Number(item.cash_difference)).toLocaleString('id-ID')}
+                                -Rp {Math.abs(Number(item.cash_difference)).toLocaleString('id-ID')}
                               </span>
                             ) : (
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-50 text-blue-600">
@@ -399,11 +475,11 @@ export default function ExecutiveDashboard() {
                                 rel="noreferrer"
                                 className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl font-bold text-[10px] transition-colors"
                               >
-                                <span>Lihat Struk</span>
+                                <span>Struk</span>
                                 <ExternalLink className="w-2.5 h-2.5" />
                               </a>
                             ) : (
-                              <span className="text-[10px] text-slate-300 font-medium">Tanpa Foto</span>
+                              <span className="text-[10px] text-slate-300 font-medium">-</span>
                             )}
                           </td>
                         </tr>
