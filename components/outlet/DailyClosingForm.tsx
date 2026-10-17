@@ -10,7 +10,8 @@ import {
   CheckCircle2, 
   AlertCircle, 
   Search, 
-  Trash2 
+  Trash2,
+  TrendingDown
 } from 'lucide-react';
 
 interface Props {
@@ -27,6 +28,11 @@ interface MasterItem {
   uom: string;
 }
 
+interface CurrentStockContext {
+  initial_stock: number;
+  received_stock: number;
+}
+
 const CATEGORY_ORDER = [
   'Semua',
   'Bakso & Olahan Frozen',
@@ -41,6 +47,7 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
   const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
 
   const [items, setItems] = useState<MasterItem[]>([]);
+  const [stockContext, setStockContext] = useState<Record<string, CurrentStockContext>>({});
   const [closingStocks, setClosingStocks] = useState<Record<string, string>>({});
   const [wasteQtys, setWasteQtys] = useState<Record<string, string>>({});
   const [activeCategory, setActiveCategory] = useState('Semua');
@@ -55,16 +62,59 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
-    async function fetchItems() {
-      const { data, error } = await supabase.from('items').select('*').order('name');
-      if (error) {
-        console.error('Gagal mengambil master item:', error);
-      } else if (data) {
-        setItems(data);
-      }
+    async function loadInitialData() {
+      // 1. Ambil master items
+      const { data: itemData } = await supabase.from('items').select('*').order('name');
+      if (itemData) setItems(itemData);
+
+      if (!activeLocationId) return;
+
+      const today = new Date().toISOString().split('T')[0];
+      const prevDate = new Date();
+      prevDate.setDate(prevDate.getDate() - 1);
+      const yesterdayStr = prevDate.toISOString().split('T')[0];
+
+      // 2. Ambil stok awal (dari closing kemarin jika ada, atau branch_stocks)
+      const { data: yestClosings } = await supabase
+        .from('daily_closings')
+        .select('item_name, remaining_stock')
+        .eq('location_id', activeLocationId)
+        .eq('closing_date', yesterdayStr);
+
+      const { data: bStocks } = await supabase
+        .from('branch_stocks')
+        .select('item_name, initial_stock')
+        .eq('location_id', activeLocationId);
+
+      // 3. Ambil total barang masuk hari ini
+      const { data: receptions } = await supabase
+        .from('receptions')
+        .select('item_name, quantity')
+        .eq('location_id', activeLocationId)
+        .gte('created_at', `${today}T00:00:00Z`);
+
+      const ctxMap: Record<string, CurrentStockContext> = {};
+
+      (itemData || []).forEach((it) => {
+        const yest = (yestClosings || []).find((c) => c.item_name === it.name);
+        const b = (bStocks || []).find((s) => s.item_name === it.name);
+        const init = yest ? Number(yest.remaining_stock || 0) : Number(b?.initial_stock || 0);
+
+        const rec = (receptions || [])
+          .filter((r) => r.item_name === it.name)
+          .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0);
+
+        ctxMap[it.name] = {
+          initial_stock: init,
+          received_stock: rec,
+        };
+      });
+
+      setStockContext(ctxMap);
     }
-    fetchItems();
-  }, []);
+
+    loadInitialData();
+  }, [activeLocationId]);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -96,7 +146,6 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
     setWasteQtys((prev) => ({ ...prev, [name]: val }));
   };
 
-  // Kompresi foto otomatis
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -156,6 +205,7 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
         const itemMeta = items.find((i) => i.name === itemName);
         const unit = itemMeta?.uom || 'Pcs';
 
+        // Simpan sisa fisik dan waste ke daily_closings
         await supabase.from('daily_closings').upsert(
           {
             location_id: activeLocationId,
@@ -171,6 +221,7 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
           { onConflict: 'location_id, closing_date, item_name' }
         );
 
+        // Update remaining_stock di branch_stocks agar sinkron
         await supabase.from('branch_stocks').upsert(
           {
             location_id: activeLocationId,
@@ -185,7 +236,7 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
       }
 
       setMessage({
-        text: `Closing toko berhasil disimpan (${validStockEntries.length} item tersimpan)!`,
+        text: `Closing berhasil disimpan! Sisa fisik dan waste otomatis dikalkulasi menjadi angka terpakai di dashboard.`,
         type: 'success',
       });
 
@@ -218,8 +269,10 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
           <Store className="w-5 h-5" />
         </div>
         <div>
-          <h2 className="text-base font-black text-slate-900 leading-tight">Form Tutup Toko (Closing)</h2>
-          <p className="text-xs text-slate-400">Opname sisa fisik etalase & catat barang waste</p>
+          <h2 className="text-base font-black text-slate-900 leading-tight">Form Tutup Toko (Closing Harian)</h2>
+          <p className="text-xs text-slate-400">
+            Isi sisa fisik riil & barang waste. Sistem otomatis menghitung jumlah barang yang terpakai.
+          </p>
         </div>
       </div>
 
@@ -272,64 +325,101 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-        {/* Tabel Input Ringkas */}
+        {/* Tabel Input Sisa Fisik & Waste */}
         <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-96 overflow-y-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead className="bg-slate-50 sticky top-0 border-b border-slate-100 z-10">
               <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
                 <th className="py-2.5 px-3">Nama Barang</th>
-                <th className="py-2.5 px-2 text-right w-28">Sisa Fisik</th>
-                <th className="py-2.5 px-2 text-right w-28 text-[#ff6f3c]">Waste</th>
+                <th className="py-2.5 px-2 text-right w-24">Sisa Fisik</th>
+                <th className="py-2.5 px-2 text-right w-24 text-[#ff6f3c]">Waste</th>
+                <th className="py-2.5 px-3 text-right w-24 text-indigo-600 bg-indigo-50/40">Terpakai</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {Object.entries(groupedItems).map(([groupName, groupList]) => (
                 <React.Fragment key={groupName}>
                   <tr className="bg-slate-50/60">
-                    <td colSpan={3} className="py-1.5 px-3 font-black text-slate-600 text-[10px] uppercase">
+                    <td colSpan={4} className="py-1.5 px-3 font-black text-slate-600 text-[10px] uppercase">
                       • {groupName}
                     </td>
                   </tr>
-                  {groupList.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-50/50">
-                      <td className="py-2 px-3 font-semibold text-slate-800">{item.name}</td>
-                      <td className="py-1.5 px-2 text-right">
-                        <div className="inline-flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            value={closingStocks[item.name] || ''}
-                            onChange={(e) => handleStockChange(item.name, e.target.value)}
-                            placeholder="0"
-                            className="w-16 px-2 py-1 text-right rounded-lg text-xs font-bold border border-slate-200 bg-white focus:outline-none"
-                          />
-                          <span className="text-[10px] text-slate-400 w-6 text-left">{item.uom || 'Pcs'}</span>
-                        </div>
-                      </td>
-                      <td className="py-1.5 px-2 text-right">
-                        <div className="inline-flex items-center gap-1">
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            value={wasteQtys[item.name] || ''}
-                            onChange={(e) => handleWasteChange(item.name, e.target.value)}
-                            placeholder="0"
-                            className="w-16 px-2 py-1 text-right rounded-lg text-xs font-bold border border-orange-200 bg-orange-50/40 text-[#ff6f3c] focus:outline-none"
-                          />
-                          <span className="text-[10px] text-slate-400 w-6 text-left">{item.uom || 'Pcs'}</span>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {groupList.map((item) => {
+                    const ctx = stockContext[item.name] || { initial_stock: 0, received_stock: 0 };
+                    const totalAvailable = ctx.initial_stock + ctx.received_stock;
+                    
+                    const remainInput = closingStocks[item.name];
+                    const wasteInput = wasteQtys[item.name] || '0';
+                    
+                    const hasInput = remainInput !== undefined && remainInput !== '';
+                    const remainVal = parseFloat(remainInput || '0');
+                    const wasteVal = parseFloat(wasteInput || '0');
+
+                    // Kalkulasi otomatis pemakaian:
+                    // Terpakai = (Stok Awal + Masuk) - Sisa Fisik - Waste
+                    const usageCalculated = hasInput
+                      ? Math.max(0, totalAvailable - remainVal - wasteVal)
+                      : null;
+
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50/50">
+                        <td className="py-2 px-3 font-semibold text-slate-800">
+                          <div>{item.name}</div>
+                          <div className="text-[9px] text-slate-400 font-normal">
+                            Tersedia: {totalAvailable} {item.uom || 'Pcs'}
+                          </div>
+                        </td>
+
+                        {/* Input Sisa Fisik Riil */}
+                        <td className="py-1.5 px-2 text-right">
+                          <div className="inline-flex items-center gap-1">
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              value={closingStocks[item.name] || ''}
+                              onChange={(e) => handleStockChange(item.name, e.target.value)}
+                              placeholder="0"
+                              className="w-16 px-2 py-1 text-right rounded-lg text-xs font-bold border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            />
+                            <span className="text-[10px] text-slate-400 w-5 text-left">{item.uom || 'Pcs'}</span>
+                          </div>
+                        </td>
+
+                        {/* Input Waste (Basi/Rusak) */}
+                        <td className="py-1.5 px-2 text-right">
+                          <div className="inline-flex items-center gap-1">
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              value={wasteQtys[item.name] || ''}
+                              onChange={(e) => handleWasteChange(item.name, e.target.value)}
+                              placeholder="0"
+                              className="w-16 px-2 py-1 text-right rounded-lg text-xs font-bold border border-orange-200 bg-orange-50/40 text-[#ff6f3c] focus:outline-none"
+                            />
+                            <span className="text-[10px] text-slate-400 w-5 text-left">{item.uom || 'Pcs'}</span>
+                          </div>
+                        </td>
+
+                        {/* Kolom Pratinjau Terpakai Langsung */}
+                        <td className="py-1.5 px-3 text-right bg-indigo-50/30 font-black text-indigo-700">
+                          {usageCalculated !== null ? (
+                            <span>{usageCalculated} <span className="text-[9px] font-normal text-indigo-400">{item.uom || 'Pcs'}</span></span>
+                          ) : (
+                            <span className="text-slate-300 font-normal">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </React.Fragment>
               ))}
             </tbody>
           </table>
         </div>
 
-        {/* Upload Foto Waste Ringkas */}
+        {/* Upload Bukti Waste Jika Ada */}
         <div>
           <input
             type="file"
@@ -368,12 +458,12 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
           )}
         </div>
 
-        {/* Catatan Tambahan */}
+        {/* Catatan Closing */}
         <input
           type="text"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Catatan closing / penyebab waste (opsional)"
+          placeholder="Catatan closing / alasan barang terbuang (opsional)"
           className="w-full px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl font-semibold text-slate-800 focus:outline-none"
         />
 
@@ -381,13 +471,14 @@ export default function DailyClosingForm({ user, onBack, locationId, staffName }
         <button
           type="submit"
           disabled={loading || (totalWasteCount > 0 && !wastePhotoFile)}
-          className={`w-full py-3.5 font-black rounded-2xl shadow-sm transition-all ${
+          className={`w-full py-3.5 font-black rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2 ${
             totalWasteCount > 0 && !wastePhotoFile
               ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
               : 'bg-[#ff6f3c] hover:bg-orange-600 text-white'
           }`}
         >
-          {loading ? 'Menyimpan...' : 'Kunci Closing Harian Toko'}
+          <TrendingDown className="w-4 h-4" />
+          <span>{loading ? 'Menyimpan...' : 'Kunci Closing Harian & Hitung Pemakaian'}</span>
         </button>
       </form>
     </div>
