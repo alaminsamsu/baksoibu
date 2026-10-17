@@ -8,10 +8,13 @@ import {
   ShieldCheck, 
   MapPin, 
   CalendarCheck,
-  UserCheck
+  UserCheck,
+  Clock,
+  CheckCircle2,
+  Navigation,
+  AlertCircle
 } from 'lucide-react';
 import StaffManagementView from '@/components/hr/StaffManagementView';
-import StaffAttendanceWidget from '@/components/outlet/components/shared/StaffAttendanceWidget';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function HRDashboardPage() {
@@ -23,8 +26,12 @@ export default function HRDashboardPage() {
     activeLocations: 0
   });
 
+  // State Presensi Mandiri HR
+  const [attendance, setAttendance] = useState<any>(null);
+  const [loadingAttendance, setLoadingAttendance] = useState(false);
+  const [attendanceMsg, setAttendanceMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
   useEffect(() => {
-    // 1. Validasi Sesi Login
     const sessionStr = localStorage.getItem('baksoibu_active_staff');
     if (!sessionStr) {
       router.push('/login');
@@ -34,7 +41,6 @@ export default function HRDashboardPage() {
     const session = JSON.parse(sessionStr);
     const role = (session.role || '').toUpperCase();
 
-    // Hanya izinkan HR dan OWNER
     if (role !== 'HR' && role !== 'OWNER') {
       router.push('/login');
       return;
@@ -42,15 +48,17 @@ export default function HRDashboardPage() {
 
     setCurrentUser(session);
 
-    // 2. Ambil Statistik Ringkas HR
-    const fetchHRStats = async () => {
-      try {
-        const todayStr = new Date().toISOString().split('T')[0];
+    // Ambil rekap KPI & Presensi HR hari ini
+    const todayStr = new Date().toISOString().split('T')[0];
+    const hrStaffName = session.active_staff_name || session.username || 'HR Officer';
 
-        const [{ count: totalStaffCount }, { count: presentCount }, { data: locs }] = await Promise.all([
+    const loadData = async () => {
+      try {
+        const [{ count: totalStaffCount }, { count: presentCount }, { data: locs }, { data: attData }] = await Promise.all([
           supabase.from('staff_profiles').select('*', { count: 'exact', head: true }).eq('is_active', true),
           supabase.from('staff_attendances').select('*', { count: 'exact', head: true }).eq('attendance_date', todayStr),
-          supabase.from('locations').select('id')
+          supabase.from('locations').select('id'),
+          supabase.from('staff_attendances').select('*').eq('attendance_date', todayStr).ilike('staff_name', hrStaffName).maybeSingle()
         ]);
 
         setStats({
@@ -58,13 +66,107 @@ export default function HRDashboardPage() {
           presentToday: presentCount || 0,
           activeLocations: locs ? locs.length : 0
         });
+
+        if (attData) {
+          setAttendance(attData);
+        }
       } catch (e) {
-        console.error('Error fetching HR stats:', e);
+        console.error('Error fetching HR data:', e);
       }
     };
 
-    fetchHRStats();
+    loadData();
   }, [router]);
+
+  // Fungsi GPS Fallback Presensi HR
+  const getCoordinates = async (): Promise<{ lat: number; lng: number } | null> => {
+    if (typeof window === 'undefined' || !navigator.geolocation) return null;
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+            () => resolve(null),
+            { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
+          );
+        },
+        { enableHighAccuracy: true, timeout: 7000, maximumAge: 60000 }
+      );
+    });
+  };
+
+  const handleClockIn = async () => {
+    setLoadingAttendance(true);
+    setAttendanceMsg(null);
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+      const coords = await getCoordinates();
+      const hrStaffName = currentUser?.active_staff_name || currentUser?.username || 'HR Officer';
+
+      const payload: any = {
+        staff_name: hrStaffName,
+        attendance_date: todayStr,
+        clock_in: timeStr,
+        location_id: currentUser?.location_id || null,
+        status: 'HADIR'
+      };
+
+      if (coords) {
+        payload.clock_in_lat = coords.lat;
+        payload.clock_in_lng = coords.lng;
+      }
+
+      const { data, error } = await supabase
+        .from('staff_attendances')
+        .upsert(payload, { onConflict: 'staff_name,attendance_date' })
+        .select()
+        .single();
+
+      if (error) throw error;
+      setAttendance(data);
+      setAttendanceMsg({ text: `Check-in berhasil pukul ${timeStr} WIB`, type: 'success' });
+    } catch (err: any) {
+      setAttendanceMsg({ text: `Gagal Check-in: ${err.message}`, type: 'error' });
+    } finally {
+      setLoadingAttendance(false);
+    }
+  };
+
+  const handleClockOut = async () => {
+    if (!attendance?.id) return;
+    setLoadingAttendance(true);
+    setAttendanceMsg(null);
+    try {
+      const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+      const coords = await getCoordinates();
+
+      const payload: any = {
+        clock_out: timeStr
+      };
+
+      if (coords) {
+        payload.clock_out_lat = coords.lat;
+        payload.clock_out_lng = coords.lng;
+      }
+
+      const { data, error } = await supabase
+        .from('staff_attendances')
+        .update(payload)
+        .eq('id', attendance.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      setAttendance(data);
+      setAttendanceMsg({ text: `Check-out berhasil pukul ${timeStr} WIB`, type: 'success' });
+    } catch (err: any) {
+      setAttendanceMsg({ text: `Gagal Check-out: ${err.message}`, type: 'error' });
+    } finally {
+      setLoadingAttendance(false);
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('baksoibu_active_staff');
@@ -116,21 +218,82 @@ export default function HRDashboardPage() {
 
       {/* Konten Dashboard */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
-        {/* 1. BAGIAN PRESENSI MANDIRI PETUGAS HR */}
-        {currentUser && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-xs font-black text-slate-700 uppercase tracking-wider px-1">
-              <UserCheck className="w-4 h-4 text-indigo-600" />
-              <span>Presensi Mandiri Petugas HR</span>
+        
+        {/* WIDGET PRESENSI MANDIRI HR */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-indigo-600" />
+              <span className="text-xs font-black text-slate-800">
+                Presensi Mandiri Petugas HR ({currentUser?.active_staff_name || currentUser?.username?.toUpperCase() || 'HR'})
+              </span>
             </div>
-            <StaffAttendanceWidget 
-              locationId={currentUser.location_id || 'office-pusat'} 
-              staffName={currentUser.active_staff_name || currentUser.username || 'HR Officer'} 
-            />
+            <span className="text-[11px] font-bold text-slate-400">
+              {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            </span>
           </div>
-        )}
 
-        {/* 2. RINGKASAN MONITORING SDM */}
+          {attendanceMsg && (
+            <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
+              attendanceMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'
+            }`}>
+              {attendanceMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+              <span>{attendanceMsg.text}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            {/* Status Masuk */}
+            <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Jam Masuk (Check-In)</span>
+                <span className="text-sm font-black text-slate-800">
+                  {attendance?.clock_in || '--:--'}
+                </span>
+                {attendance?.clock_in_lat && (
+                  <span className="text-[10px] text-indigo-600 font-bold block flex items-center gap-1 mt-0.5">
+                    <Navigation className="w-2.5 h-2.5" /> GPS Terkunci
+                  </span>
+                )}
+              </div>
+              {!attendance?.clock_in && (
+                <button
+                  onClick={handleClockIn}
+                  disabled={loadingAttendance}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50"
+                >
+                  {loadingAttendance ? 'Mengunci GPS...' : 'Check-In Masuk'}
+                </button>
+              )}
+            </div>
+
+            {/* Status Pulang */}
+            <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Jam Pulang (Check-Out)</span>
+                <span className="text-sm font-black text-slate-800">
+                  {attendance?.clock_out || '--:--'}
+                </span>
+                {attendance?.clock_out_lat && (
+                  <span className="text-[10px] text-indigo-600 font-bold block flex items-center gap-1 mt-0.5">
+                    <Navigation className="w-2.5 h-2.5" /> GPS Terkunci
+                  </span>
+                )}
+              </div>
+              {attendance?.clock_in && !attendance?.clock_out && (
+                <button
+                  onClick={handleClockOut}
+                  disabled={loadingAttendance}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50"
+                >
+                  {loadingAttendance ? 'Mengunci GPS...' : 'Check-Out Pulang'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* RINGKASAN MONITORING SDM */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs flex items-center justify-between">
             <div>
@@ -175,7 +338,7 @@ export default function HRDashboardPage() {
           </div>
         </div>
 
-        {/* 3. ADMINISTRASI & REKAP SELURUH KARYAWAN */}
+        {/* ADMINISTRASI & REKAP SELURUH KARYAWAN */}
         <StaffManagementView />
       </main>
     </div>
