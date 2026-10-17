@@ -196,7 +196,7 @@ export default function BranchStockMonitor() {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // Filter Kalender: Default Hari Ini
+  // Tanggal yang sedang dipantau (default hari ini)
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().split('T')[0]
   );
@@ -225,6 +225,16 @@ export default function BranchStockMonitor() {
   const isAdmin = currentUser?.role === 'ADMIN';
   const isOwner = currentUser?.role === 'OWNER';
 
+  // Format tanggal label dinamis (contoh: "17 Okt")
+  const formattedColumnDate = useMemo(() => {
+    try {
+      const d = new Date(selectedDate + 'T00:00:00');
+      return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    } catch {
+      return selectedDate;
+    }
+  }, [selectedDate]);
+
   const fetchLiveStockMovement = async () => {
     setLoading(true);
     try {
@@ -239,18 +249,29 @@ export default function BranchStockMonitor() {
 
       if (stockErr) throw stockErr;
 
-      // Ambil barang masuk pada tanggal yang dipilih di kalender
+      // 1. Hitung tanggal kemarin (selectedDate - 1 hari) untuk Rollover Stok Awal
+      const currDateObj = new Date(selectedDate + 'T00:00:00');
+      const prevDateObj = new Date(currDateObj);
+      prevDateObj.setDate(prevDateObj.getDate() - 1);
+      const yesterdayStr = prevDateObj.toISOString().split('T')[0];
+
+      // Ambil closing opname hari kemarin (Stok Akhir Kemarin = Stok Awal Hari Ini)
+      const { data: yesterdayClosings } = await supabase
+        .from('daily_closings')
+        .select('item_name, remaining_stock, location_id')
+        .eq('closing_date', yesterdayStr);
+
+      // Ambil barang masuk pada tanggal yang dipilih
       const startDate = `${selectedDate}T00:00:00Z`;
       const endDate = `${selectedDate}T23:59:59Z`;
-
       const { data: recData } = await supabase
         .from('receptions')
         .select('item_name, quantity, location_id')
         .gte('created_at', startDate)
         .lte('created_at', endDate);
 
-      // Ambil closing opname pada tanggal yang dipilih di kalender
-      const { data: closingData } = await supabase
+      // Ambil closing opname pada tanggal yang dipilih
+      const { data: todayClosings } = await supabase
         .from('daily_closings')
         .select('item_name, remaining_stock, waste_qty, location_id, reported_by, created_at')
         .eq('closing_date', selectedDate);
@@ -266,16 +287,25 @@ export default function BranchStockMonitor() {
             (st: any) => st.location_id === loc.id && st.item_name === item.name
           );
 
+          // ROLOVER OTOMATIS:
+          // Jika ada closing malam kemarin, otomatis jadi Stok Awal hari ini!
+          const yestClosing = (yesterdayClosings || []).find(
+            (c) => c.location_id === loc.id && c.item_name === item.name
+          );
+          const init = yestClosing !== undefined
+            ? Number(yestClosing.remaining_stock || 0)
+            : Number(s?.initial_stock || 0);
+
+          // Barang Masuk tanggal tersebut
           const totalReceived = (recData || [])
             .filter((r) => r.location_id === loc.id && r.item_name === item.name)
             .reduce((acc, curr) => acc + Number(curr.quantity || 0), 0);
 
-          const closingRecord = (closingData || []).find(
+          // Closing tanggal tersebut
+          const closingRecord = (todayClosings || []).find(
             (c) => c.location_id === loc.id && c.item_name === item.name
           );
 
-          const init = Number(s?.initial_stock || 0);
-          
           let remain = 0;
           let waste = 0;
 
@@ -283,6 +313,7 @@ export default function BranchStockMonitor() {
             remain = Number(closingRecord.remaining_stock || 0);
             waste = Number(closingRecord.waste_qty || 0);
           } else if (isViewingToday) {
+            // Jika hari ini belum closing malam, sisa fisik = saldo berjalan
             remain = Number(s?.remaining_stock !== undefined ? s.remaining_stock : init + totalReceived);
             waste = 0;
           } else {
@@ -310,7 +341,7 @@ export default function BranchStockMonitor() {
             current_stock: finalStock,
             unit: s?.unit || item.uom || 'Pcs',
             updated_at: closingRecord?.created_at || s?.updated_at || '',
-            updated_by: closingRecord?.reported_by || s?.updated_by || 'Sistem',
+            updated_by: closingRecord?.reported_by || s?.updated_by || 'Sistem Rollover',
           });
         });
       });
@@ -423,7 +454,7 @@ export default function BranchStockMonitor() {
               Monitor Pergerakan Stok Cabang
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Rumus: (Stok Awal + Masuk) - Terpakai - Waste = <b>Stok Akhir Tanggal Tersebut</b>
+              Stok Akhir kemarin otomatis menjadi Stok Awal hari ini (Rollover Harian).
             </p>
           </div>
         </div>
@@ -495,7 +526,7 @@ export default function BranchStockMonitor() {
           </div>
           <p className="text-xl font-black text-emerald-600 mt-1">{totalUsage.toLocaleString()}</p>
           <span className="text-[10px] text-slate-400 font-medium">
-            Tanggal {new Date(selectedDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+            Tanggal {formattedColumnDate}
           </span>
         </div>
 
@@ -510,11 +541,11 @@ export default function BranchStockMonitor() {
 
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between text-indigo-600 text-[11px] font-bold">
-            <span>Audit Trail</span>
+            <span>Sistem Rollover</span>
             <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
           </div>
-          <p className="text-xs font-black text-slate-800 mt-2">Pencatatan Otomatis</p>
-          <span className="text-[10px] text-slate-400 font-medium">Petugas & waktu closing</span>
+          <p className="text-xs font-black text-slate-800 mt-2">Estafet Otomatis</p>
+          <span className="text-[10px] text-slate-400 font-medium">Sisa kemarin ➔ Awal hari ini</span>
         </div>
       </div>
 
@@ -552,7 +583,7 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* TABEL PERGERAKAN STOK */}
+      {/* TABEL PERGERAKAN STOK DENGAN TANGGAL DINAMIS */}
       <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead className="bg-slate-50/80 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-sm">
@@ -562,9 +593,12 @@ export default function BranchStockMonitor() {
               <th className="py-3 px-3 text-right text-emerald-600">+ Masuk</th>
               <th className="py-3 px-3 text-right text-indigo-600">- Terpakai</th>
               <th className="py-3 px-3 text-right text-[#ff6f3c]">- Waste</th>
-              <th className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/70">
-                = Stok Akhir Tanggal Tersebut
+              
+              {/* HEADER TANGGAL DINAMIS OTOMATIS */}
+              <th className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/80">
+                = Stok Akhir ({formattedColumnDate})
               </th>
+
               <th className="py-3 px-3">Update Terakhir</th>
               <th className="py-3 px-4 text-center">Koreksi</th>
             </tr>
@@ -607,6 +641,7 @@ export default function BranchStockMonitor() {
                           </div>
                         </td>
 
+                        {/* Stok Awal (Otomatis dari Sisa Kemarin) */}
                         <td className="py-3 px-3 text-right font-semibold">
                           {isEditing ? (
                             <input
@@ -634,7 +669,7 @@ export default function BranchStockMonitor() {
                         </td>
 
                         {/* Stok Akhir Tanggal Tersebut */}
-                        <td className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/70">
+                        <td className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/80">
                           {isEditing ? (
                             <input
                               type="number"
