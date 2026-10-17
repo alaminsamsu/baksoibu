@@ -8,12 +8,10 @@ import {
   Calendar, 
   MapPin, 
   Phone, 
-  Shield, 
   Clock, 
-  CheckCircle, 
   Search,
   RefreshCw,
-  Edit2
+  ExternalLink
 } from 'lucide-react';
 
 export default function StaffManagementView() {
@@ -103,7 +101,7 @@ export default function StaffManagementView() {
           </div>
           <div>
             <h2 className="text-base font-black text-slate-900 leading-tight">Administrasi & Presensi SDM</h2>
-            <p className="text-xs text-slate-400">Database karyawan, penempatan cabang & log check-in/out</p>
+            <p className="text-xs text-slate-400">Database staf, verifikasi GPS lokasi & log jam kerja</p>
           </div>
         </div>
 
@@ -177,7 +175,7 @@ export default function StaffManagementView() {
         </div>
       )}
 
-      {/* TAB 1: LOG PRESENSI HARIAN */}
+      {/* TAB 1: LOG PRESENSI HARIAN DENGAN LOKASI GPS */}
       {activeTab === 'attendance' && (
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
@@ -185,17 +183,18 @@ export default function StaffManagementView() {
               <tr>
                 <th className="py-2.5 px-3">Nama Petugas</th>
                 <th className="py-2.5 px-2">Peran</th>
-                <th className="py-2.5 px-2">Lokasi Tugas</th>
+                <th className="py-2.5 px-2">Lokasi Outlet</th>
                 <th className="py-2.5 px-2">Shift</th>
                 <th className="py-2.5 px-2 text-emerald-600">Check-In</th>
                 <th className="py-2.5 px-2 text-red-600">Check-Out</th>
+                <th className="py-2.5 px-2 text-center">Titik GPS</th>
                 <th className="py-2.5 px-3 text-right">Durasi Kerja</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {attendanceList.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-slate-400">
+                  <td colSpan={8} className="py-10 text-center text-slate-400">
                     Tidak ada presensi tugas tercatat pada tanggal ini.
                   </td>
                 </tr>
@@ -227,6 +226,22 @@ export default function StaffManagementView() {
                       </td>
                       <td className="py-3 px-2 font-black text-red-600">
                         {outTime ? outTime.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                      </td>
+                      <td className="py-3 px-2 text-center">
+                        {att.clock_in_lat ? (
+                          <a
+                            href={`https://www.google.com/maps?q=${att.clock_in_lat},${att.clock_in_lng}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-[10px] transition-colors"
+                          >
+                            <MapPin className="w-3 h-3 text-indigo-600" />
+                            <span>Maps</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        ) : (
+                          <span className="text-[10px] text-slate-300">-</span>
+                        )}
                       </td>
                       <td className="py-3 px-3 text-right font-bold text-slate-800">{durationStr}</td>
                     </tr>
