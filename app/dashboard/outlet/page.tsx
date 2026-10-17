@@ -10,8 +10,7 @@ import {
   Banknote, 
   LogOut, 
   User, 
-  MapPin, 
-  Sparkles 
+  MapPin 
 } from 'lucide-react';
 
 import ReceptionForm from '@/components/outlet/ReceptionForm';
@@ -87,13 +86,11 @@ export default function OutletDashboard() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
-        {/* Render Form Aktif jika ada tombol diklik */}
+        {/* Render Form Aktif */}
         {activeForm === 'reception' && (
           <ReceptionForm 
             user={currentUser} 
             onBack={() => setActiveForm(null)} 
-            locationId={currentUser?.location_id}
-            staffName={currentUser?.active_staff_name}
           />
         )}
 
@@ -101,8 +98,6 @@ export default function OutletDashboard() {
           <ExpenseForm 
             user={currentUser} 
             onBack={() => setActiveForm(null)} 
-            locationId={currentUser?.location_id}
-            staffName={currentUser?.active_staff_name}
           />
         )}
 
@@ -110,8 +105,6 @@ export default function OutletDashboard() {
           <OrderRequestForm 
             user={currentUser} 
             onBack={() => setActiveForm(null)} 
-            locationId={currentUser?.location_id}
-            staffName={currentUser?.active_staff_name}
           />
         )}
 
@@ -119,8 +112,6 @@ export default function OutletDashboard() {
           <DailyClosingForm 
             user={currentUser} 
             onBack={() => setActiveForm(null)} 
-            locationId={currentUser?.location_id}
-            staffName={currentUser?.active_staff_name}
           />
         )}
 
@@ -128,8 +119,6 @@ export default function OutletDashboard() {
           <CashSettlementForm 
             user={currentUser} 
             onBack={() => setActiveForm(null)} 
-            locationId={currentUser?.location_id}
-            staffName={currentUser?.active_staff_name}
           />
         )}
 
