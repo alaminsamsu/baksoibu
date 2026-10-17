@@ -11,6 +11,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import StaffManagementView from '@/components/hr/StaffManagementView';
+import StaffAttendanceWidget from '@/components/outlet/components/shared/StaffAttendanceWidget';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function HRDashboardPage() {
@@ -23,6 +24,7 @@ export default function HRDashboardPage() {
   });
 
   useEffect(() => {
+    // 1. Validasi Sesi Login
     const sessionStr = localStorage.getItem('baksoibu_active_staff');
     if (!sessionStr) {
       router.push('/login');
@@ -32,6 +34,7 @@ export default function HRDashboardPage() {
     const session = JSON.parse(sessionStr);
     const role = (session.role || '').toUpperCase();
 
+    // Hanya izinkan HR dan OWNER
     if (role !== 'HR' && role !== 'OWNER') {
       router.push('/login');
       return;
@@ -39,6 +42,7 @@ export default function HRDashboardPage() {
 
     setCurrentUser(session);
 
+    // 2. Ambil Statistik Ringkas HR
     const fetchHRStats = async () => {
       try {
         const todayStr = new Date().toISOString().split('T')[0];
@@ -78,14 +82,14 @@ export default function HRDashboardPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-base font-black tracking-tight text-slate-900 leading-none">
-                HR Management Portal
+                Portal Administrasi HR
               </h1>
               <span className="text-[10px] font-extrabold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
                 SDM & Presensi
               </span>
             </div>
             <p className="text-[11px] font-semibold text-slate-400 mt-1">
-              Bakso Ibu • Pemantauan Presensi GPS, Jam Kerja & Direktori Karyawan
+              Bakso Ibu • Presensi Mandiri & Rekap Kehadiran Karyawan
             </p>
           </div>
         </div>
@@ -93,10 +97,10 @@ export default function HRDashboardPage() {
         <div className="flex items-center gap-3">
           <div className="hidden sm:block text-right">
             <span className="text-xs font-black text-slate-800 block leading-tight">
-              {currentUser?.username?.toUpperCase() || 'TIM HR'}
+              {currentUser?.active_staff_name || currentUser?.username?.toUpperCase() || 'PETUGAS HR'}
             </span>
             <span className="text-[10px] text-emerald-600 font-bold flex items-center justify-end gap-1">
-              <ShieldCheck className="w-3 h-3" /> Akses Terverifikasi
+              <ShieldCheck className="w-3 h-3" /> Tim HR Aktif
             </span>
           </div>
 
@@ -110,8 +114,23 @@ export default function HRDashboardPage() {
         </div>
       </header>
 
-      {/* Konten Dashboard Khusus HR */}
+      {/* Konten Dashboard */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+        {/* 1. BAGIAN PRESENSI MANDIRI PETUGAS HR */}
+        {currentUser && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-xs font-black text-slate-700 uppercase tracking-wider px-1">
+              <UserCheck className="w-4 h-4 text-indigo-600" />
+              <span>Presensi Mandiri Petugas HR</span>
+            </div>
+            <StaffAttendanceWidget 
+              locationId={currentUser.location_id || 'office-pusat'} 
+              staffName={currentUser.active_staff_name || currentUser.username || 'HR Officer'} 
+            />
+          </div>
+        )}
+
+        {/* 2. RINGKASAN MONITORING SDM */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs flex items-center justify-between">
             <div>
@@ -130,10 +149,10 @@ export default function HRDashboardPage() {
           <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs flex items-center justify-between">
             <div>
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                Presensi Hari Ini
+                Hadir Hari Ini
               </span>
               <p className="text-xl font-black text-emerald-600 mt-0.5">
-                {stats.presentToday} <span className="text-xs font-medium text-slate-400">Tercatat</span>
+                {stats.presentToday} <span className="text-xs font-medium text-slate-400">Presensi</span>
               </p>
             </div>
             <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
@@ -144,7 +163,7 @@ export default function HRDashboardPage() {
           <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs flex items-center justify-between">
             <div>
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                Cakupan Unit Outlet
+                Cakupan Outlet
               </span>
               <p className="text-xl font-black text-slate-800 mt-0.5">
                 {stats.activeLocations} <span className="text-xs font-medium text-slate-400">Lokasi</span>
@@ -156,7 +175,7 @@ export default function HRDashboardPage() {
           </div>
         </div>
 
-        {/* Tabel Rekap Presensi GPS & Database Karyawan */}
+        {/* 3. ADMINISTRASI & REKAP SELURUH KARYAWAN */}
         <StaffManagementView />
       </main>
     </div>
