@@ -5,12 +5,12 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { 
   Store, 
+  UserCheck, 
   BarChart3, 
   Briefcase, 
   Users, 
   Crown, 
   ShieldCheck, 
-  UserCheck,
   User, 
   Lock, 
   ArrowRight,
@@ -18,19 +18,19 @@ import {
   MapPin
 } from 'lucide-react';
 
-type RoleTab = 'outlet' | 'produksi' | 'admin' | 'hr' | 'owner';
+type RoleTab = 'outlet' | 'leader' | 'produksi' | 'admin' | 'hr' | 'owner';
 
 export default function LoginPage() {
   const router = useRouter();
   const [locations, setLocations] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<RoleTab>('outlet');
 
-  // Form State untuk Tab Outlet (Crew & Kasir)
+  // Form State untuk Tab Outlet (Crew & Kasir - Tanpa Password)
   const [selectedLocationId, setSelectedLocationId] = useState('');
   const [staffName, setStaffName] = useState('');
   const [crewRole, setCrewRole] = useState<'CREW' | 'KASIR'>('CREW');
 
-  // Form State untuk Tab Password (Produksi, Admin, HR, Owner)
+  // Form State untuk Tab Terproteksi Password (Leader, Produksi, Admin, HR, Owner)
   const [username, setUsername] = useState('');
   const [pinCode, setPinCode] = useState('');
 
@@ -53,13 +53,12 @@ export default function LoginPage() {
     setErrorMsg(null);
     setPinCode('');
 
-    if (tab === 'admin') setUsername('admin');
+    if (tab === 'leader') setUsername('leader');
+    else if (tab === 'produksi') setUsername('produksi');
+    else if (tab === 'admin') setUsername('admin');
     else if (tab === 'hr') setUsername('hr');
     else if (tab === 'owner') setUsername('owner');
-    else if (tab === 'produksi') setUsername('produksi');
-    else {
-      setUsername('');
-    }
+    else setUsername('');
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -79,12 +78,11 @@ export default function LoginPage() {
 
         const activeLoc = locations.find((l) => l.id === selectedLocationId);
 
-        // Data sesi identik dengan struktur asli sistem Bakso Ibu
         const sessionData = {
           id: selectedLocationId,
           username: staffName.trim(),
           active_staff_name: staffName.trim(),
-          role: crewRole, // 'CREW' atau 'KASIR'
+          role: crewRole,
           location_id: selectedLocationId,
           location_name: activeLoc ? activeLoc.name : 'Outlet Cabang'
         };
@@ -94,7 +92,7 @@ export default function LoginPage() {
         return;
       }
 
-      // 2. LOGIN TERPROTEKSI (PRODUKSI, ADMIN, HR, OWNER) - WAJIB PIN / PASSWORD
+      // 2. LOGIN TERPROTEKSI (LEADER, PRODUKSI, ADMIN, HR, OWNER) - WAJIB PIN / PASSWORD
       if (!pinCode.trim()) {
         throw new Error('Silakan masukkan Password / PIN.');
       }
@@ -116,20 +114,21 @@ export default function LoginPage() {
         throw new Error('Password / PIN salah.');
       }
 
-      const activeLoc = locations.find((l) => l.id === user.location_id);
+      const targetLocId = user.location_id || selectedLocationId || null;
+      const activeLoc = locations.find((l) => l.id === targetLocId);
 
       const sessionData = {
         id: user.id,
         username: user.username,
         active_staff_name: user.username.toUpperCase(),
-        role: user.role,
-        location_id: user.location_id || null,
+        role: user.role || activeTab.toUpperCase(),
+        location_id: targetLocId,
         location_name: user.location_name || (activeLoc ? activeLoc.name : 'Pusat')
       };
 
       localStorage.setItem('baksoibu_active_staff', JSON.stringify(sessionData));
 
-      const userRole = (user.role || '').toUpperCase();
+      const userRole = (user.role || activeTab).toUpperCase();
       if (userRole === 'OWNER' || userRole === 'HR') {
         router.push('/dashboard/executive');
       } else if (userRole === 'ADMIN') {
@@ -137,6 +136,7 @@ export default function LoginPage() {
       } else if (userRole === 'PRODUKSI' || userRole.includes('KITCHEN')) {
         router.push('/dashboard/produksi');
       } else {
+        // LEADER masuk ke outlet dashboard
         router.push('/dashboard/outlet');
       }
 
@@ -149,7 +149,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-[#fbfbfe] flex flex-col justify-center items-center p-4 font-sans text-slate-700">
-      <div className="max-w-[480px] w-full space-y-6">
+      <div className="max-w-[520px] w-full space-y-6">
         
         {/* Header Logo Toko Asli */}
         <div className="text-center space-y-2">
@@ -164,7 +164,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* 5 Tab Peran: Outlet, Produksi, Admin, HR, Owner */}
+        {/* 6 Tab Peran: Outlet, Leader, Produksi, Admin, HR, Owner */}
         <div className="bg-[#eef1f8] p-1.5 rounded-2xl flex items-center justify-between text-xs font-bold gap-1">
           <button
             type="button"
@@ -176,7 +176,20 @@ export default function LoginPage() {
             }`}
           >
             <Store className="w-4 h-4" />
-            <span className="text-[11px]">Outlet</span>
+            <span className="text-[10px]">Outlet</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabChange('leader')}
+            className={`flex-1 py-2.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
+              activeTab === 'leader'
+                ? 'bg-white text-[#5252ea] shadow-xs border border-slate-200/60 font-black'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <UserCheck className="w-4 h-4" />
+            <span className="text-[10px]">Leader</span>
           </button>
 
           <button
@@ -189,7 +202,7 @@ export default function LoginPage() {
             }`}
           >
             <BarChart3 className="w-4 h-4" />
-            <span className="text-[11px]">Produksi</span>
+            <span className="text-[10px]">Produksi</span>
           </button>
 
           <button
@@ -202,7 +215,7 @@ export default function LoginPage() {
             }`}
           >
             <Briefcase className="w-4 h-4" />
-            <span className="text-[11px]">Admin</span>
+            <span className="text-[10px]">Admin</span>
           </button>
 
           <button
@@ -215,7 +228,7 @@ export default function LoginPage() {
             }`}
           >
             <Users className="w-4 h-4" />
-            <span className="text-[11px]">HR</span>
+            <span className="text-[10px]">HR</span>
           </button>
 
           <button
@@ -228,7 +241,7 @@ export default function LoginPage() {
             }`}
           >
             <Crown className="w-4 h-4" />
-            <span className="text-[11px]">Owner</span>
+            <span className="text-[10px]">Owner</span>
           </button>
         </div>
 
@@ -238,6 +251,7 @@ export default function LoginPage() {
             <ShieldCheck className="w-4 h-4 text-[#5252ea]" />
             <span>
               {activeTab === 'outlet' && 'Masuk Outlet (Kasir & Crew)'}
+              {activeTab === 'leader' && 'Masuk Leader Outlet'}
               {activeTab === 'produksi' && 'Masuk Tim Rumah Produksi'}
               {activeTab === 'admin' && 'Masuk Admin Operasional'}
               {activeTab === 'hr' && 'Masuk Manajemen HR'}
@@ -253,7 +267,7 @@ export default function LoginPage() {
           )}
 
           <form onSubmit={handleLogin} className="space-y-4 text-xs font-bold">
-            {/* TAMPILAN OUTLET: CABANG + NAMA PETUGAS + PERAN (CREW / KASIR) */}
+            {/* TAMPILAN KHUSUS OUTLET (CREW & KASIR) - TANPA PASSWORD */}
             {activeTab === 'outlet' ? (
               <>
                 <div className="space-y-1.5">
@@ -327,8 +341,31 @@ export default function LoginPage() {
                 </div>
               </>
             ) : (
-              /* TAMPILAN PRODUKSI / ADMIN / HR / OWNER (MEMERLUKAN PASSWORD / PIN) */
+              /* TAMPILAN TAB LEADER, PRODUKSI, ADMIN, HR, OWNER - WAJIB PASSWORD/PIN */
               <>
+                {/* Pilihan Outlet khusus Leader */}
+                {activeTab === 'leader' && (
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] uppercase tracking-wider text-slate-400 font-extrabold block">
+                      OUTLET TUGAS
+                    </label>
+                    <div className="relative">
+                      <MapPin className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                      <select
+                        value={selectedLocationId}
+                        onChange={(e) => setSelectedLocationId(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2.5 bg-[#f6f8fc] border border-slate-200/60 rounded-xl text-slate-800 font-bold focus:outline-none focus:bg-white focus:border-[#5252ea]"
+                      >
+                        {locations.map((loc) => (
+                          <option key={loc.id} value={loc.id}>
+                            {loc.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-1.5">
                   <label className="text-[11px] uppercase tracking-wider text-slate-400 font-extrabold block">
                     ID AKUN
