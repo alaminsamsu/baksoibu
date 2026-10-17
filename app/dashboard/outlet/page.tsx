@@ -19,6 +19,7 @@ import OrderRequestForm from '@/components/outlet/OrderRequestForm';
 import DailyClosingForm from '@/components/outlet/DailyClosingForm';
 import CashSettlementForm from '@/components/outlet/CashSettlementForm';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
+import StaffAttendanceWidget from '@/components/hr/StaffAttendanceWidget';
 
 export default function OutletDashboard() {
   const router = useRouter();
@@ -86,7 +87,7 @@ export default function OutletDashboard() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
-        {/* Render Form Aktif */}
+        {/* Render Form Aktif jika ada menu diklik */}
         {activeForm === 'reception' && (
           <ReceptionForm 
             user={currentUser} 
@@ -122,9 +123,16 @@ export default function OutletDashboard() {
           />
         )}
 
-        {/* 5 Menu Kartu Operasional */}
+        {/* Tampilan Utama Dashboard Outlet */}
         {!activeForm && (
           <div className="space-y-6">
+            {/* WIDGET PRESENSI (CHECK-IN / CHECK-OUT) */}
+            <StaffAttendanceWidget 
+              currentUser={currentUser} 
+              locationId={currentUser?.location_id} 
+            />
+
+            {/* 5 Menu Kartu Operasional */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {/* Menu 1: Terima Barang */}
               <button
