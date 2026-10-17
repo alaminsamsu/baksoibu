@@ -4,253 +4,418 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import { 
-  Factory, 
+  Store, 
+  UserCheck, 
+  BarChart3, 
   Briefcase, 
-  LogOut, 
-  ShoppingBag, 
-  Activity, 
-  CheckCircle2, 
-  Clock, 
-  RefreshCw,
-  MapPin,
-  Calendar
+  Users, 
+  Crown, 
+  ShieldCheck, 
+  User, 
+  Lock, 
+  ArrowRight,
+  AlertCircle,
+  MapPin
 } from 'lucide-react';
-import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 
-export default function AdminDashboardPage() {
+type RoleTab = 'outlet' | 'leader' | 'produksi' | 'admin' | 'hr' | 'owner';
+
+export default function LoginPage() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'orders' | 'monitor'>('orders');
-  const [orderRequests, setOrderRequests] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
-  const [selectedLoc, setSelectedLoc] = useState('all');
-  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<RoleTab>('outlet');
+
+  // Form State untuk Tab Outlet (Crew & Kasir - Tanpa Password)
+  const [selectedLocationId, setSelectedLocationId] = useState('');
+  const [staffName, setStaffName] = useState('');
+  const [crewRole, setCrewRole] = useState<'CREW' | 'KASIR'>('CREW');
+
+  // Form State untuk Tab Terproteksi Password (Leader, Produksi, Admin, HR, Owner)
+  const [username, setUsername] = useState('');
+  const [pinCode, setPinCode] = useState('');
+
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem('baksoibu_active_staff');
-    if (saved) {
-      try {
-        setUser(JSON.parse(saved));
-      } catch (e) {
-        console.error(e);
+    const fetchLocations = async () => {
+      const { data } = await supabase.from('locations').select('*').order('name');
+      if (data && data.length > 0) {
+        setLocations(data);
+        setSelectedLocationId(data[0].id);
       }
-    }
-    fetchData();
+    };
+    fetchLocations();
   }, []);
 
-  const fetchData = async () => {
+  const handleTabChange = (tab: RoleTab) => {
+    setActiveTab(tab);
+    setErrorMsg(null);
+    setPinCode('');
+
+    if (tab === 'leader') setUsername('leader');
+    else if (tab === 'produksi') setUsername('produksi');
+    else if (tab === 'admin') setUsername('admin');
+    else if (tab === 'hr') setUsername('hr');
+    else if (tab === 'owner') setUsername('owner');
+    else setUsername('');
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
+    setErrorMsg(null);
+
     try {
-      const { data: locs } = await supabase.from('locations').select('*');
-      if (locs) setLocations(locs);
+      // 1. LOGIN CREW & KASIR (OUTLET) - TANPA PASSWORD
+      if (activeTab === 'outlet') {
+        if (!staffName.trim()) {
+          throw new Error('Silakan isi Nama Petugas.');
+        }
+        if (!selectedLocationId) {
+          throw new Error('Silakan pilih cabang outlet.');
+        }
 
-      const today = new Date().toISOString().split('T')[0];
-      const { data: orders } = await supabase
-        .from('order_requests')
-        .select('*, locations(name)')
-        .order('created_at', { ascending: false });
+        const activeLoc = locations.find((l) => l.id === selectedLocationId);
 
-      if (orders) setOrderRequests(orders);
-    } catch (err) {
-      console.error(err);
+        const sessionData = {
+          id: selectedLocationId,
+          username: staffName.trim(),
+          active_staff_name: staffName.trim(),
+          role: crewRole,
+          location_id: selectedLocationId,
+          location_name: activeLoc ? activeLoc.name : 'Outlet Cabang'
+        };
+
+        localStorage.setItem('baksoibu_active_staff', JSON.stringify(sessionData));
+        router.push('/dashboard/outlet');
+        return;
+      }
+
+      // 2. LOGIN TERPROTEKSI (LEADER, PRODUKSI, ADMIN, HR, OWNER) - WAJIB PIN / PASSWORD
+      if (!pinCode.trim()) {
+        throw new Error('Silakan masukkan Password / PIN.');
+      }
+
+      const { data: user, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', username.trim().toLowerCase())
+        .single();
+
+      if (error || !user) {
+        throw new Error(`Akun "${username}" tidak ditemukan.`);
+      }
+
+      const inputPass = pinCode.trim();
+      const validPass = user.pin_code || user.pin || user.password;
+
+      if (validPass && inputPass !== String(validPass)) {
+        throw new Error('Password / PIN salah.');
+      }
+
+      const targetLocId = user.location_id || selectedLocationId || null;
+      const activeLoc = locations.find((l) => l.id === targetLocId);
+
+      const sessionData = {
+        id: user.id,
+        username: user.username,
+        active_staff_name: user.username.toUpperCase(),
+        role: user.role || activeTab.toUpperCase(),
+        location_id: targetLocId,
+        location_name: user.location_name || (activeLoc ? activeLoc.name : 'Pusat')
+      };
+
+      localStorage.setItem('baksoibu_active_staff', JSON.stringify(sessionData));
+
+      const userRole = (user.role || activeTab).toUpperCase();
+      
+      // ROUTING TEPAT SASARAN
+      if (userRole === 'HR') {
+        router.push('/dashboard/hr');
+      } else if (userRole === 'OWNER') {
+        router.push('/dashboard/executive');
+      } else if (userRole === 'ADMIN') {
+        router.push('/dashboard/admin');
+      } else if (userRole === 'PRODUKSI' || userRole.includes('KITCHEN')) {
+        router.push('/dashboard/produksi');
+      } else {
+        router.push('/dashboard/outlet');
+      }
+
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Gagal masuk ke sistem.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleUpdateStatus = async (orderId: string, newStatus: string) => {
-    try {
-      const { error } = await supabase
-        .from('order_requests')
-        .update({ status: newStatus })
-        .eq('id', orderId);
-
-      if (error) throw error;
-      fetchData();
-    } catch (err: any) {
-      alert('Gagal update status: ' + err.message);
-    }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('baksoibu_active_staff');
-    router.push('/login');
-  };
-
-  const filteredOrders = selectedLoc === 'all'
-    ? orderRequests
-    : orderRequests.filter((o) => o.location_id === selectedLoc);
-
   return (
-    <div className="min-h-screen bg-[#f8f9fd] text-slate-800 flex flex-col font-sans">
-      {/* Navbar Header */}
-      <header className="max-w-6xl w-full mx-auto px-4 sm:px-6 pt-5 pb-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white flex items-center justify-center shadow-md shadow-indigo-200">
-            {user?.role === 'PRODUKSI' ? <Factory className="w-5 h-5" /> : <Briefcase className="w-5 h-5" />}
+    <div className="min-h-screen bg-[#fbfbfe] flex flex-col justify-center items-center p-4 font-sans text-slate-700">
+      <div className="max-w-[520px] w-full space-y-6">
+        
+        {/* Header Logo Toko Asli */}
+        <div className="text-center space-y-2">
+          <div className="inline-flex w-16 h-16 rounded-2xl bg-[#5252ea] text-white items-center justify-center shadow-lg shadow-indigo-500/20">
+            <Store className="w-8 h-8" />
           </div>
-          <div>
-            <h1 className="text-base font-black tracking-tight text-slate-900 leading-none">
-              Bakso Ibu {user?.role === 'PRODUKSI' ? 'Rumah Produksi' : 'Admin Operasional'}
-            </h1>
-            <p className="text-[11px] font-semibold text-slate-400 mt-1">
-              Pusat Kendali & Rekap Kebutuhan Cabang
-            </p>
-          </div>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+            Bakso Ibu ERP
+          </h1>
+          <p className="text-xs font-medium text-slate-400">
+            Portal Akses Berdasarkan Peran & Divisi
+          </p>
         </div>
 
-        {/* Tab Navigasi */}
-        <div className="flex items-center gap-1 bg-white px-3 py-1.5 rounded-full shadow-sm shadow-slate-200/60 border border-slate-100 text-xs font-bold text-slate-500">
+        {/* 6 Tab Peran */}
+        <div className="bg-[#eef1f8] p-1.5 rounded-2xl flex items-center justify-between text-xs font-bold gap-1">
           <button
-            onClick={() => setActiveTab('orders')}
-            className={`px-3 py-1 rounded-full transition-all flex items-center gap-1.5 ${
-              activeTab === 'orders' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:text-slate-800'
+            type="button"
+            onClick={() => handleTabChange('outlet')}
+            className={`flex-1 py-2.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
+              activeTab === 'outlet'
+                ? 'bg-white text-[#5252ea] shadow-xs border border-slate-200/60 font-black'
+                : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            <ShoppingBag className="w-3.5 h-3.5" />
-            Rekap Pesanan Outlet
+            <Store className="w-4 h-4" />
+            <span className="text-[10px]">Outlet</span>
           </button>
+
           <button
-            onClick={() => setActiveTab('monitor')}
-            className={`px-3 py-1 rounded-full transition-all flex items-center gap-1.5 ${
-              activeTab === 'monitor' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:text-slate-800'
+            type="button"
+            onClick={() => handleTabChange('leader')}
+            className={`flex-1 py-2.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
+              activeTab === 'leader'
+                ? 'bg-white text-[#5252ea] shadow-xs border border-slate-200/60 font-black'
+                : 'text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Activity className="w-3.5 h-3.5" />
-            Monitor Stok Cabang
+            <UserCheck className="w-4 h-4" />
+            <span className="text-[10px]">Leader</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabChange('produksi')}
+            className={`flex-1 py-2.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
+              activeTab === 'produksi'
+                ? 'bg-white text-[#5252ea] shadow-xs border border-slate-200/60 font-black'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span className="text-[10px]">Produksi</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabChange('admin')}
+            className={`flex-1 py-2.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
+              activeTab === 'admin'
+                ? 'bg-white text-[#5252ea] shadow-xs border border-slate-200/60 font-black'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Briefcase className="w-4 h-4" />
+            <span className="text-[10px]">Admin</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabChange('hr')}
+            className={`flex-1 py-2.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
+              activeTab === 'hr'
+                ? 'bg-white text-[#5252ea] shadow-xs border border-slate-200/60 font-black'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span className="text-[10px]">HR</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabChange('owner')}
+            className={`flex-1 py-2.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
+              activeTab === 'owner'
+                ? 'bg-white text-[#ff8a3d] shadow-xs border border-slate-200/60 font-black'
+                : 'text-[#ff8a3d]/80 hover:text-[#ff8a3d]'
+            }`}
+          >
+            <Crown className="w-4 h-4" />
+            <span className="text-[10px]">Owner</span>
           </button>
         </div>
 
-        {/* User Info & Out */}
-        <div className="flex items-center gap-3">
-          <div className="text-right hidden sm:block">
-            <div className="text-xs font-extrabold text-slate-900 leading-tight">
-              {user?.active_staff_name || 'Admin'}
-            </div>
-            <span className="inline-block text-[10px] font-bold text-indigo-600 uppercase tracking-wider">
-              {user?.role || 'ADMIN'}
+        {/* Card Form */}
+        <div className="bg-white p-7 rounded-3xl border border-slate-100 shadow-xs space-y-5">
+          <div className="flex items-center gap-2 text-sm font-black text-slate-800">
+            <ShieldCheck className="w-4 h-4 text-[#5252ea]" />
+            <span>
+              {activeTab === 'outlet' && 'Masuk Outlet (Kasir & Crew)'}
+              {activeTab === 'leader' && 'Masuk Leader Outlet'}
+              {activeTab === 'produksi' && 'Masuk Tim Rumah Produksi'}
+              {activeTab === 'admin' && 'Masuk Admin Operasional'}
+              {activeTab === 'hr' && 'Masuk Manajemen HR'}
+              {activeTab === 'owner' && 'Masuk Executive Owner'}
             </span>
           </div>
-          <button
-            onClick={handleLogout}
-            title="Keluar"
-            className="w-9 h-9 rounded-2xl bg-white border border-slate-200/80 hover:bg-red-50 hover:border-red-200 text-slate-400 hover:text-red-600 flex items-center justify-center transition-all shadow-sm"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
-        {activeTab === 'orders' ? (
-          <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm shadow-slate-200/50 space-y-5">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-slate-100">
-              <div>
-                <h2 className="text-base font-extrabold text-slate-900">
-                  Daftar Pesanan Masuk dari Outlet
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Total permintaan olahan bakso & bahan dari formulir request order malam.
-                </p>
-              </div>
+          {errorMsg && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-2xl flex items-center gap-2 text-xs font-bold text-red-600">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
 
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
-                  <select
-                    value={selectedLoc}
-                    onChange={(e) => setSelectedLoc(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
-                  >
-                    <option value="all">Semua Outlet</option>
-                    {locations.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
-                      </option>
-                    ))}
-                  </select>
+          <form onSubmit={handleLogin} className="space-y-4 text-xs font-bold">
+            {/* TAMPILAN KHUSUS OUTLET (CREW & KASIR) - TANPA PASSWORD */}
+            {activeTab === 'outlet' ? (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] uppercase tracking-wider text-slate-400 font-extrabold block">
+                    PILIH OUTLET
+                  </label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                    <select
+                      value={selectedLocationId}
+                      onChange={(e) => setSelectedLocationId(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-[#f6f8fc] border border-slate-200/60 rounded-xl text-slate-800 font-bold focus:outline-none focus:bg-white focus:border-[#5252ea]"
+                    >
+                      {locations.map((loc) => (
+                        <option key={loc.id} value={loc.id}>
+                          {loc.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
-                <button
-                  onClick={fetchData}
-                  className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-100"
-                >
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                </button>
-              </div>
-            </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] uppercase tracking-wider text-slate-400 font-extrabold block">
+                    NAMA PETUGAS
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      required
+                      value={staffName}
+                      onChange={(e) => setStaffName(e.target.value)}
+                      placeholder="Masukkan nama Anda (misal: Lisha)"
+                      className="w-full pl-10 pr-4 py-2.5 bg-[#f6f8fc] border border-slate-200/60 rounded-xl text-slate-800 font-bold focus:outline-none focus:bg-white focus:border-[#5252ea]"
+                    />
+                  </div>
+                </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead className="bg-slate-50/80 border-b border-slate-100 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                  <tr>
-                    <th className="py-3 px-4">Waktu & Outlet</th>
-                    <th className="py-3 px-3">Nama Barang</th>
-                    <th className="py-3 px-3 text-right">Jumlah Order</th>
-                    <th className="py-3 px-3">Catatan</th>
-                    <th className="py-3 px-3 text-center">Status Produksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {loading ? (
-                    <tr>
-                      <td colSpan={5} className="py-10 text-center text-slate-400 font-medium">
-                        Memuat data pesanan...
-                      </td>
-                    </tr>
-                  ) : filteredOrders.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-10 text-center text-slate-400 font-medium">
-                        Belum ada order masuk dari outlet.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredOrders.map((ord) => (
-                      <tr key={ord.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="py-3 px-4">
-                          <div className="font-extrabold text-slate-800">
-                            {ord.locations?.name || 'Outlet'}
-                          </div>
-                          <div className="text-[10px] text-slate-400">
-                            Oleh: {ord.requested_by || 'Petugas'} • {new Date(ord.created_at).toLocaleDateString('id-ID')}
-                          </div>
-                        </td>
-                        <td className="py-3 px-3 font-bold text-slate-900">{ord.item_name}</td>
-                        <td className="py-3 px-3 text-right font-black text-indigo-600">
-                          {ord.quantity} {ord.unit}
-                        </td>
-                        <td className="py-3 px-3 text-slate-500 text-[11px] max-w-xs truncate">
-                          {ord.notes || '-'}
-                        </td>
-                        <td className="py-3 px-3 text-center">
-                          <select
-                            value={ord.status || 'pending'}
-                            onChange={(e) => handleUpdateStatus(ord.id, e.target.value)}
-                            className={`px-2.5 py-1 rounded-xl text-xs font-extrabold border focus:outline-none cursor-pointer ${
-                              ord.status === 'completed'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : ord.status === 'processing'
-                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                : 'bg-orange-50 text-orange-600 border-orange-200'
-                            }`}
-                          >
-                            <option value="pending">⏳ Menunggu</option>
-                            <option value="processing">👨‍🍳 Sedang Dimasak</option>
-                            <option value="completed">✅ Siap Kirim</option>
-                          </select>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <BranchStockMonitor />
-        )}
-      </main>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] uppercase tracking-wider text-slate-400 font-extrabold block">
+                    PERAN TUGAS HARI INI
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCrewRole('CREW')}
+                      className={`py-2.5 rounded-xl border flex items-center justify-center gap-1.5 transition-all ${
+                        crewRole === 'CREW'
+                          ? 'bg-[#5252ea] text-white border-[#5252ea] shadow-xs'
+                          : 'bg-[#f6f8fc] text-slate-600 border-slate-200/60 hover:bg-slate-100'
+                      }`}
+                    >
+                      <User className="w-3.5 h-3.5" />
+                      <span>Crew Outlet</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCrewRole('KASIR')}
+                      className={`py-2.5 rounded-xl border flex items-center justify-center gap-1.5 transition-all ${
+                        crewRole === 'KASIR'
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                          : 'bg-[#f6f8fc] text-slate-600 border-slate-200/60 hover:bg-slate-100'
+                      }`}
+                    >
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>Kasir (+ Rekap Kas)</span>
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              /* TAMPILAN TAB LEADER, PRODUKSI, ADMIN, HR, OWNER - WAJIB PASSWORD/PIN */
+              <>
+                {activeTab === 'leader' && (
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] uppercase tracking-wider text-slate-400 font-extrabold block">
+                      OUTLET TUGAS
+                    </label>
+                    <div className="relative">
+                      <MapPin className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                      <select
+                        value={selectedLocationId}
+                        onChange={(e) => setSelectedLocationId(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2.5 bg-[#f6f8fc] border border-slate-200/60 rounded-xl text-slate-800 font-bold focus:outline-none focus:bg-white focus:border-[#5252ea]"
+                      >
+                        {locations.map((loc) => (
+                          <option key={loc.id} value={loc.id}>
+                            {loc.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] uppercase tracking-wider text-slate-400 font-extrabold block">
+                    ID AKUN
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      required
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="ID Akun"
+                      className="w-full pl-10 pr-4 py-2.5 bg-[#f6f8fc] border border-slate-200/60 rounded-xl text-slate-800 font-bold focus:outline-none focus:bg-white focus:border-[#5252ea]"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] uppercase tracking-wider text-slate-400 font-extrabold block">
+                    PASSWORD / PIN
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                    <input
+                      type="password"
+                      required
+                      value={pinCode}
+                      onChange={(e) => setPinCode(e.target.value)}
+                      placeholder="••••••"
+                      className="w-full pl-10 pr-4 py-2.5 bg-[#f6f8fc] border border-slate-200/60 rounded-xl text-slate-800 font-bold focus:outline-none focus:bg-white focus:border-[#5252ea]"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-[#5252ea] hover:bg-[#4343d6] disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md shadow-indigo-500/20 flex items-center justify-center gap-2 transition-all mt-2"
+            >
+              <span>{loading ? 'Memverifikasi...' : 'Buka Dashboard'}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </form>
+        </div>
+
+      </div>
     </div>
   );
 }

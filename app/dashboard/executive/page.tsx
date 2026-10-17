@@ -21,11 +21,9 @@ import {
   Package,
   ShoppingBag,
   Store,
-  Users,
   Receipt
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
-import StaffManagementView from '@/components/hr/StaffManagementView';
 
 interface SettlementRecord {
   id: string;
@@ -92,8 +90,8 @@ export default function ExecutiveOwnerDashboard() {
   const router = useRouter();
   const [locations, setLocations] = useState<any[]>([]);
   
-  // Tab Navigasi: 'overview' | 'stok' | 'hr'
-  const [activeTab, setActiveTab] = useState<'overview' | 'stok' | 'hr'>('overview');
+  // Tab Navigasi Khusus Owner: 'overview' | 'stok'
+  const [activeTab, setActiveTab] = useState<'overview' | 'stok'>('overview');
   
   // Filter Global
   const [filterMode, setFilterMode] = useState<'today' | 'weekly' | 'monthly' | 'custom'>('today');
@@ -107,6 +105,19 @@ export default function ExecutiveOwnerDashboard() {
   const [currentStocks, setCurrentStocks] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [downloading, setDownloading] = useState<boolean>(false);
+
+  useEffect(() => {
+    // PROTEKSI: JIKA HR MASUK KE HALAMAN OWNER, OTOMATIS REDIRECT KE /dashboard/hr
+    const sessionStr = localStorage.getItem('baksoibu_active_staff');
+    if (sessionStr) {
+      const session = JSON.parse(sessionStr);
+      if ((session.role || '').toUpperCase() === 'HR') {
+        router.push('/dashboard/hr');
+        return;
+      }
+    }
+    fetchAllExecutiveData();
+  }, [filterMode, customDate, selectedLocation]);
 
   const fetchAllExecutiveData = async () => {
     setLoading(true);
@@ -188,16 +199,11 @@ export default function ExecutiveOwnerDashboard() {
     }
   };
 
-  useEffect(() => {
-    fetchAllExecutiveData();
-  }, [filterMode, customDate, selectedLocation]);
-
   const handleLogout = () => {
     localStorage.removeItem('baksoibu_active_staff');
     router.push('/login');
   };
 
-  // Kalkulasi KPI
   const kpi = useMemo(() => {
     const totalOmset = settlements.reduce((acc, curr) => acc + Number(curr.total_omset || 0), 0);
     const totalBills = settlements.reduce((acc, curr) => acc + Number(curr.total_bills || 0), 0);
@@ -222,7 +228,6 @@ export default function ExecutiveOwnerDashboard() {
     };
   }, [settlements, closings]);
 
-  // Breakdown Pembayaran
   const paymentBreakdown = useMemo(() => {
     const cash = settlements.reduce((acc, curr) => acc + Number(curr.cash_nominal || 0), 0);
     const qris = settlements.reduce((acc, curr) => acc + Number(curr.qris_nominal || 0), 0);
@@ -232,7 +237,6 @@ export default function ExecutiveOwnerDashboard() {
     return { cash, qris, grab, gofood, shopee };
   }, [settlements]);
 
-  // Perbandingan Outlet
   const outletComparison = useMemo(() => {
     const compMap: Record<string, { name: string; omset: number; bills: number; cashDiff: number; wasteCount: number }> = {};
     
@@ -256,7 +260,6 @@ export default function ExecutiveOwnerDashboard() {
     return Object.values(compMap);
   }, [settlements, closings]);
 
-  // Action Center Issues
   const actionIssues = useMemo(() => {
     const issues: { type: 'CASH' | 'WASTE' | 'STOCK'; title: string; desc: string; severity: 'high' | 'medium' }[] = [];
 
@@ -290,23 +293,6 @@ export default function ExecutiveOwnerDashboard() {
     return issues;
   }, [settlements, currentStocks, closings]);
 
-  // Rekap Pengadaan
-  const groupedOrders = useMemo(() => {
-    const dapur: OrderRequestRecord[] = [];
-    const pasar: OrderRequestRecord[] = [];
-    const vendor: OrderRequestRecord[] = [];
-
-    orders.forEach((o) => {
-      const target = (o.target_type || o.source_type || '').toUpperCase();
-      if (target.includes('PASAR')) pasar.push(o);
-      else if (target.includes('VENDOR')) vendor.push(o);
-      else dapur.push(o);
-    });
-
-    return { dapur, pasar, vendor };
-  }, [orders]);
-
-  // Download Rekap CSV
   const handleDownloadReport = () => {
     setDownloading(true);
     try {
@@ -360,12 +346,12 @@ export default function ExecutiveOwnerDashboard() {
               Bakso Ibu Executive Control
             </h1>
             <p className="text-[11px] font-semibold text-slate-400 mt-1">
-              Pusat Kendali Bisnis, Operasional, Finansial & HR
+              Pusat Kendali Bisnis, Finansial & Pemantauan Operasional
             </p>
           </div>
         </div>
 
-        {/* 3 Tab Navigasi: Executive KPI | Monitor Stok | Administrasi HR */}
+        {/* 2 Tab Navigasi Murni Owner: Executive KPI | Monitor Stok */}
         <div className="flex items-center gap-2">
           <div className="flex bg-white p-1 rounded-2xl border border-slate-200/80 shadow-xs text-xs font-bold">
             <button
@@ -386,15 +372,6 @@ export default function ExecutiveOwnerDashboard() {
               <Activity className="w-3.5 h-3.5" />
               Monitor Stok
             </button>
-            <button
-              onClick={() => setActiveTab('hr')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
-                activeTab === 'hr' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" />
-              Administrasi HR
-            </button>
           </div>
 
           <button
@@ -409,19 +386,13 @@ export default function ExecutiveOwnerDashboard() {
 
       {/* Main Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
-        {/* TAMPILAN TAB HR */}
-        {activeTab === 'hr' ? (
-          <div>
-            <StaffManagementView />
-          </div>
-        ) : activeTab === 'stok' ? (
+        {activeTab === 'stok' ? (
           <div>
             <BranchStockMonitor />
           </div>
         ) : (
-          /* TAMPILAN TAB OVERVIEW KPI */
           <div className="space-y-6">
-            {/* Filter Global Bar */}
+            {/* Filter Bar */}
             <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-100 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
               <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 p-1 rounded-2xl border border-slate-100 text-xs font-bold">
                 <button
@@ -584,7 +555,7 @@ export default function ExecutiveOwnerDashboard() {
               </div>
             </div>
 
-            {/* PERBANDINGAN OUTLET & SALES CHANNELS */}
+            {/* PERBANDINGAN OUTLET & CARA BAYAR */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -680,71 +651,35 @@ export default function ExecutiveOwnerDashboard() {
               </div>
             </div>
 
-            {/* CRITICAL STOCK & PENGADAAN */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <ShieldAlert className="w-4 h-4 text-red-600" />
-                    <h3 className="text-xs font-black uppercase text-slate-800">Critical Stock (Stok &lt;= 3)</h3>
-                  </div>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600">
-                    Perlu Pasok Segera
-                  </span>
+            {/* CRITICAL STOCK */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-red-600" />
+                  <h3 className="text-xs font-black uppercase text-slate-800">Critical Stock (Sisa &lt;= 3)</h3>
                 </div>
-
-                {currentStocks.filter((s) => Number(s.remaining_stock) <= 3).length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-6">Seluruh stok cabang terpantau aman.</p>
-                ) : (
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {currentStocks.filter((s) => Number(s.remaining_stock) <= 3).map((st) => (
-                      <div key={st.id} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-2xl border border-slate-100 text-xs">
-                        <div>
-                          <div className="font-black text-slate-800">{st.item_name}</div>
-                          <div className="text-[10px] text-slate-400">{st.locations?.name || 'Cabang'}</div>
-                        </div>
-                        <span className="font-black text-red-600 bg-red-50 px-2.5 py-1 rounded-xl">
-                          Sisa {st.remaining_stock} {st.unit}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600">
+                  Perlu Pasok Segera
+                </span>
               </div>
 
-              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <Package className="w-4 h-4 text-blue-600" />
-                    <h3 className="text-xs font-black uppercase text-slate-800">Permintaan Pengadaan Besok</h3>
-                  </div>
-                  <span className="text-[10px] font-bold text-slate-400">Request Order Malam</span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="p-3 bg-blue-50/50 rounded-2xl border border-blue-100">
-                    <span className="text-[10px] font-bold text-blue-700 block">Dapur Pusat</span>
-                    <span className="text-base font-black text-blue-900 mt-1 block">{groupedOrders.dapur.length} Item</span>
-                  </div>
-                  <div className="p-3 bg-emerald-50/50 rounded-2xl border border-emerald-100">
-                    <span className="text-[10px] font-bold text-emerald-700 block">Belanja Pasar</span>
-                    <span className="text-base font-black text-emerald-900 mt-1 block">{groupedOrders.pasar.length} Item</span>
-                  </div>
-                  <div className="p-3 bg-purple-50/50 rounded-2xl border border-purple-100">
-                    <span className="text-[10px] font-bold text-purple-700 block">Vendor Eksternal</span>
-                    <span className="text-base font-black text-purple-900 mt-1 block">{groupedOrders.vendor.length} Item</span>
-                  </div>
-                </div>
-
-                <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1">
-                  {orders.slice(0, 5).map((ord) => (
-                    <div key={ord.id} className="flex justify-between items-center text-xs py-1 border-b border-slate-50">
-                      <span className="font-semibold text-slate-700">{ord.item_name} ({ord.locations?.name})</span>
-                      <span className="font-black text-slate-900">{ord.quantity} {ord.unit}</span>
+              {currentStocks.filter((s) => Number(s.remaining_stock) <= 3).length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-6">Seluruh stok cabang terpantau aman.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                  {currentStocks.filter((s) => Number(s.remaining_stock) <= 3).map((st) => (
+                    <div key={st.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs">
+                      <div>
+                        <div className="font-black text-slate-800">{st.item_name}</div>
+                        <div className="text-[10px] text-slate-400">{st.locations?.name || 'Cabang'}</div>
+                      </div>
+                      <span className="font-black text-red-600 bg-red-50 px-2.5 py-1 rounded-xl">
+                        Sisa {st.remaining_stock} {st.unit}
+                      </span>
                     </div>
                   ))}
                 </div>
-              </div>
+              )}
             </div>
 
           </div>
