@@ -11,7 +11,8 @@ import {
   Camera, 
   Trash2, 
   Receipt,
-  Wallet
+  Wallet,
+  FileText
 } from 'lucide-react';
 
 interface Props {
@@ -27,6 +28,7 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
 
   const [shift, setShift] = useState<'SHIFT_1' | 'SHIFT_2'>('SHIFT_1');
   const [openingCash, setOpeningCash] = useState(''); // Modal kas kasir di laci
+  const [totalBills, setTotalBills] = useState(''); // Total bill / struk transaksi
   const [cashNominal, setCashNominal] = useState('');
   const [qrisNominal, setQrisNominal] = useState('');
   const [grabNominal, setGrabNominal] = useState('');
@@ -44,7 +46,7 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // Total Omset Shift (Penjualan Bersih)
+  // Total Omset Shift
   const totalOmset = useMemo(() => {
     const c = parseFloat(cashNominal) || 0;
     const q = parseFloat(qrisNominal) || 0;
@@ -118,6 +120,7 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
         location_id: activeLocationId,
         settlement_date: today,
         shift,
+        total_bills: parseInt(totalBills, 10) || 0,
         opening_cash: parseFloat(openingCash) || 0,
         cash_nominal: parseFloat(cashNominal) || 0,
         qris_nominal: parseFloat(qrisNominal) || 0,
@@ -142,6 +145,7 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
       });
 
       setOpeningCash('');
+      setTotalBills('');
       setCashNominal('');
       setQrisNominal('');
       setGrabNominal('');
@@ -180,7 +184,7 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
           </div>
           <div>
             <h2 className="text-base font-black text-slate-900 leading-tight">Rekap Omset & Kas Kasir</h2>
-            <p className="text-xs text-slate-400">Modal laci, omset tunai/online, pengeluaran & setoran</p>
+            <p className="text-xs text-slate-400">Khusus Kasir & Leader: modal laci, total bill, penjualan & setoran</p>
           </div>
         </div>
 
@@ -224,29 +228,47 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-        {/* 1. Modal Kas Kasir Awal */}
-        <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100">
-          <div className="flex items-center justify-between mb-1.5">
-            <div className="flex items-center gap-1.5 text-indigo-700 font-black">
-              <Wallet className="w-4 h-4" />
-              <label>1. Uang Kas / Modal Awal Laci Kasir</label>
+        {/* 1. Modal Kas Kasir Awal & Total Bill */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-1.5 text-indigo-700 font-black">
+                <Wallet className="w-4 h-4" />
+                <label>1. Uang Kas / Modal Awal Laci</label>
+              </div>
             </div>
-            <span className="text-[10px] text-indigo-500 font-semibold">Kas kecil awal shift</span>
+            <input
+              type="number"
+              min="0"
+              value={openingCash}
+              onChange={(e) => setOpeningCash(e.target.value)}
+              placeholder="Rp 0 (Uang kembalian awal di laci)"
+              className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            />
           </div>
-          <input
-            type="number"
-            min="0"
-            value={openingCash}
-            onChange={(e) => setOpeningCash(e.target.value)}
-            placeholder="Rp 0 (Uang kembalian awal di laci)"
-            className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-          />
+
+          <div className="p-4 rounded-2xl bg-purple-50/50 border border-purple-100">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-1.5 text-purple-700 font-black">
+                <FileText className="w-4 h-4" />
+                <label>2. Total Bill / Jumlah Struk Transaksi</label>
+              </div>
+            </div>
+            <input
+              type="number"
+              min="0"
+              value={totalBills}
+              onChange={(e) => setTotalBills(e.target.value)}
+              placeholder="Contoh: 85 (Total transaksi shift ini)"
+              className="w-full px-3 py-2 bg-white border border-purple-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+            />
+          </div>
         </div>
 
         {/* 2. Pemasukan (Omset) */}
         <div>
           <span className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
-            2. Pemasukan Penjualan (Omset)
+            3. Pemasukan Penjualan (Omset)
           </span>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
             <div>
@@ -314,7 +336,7 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
         {/* 3. Pengeluaran */}
         <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
           <span className="block text-[11px] font-black text-slate-500 uppercase tracking-wider">
-            3. Pengeluaran / Belanja Kas di Shift Ini (Opsional)
+            4. Pengeluaran / Belanja Kas di Shift Ini (Opsional)
           </span>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <input
@@ -340,7 +362,7 @@ export default function CashSettlementForm({ user, onBack, locationId, staffName
           <div className="flex justify-between items-center">
             <div>
               <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider block">
-                4. Uang Tunai Fisik Riil di Laci (Wajib Ada: Rp {expectedCashInDrawer.toLocaleString('id-ID')})
+                5. Uang Tunai Fisik Riil di Laci (Wajib Ada: Rp {expectedCashInDrawer.toLocaleString('id-ID')})
               </span>
               <span className="text-[10px] text-slate-400">
                 Rumus: Modal Laci ({Number(openingCash || 0).toLocaleString()}) + Omset Tunai ({Number(cashNominal || 0).toLocaleString()}) - Pengeluaran ({Number(expenseNominal || 0).toLocaleString()})
