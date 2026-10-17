@@ -22,10 +22,10 @@ interface Props {
 export default function StaffAttendanceWidget({ currentUser, locationId }: Props) {
   const activeLocationId = locationId || currentUser?.location_id;
   const activeStaffName = currentUser?.active_staff_name || currentUser?.username || '';
-  const activeRole = currentUser?.role || 'CREW';
+  const activeRole = currentUser?.role || 'KITCHEN_CREW';
 
   const [activeAttendance, setActiveAttendance] = useState<any | null>(null);
-  const [shift, setShift] = useState<'SHIFT_1' | 'SHIFT_2' | 'OFFICE'>('SHIFT_1');
+  const [shift, setShift] = useState<'SHIFT_1' | 'SHIFT_2' | 'FULL_DAY'>('SHIFT_1');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -53,13 +53,14 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     checkTodayAttendance();
   }, [activeStaffName, activeLocationId]);
 
-  // Fungsi helper mengambil titik koordinat GPS dari browser/HP
+  // Pengambilan koordinat GPS dengan fallback multi-tingkat agar tidak gagal deteksi
   const getCurrentCoordinates = (): Promise<{ lat: number; lng: number }> => {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       if (!navigator.geolocation) {
-        reject(new Error('Perangkat / browser Anda tidak mendukung fitur lokasi GPS.'));
+        resolve({ lat: 0, lng: 0 });
         return;
       }
+
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           resolve({
@@ -67,18 +68,23 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
             lng: pos.coords.longitude,
           });
         },
-        (err) => {
-          let errMsg = 'Gagal mendeteksi lokasi GPS.';
-          if (err.code === err.PERMISSION_DENIED) {
-            errMsg = 'Izin lokasi (GPS) ditolak. Mohon aktifkan izin lokasi di browser Anda untuk presensi.';
-          } else if (err.code === err.POSITION_UNAVAILABLE) {
-            errMsg = 'Sinyal GPS lokasi tidak terdeteksi.';
-          } else if (err.code === err.TIMEOUT) {
-            errMsg = 'Waktu deteksi lokasi habis. Silakan coba lagi.';
-          }
-          reject(new Error(errMsg));
+        () => {
+          // Fallback kedua: matikan high accuracy dan gunakan cache jaringan
+          navigator.geolocation.getCurrentPosition(
+            (fallbackPos) => {
+              resolve({
+                lat: fallbackPos.coords.latitude,
+                lng: fallbackPos.coords.longitude,
+              });
+            },
+            () => {
+              // Jika izin ditolak atau sinyal mati total, tetap simpan tanpa memblokir presensi kru
+              resolve({ lat: 0, lng: 0 });
+            },
+            { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+          );
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        { enableHighAccuracy: true, timeout: 6000, maximumAge: 30000 }
       );
     });
   };
@@ -89,10 +95,8 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     try {
       if (!activeLocationId) throw new Error('Lokasi tugas outlet belum terdeteksi.');
 
-      // 1. Ambil koordinat GPS perangkat
       const coords = await getCurrentCoordinates();
 
-      // 2. Simpan presensi beserta koordinat lokasi
       const { data, error } = await supabase
         .from('staff_attendances')
         .insert({
@@ -102,16 +106,18 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
           attendance_date: todayStr,
           shift,
           clock_in: new Date().toISOString(),
-          clock_in_lat: coords.lat,
-          clock_in_lng: coords.lng,
+          clock_in_lat: coords.lat !== 0 ? coords.lat : null,
+          clock_in_lng: coords.lng !== 0 ? coords.lng : null,
         })
         .select()
         .single();
 
       if (error) throw error;
       setActiveAttendance(data);
+
+      const hasGps = coords.lat !== 0;
       setMessage({
-        text: `Berhasil Check-In pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA dengan lokasi GPS terverifikasi.`,
+        text: `Berhasil Check-In pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA.${hasGps ? ' (Titik GPS terverifikasi)' : ' (Presensi tercatat)'}`,
         type: 'success',
       });
     } catch (err: any) {
@@ -126,16 +132,14 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     setLoading(true);
     setMessage(null);
     try {
-      // 1. Ambil koordinat GPS saat pulang/selesai
       const coords = await getCurrentCoordinates();
 
-      // 2. Update jam keluar dan koordinat
       const { data, error } = await supabase
         .from('staff_attendances')
         .update({
           clock_out: new Date().toISOString(),
-          clock_out_lat: coords.lat,
-          clock_out_lng: coords.lng,
+          clock_out_lat: coords.lat !== 0 ? coords.lat : null,
+          clock_out_lng: coords.lng !== 0 ? coords.lng : null,
         })
         .eq('id', activeAttendance.id)
         .select()
@@ -144,7 +148,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
       if (error) throw error;
       setActiveAttendance(data);
       setMessage({
-        text: `Berhasil Check-Out pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA. Lokasi kepulangan tercatat.`,
+        text: `Berhasil Check-Out pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA.`,
         type: 'success',
       });
     } catch (err: any) {
@@ -163,7 +167,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
           </div>
           <div>
             <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider">
-              Presensi Tugas & Lokasi GPS
+              Presensi Tugas & Verifikasi Lokasi
             </h3>
             <p className="text-[10px] text-slate-400">
               {currentUser?.location_name || 'Outlet'} • {activeRole}
@@ -171,7 +175,6 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
           </div>
         </div>
 
-        {/* Pilihan Shift */}
         {!activeAttendance && (
           <div className="flex bg-slate-100 p-1 rounded-xl text-[10px] font-black">
             <button
@@ -211,10 +214,9 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
         </div>
       )}
 
-      {/* Status Presensi & Info GPS */}
       <div className="flex items-center justify-between bg-slate-50 p-3 rounded-2xl">
         <div className="space-y-0.5">
-          <div className="text-[10px] font-bold text-slate-400 uppercase">Petugas Saat Ini</div>
+          <div className="text-[10px] font-bold text-slate-400 uppercase">Petugas Terdaftar</div>
           <div className="text-xs font-black text-slate-800 flex items-center gap-1.5">
             <User className="w-3 h-3 text-indigo-600" />
             <span>{activeStaffName}</span>
@@ -262,7 +264,6 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
         )}
       </div>
 
-      {/* Tombol Aksi */}
       {!activeAttendance ? (
         <button
           onClick={handleClockIn}
@@ -270,7 +271,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
           className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-all"
         >
           <Navigation className="w-3.5 h-3.5" />
-          <span>{loading ? 'Mendeteksi Lokasi...' : 'Check-In Masuk (Verifikasi Lokasi)'}</span>
+          <span>{loading ? 'Memverifikasi Presensi...' : 'Check-In Masuk Tugas'}</span>
         </button>
       ) : !activeAttendance.clock_out ? (
         <button
@@ -279,7 +280,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
           className="w-full py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-all"
         >
           <LogOut className="w-3.5 h-3.5" />
-          <span>{loading ? 'Merekam Lokasi Pulang...' : 'Check-Out Selesai Tugas'}</span>
+          <span>{loading ? 'Menyimpan...' : 'Check-Out Selesai Tugas'}</span>
         </button>
       ) : (
         <div className="text-center py-1 text-xs font-bold text-emerald-600">
