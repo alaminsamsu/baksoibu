@@ -96,7 +96,7 @@ function StockUsageAnalyticsView({ data }: { data: MovementRow[] }) {
           </div>
 
           {topUsedItems.length === 0 ? (
-            <p className="text-xs text-slate-400 py-3 text-center">Belum ada closing pemakaian tercatat.</p>
+            <p className="text-xs text-slate-400 py-3 text-center">Belum ada pemakaian tercatat.</p>
           ) : (
             <div className="space-y-2.5">
               {topUsedItems.map((item, idx) => (
@@ -196,14 +196,17 @@ export default function BranchStockMonitor() {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // Tanggal yang sedang dipantau (default hari ini)
+  // Tanggal yang sedang dipantau
   const [selectedDate, setSelectedDate] = useState<string>(
     new Date().toISOString().split('T')[0]
   );
 
-  // Mode Edit
+  // Mode Edit Multi-Kolom (Stok Awal, Masuk, Terpakai, Waste)
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editInitial, setEditInitial] = useState<number>(0);
+  const [editReceived, setEditReceived] = useState<number>(0);
+  const [editUsage, setEditUsage] = useState<number>(0);
+  const [editWaste, setEditWaste] = useState<number>(0);
 
   useEffect(() => {
     const saved = localStorage.getItem('baksoibu_active_staff');
@@ -220,9 +223,13 @@ export default function BranchStockMonitor() {
     }
   }, []);
 
-  const isOutletStaff = currentUser?.role === 'LEADER' || currentUser?.role === 'KASIR' || currentUser?.role === 'CREW';
+  const isLeader = currentUser?.role === 'LEADER';
   const isAdmin = currentUser?.role === 'ADMIN';
   const isOwner = currentUser?.role === 'OWNER';
+  const isCrew = currentUser?.role === 'CREW' || currentUser?.role === 'KASIR';
+
+  // Izin mengedit: Leader, Admin, dan Owner
+  const canEdit = isLeader || isAdmin || isOwner;
 
   const formattedColumnDate = useMemo(() => {
     try {
@@ -281,7 +288,6 @@ export default function BranchStockMonitor() {
             (st: any) => st.location_id === loc.id && st.item_name === item.name
           );
 
-          // Stok Awal: jika ada closing kemarin pakai kemarin, jika tidak pakai s.initial_stock
           const yestClosing = (yesterdayClosings || []).find(
             (c) => c.location_id === loc.id && c.item_name === item.name
           );
@@ -289,12 +295,10 @@ export default function BranchStockMonitor() {
             ? Number(yestClosing.remaining_stock || 0)
             : Number(s?.initial_stock || 0);
 
-          // Total Barang Masuk tanggal tersebut
           const totalReceived = (recData || [])
             .filter((r) => r.location_id === loc.id && r.item_name === item.name)
             .reduce((acc, curr) => acc + Number(curr.quantity || 0), 0);
 
-          // Cek apakah SUDAH ADA closing opname di tanggal tersebut
           const closingRecord = (todayClosings || []).find(
             (c) => c.location_id === loc.id && c.item_name === item.name
           );
@@ -304,14 +308,11 @@ export default function BranchStockMonitor() {
           let finalStock = init + totalReceived;
 
           if (closingRecord !== undefined) {
-            // JIKA SUDAH CLOSING MALAM:
             const remain = Number(closingRecord.remaining_stock || 0);
             waste = Number(closingRecord.waste_qty || 0);
             usage = Math.max(0, (init + totalReceived) - remain - waste);
             finalStock = remain;
           } else {
-            // JIKA BELUM CLOSING (SIANG HARI / TOKO SEDANG BUKA):
-            // Pemakaian masih 0, stok akhir = stok awal + masuk
             usage = 0;
             waste = 0;
             finalStock = init + totalReceived;
@@ -354,36 +355,65 @@ export default function BranchStockMonitor() {
     return locations;
   }, [locations, isAdmin]);
 
+  // Klik Pensil untuk Membuka Koreksi Penuh Semua Kolom
   const handleStartEdit = (row: MovementRow) => {
-    if (isOutletStaff && row.location_id !== currentUser?.location_id) {
-      alert('Anda hanya berhak mengoreksi stok di outlet Anda sendiri.');
+    if (!canEdit) {
+      alert('Hanya Leader Outlet atau Admin yang memiliki hak akses untuk mengoreksi angka stok.');
       return;
     }
+    if (isLeader && row.location_id !== currentUser?.location_id) {
+      alert('Leader hanya berhak mengoreksi data di outlet sendiri.');
+      return;
+    }
+
     setEditingKey(`${row.location_id}_${row.item_name}`);
     setEditInitial(row.initial_stock);
+    setEditReceived(row.received_stock);
+    setEditUsage(row.usage_qty);
+    setEditWaste(row.waste_qty);
   };
 
+  // Simpan Koreksi Penuh (Stok Awal, Masuk, Terpakai, Waste)
   const handleSaveEdit = async (row: MovementRow) => {
     try {
-      const editorName = currentUser?.active_staff_name || currentUser?.username || 'Petugas';
+      const editorName = currentUser?.active_staff_name || currentUser?.username || 'Leader';
+      
+      // Rumus: Stok Akhir = (Stok Awal + Masuk) - Terpakai - Waste
+      const calculatedEndStock = Math.max(0, (editInitial + editReceived) - editUsage - editWaste);
 
-      // Update stok awal sekaligus remaining_stock agar seimbang
-      const { error } = await supabase
+      // 1. Simpan Stok Awal & Sisa Fisik ke branch_stocks
+      await supabase
         .from('branch_stocks')
         .upsert(
           {
             location_id: row.location_id,
             item_name: row.item_name,
             initial_stock: editInitial,
-            remaining_stock: editInitial,
+            remaining_stock: calculatedEndStock,
             unit: row.unit,
             updated_at: new Date().toISOString(),
-            updated_by: `${editorName} (Koreksi)`,
+            updated_by: `${editorName} (Koreksi Leader)`,
           },
           { onConflict: 'location_id, item_name' }
         );
 
-      if (error) throw error;
+      // 2. Simpan Rekam Opname ke daily_closings pada tanggal terpilih
+      await supabase
+        .from('daily_closings')
+        .upsert(
+          {
+            location_id: row.location_id,
+            closing_date: selectedDate,
+            item_name: row.item_name,
+            remaining_stock: calculatedEndStock,
+            waste_qty: editWaste,
+            unit: row.unit,
+            reported_by: `${editorName} (Koreksi)`,
+            notes: `Koreksi Terpakai: ${editUsage} ${row.unit}`,
+          },
+          { onConflict: 'location_id, closing_date, item_name' }
+        );
+
       setEditingKey(null);
       fetchLiveStockMovement();
     } catch (err: any) {
@@ -393,7 +423,7 @@ export default function BranchStockMonitor() {
 
   const filteredData = useMemo(() => {
     return dataList.filter((item) => {
-      if (isOutletStaff && currentUser?.location_id) {
+      if ((isLeader || isCrew) && currentUser?.location_id) {
         if (item.location_id !== currentUser.location_id) return false;
       }
       if (isAdmin) {
@@ -401,7 +431,7 @@ export default function BranchStockMonitor() {
         if (!isBtpOrPerintis) return false;
         if (selectedLocation !== 'all' && item.location_id !== selectedLocation) return false;
       }
-      if (!isOutletStaff && !isAdmin) {
+      if (!isLeader && !isCrew && !isAdmin) {
         if (selectedLocation !== 'all' && item.location_id !== selectedLocation) return false;
       }
 
@@ -409,7 +439,7 @@ export default function BranchStockMonitor() {
       const matchSearch = item.item_name.toLowerCase().includes(searchTerm.toLowerCase());
       return matchCat && matchSearch;
     });
-  }, [dataList, selectedLocation, activeCategory, searchTerm, isOutletStaff, isAdmin, currentUser]);
+  }, [dataList, selectedLocation, activeCategory, searchTerm, isLeader, isCrew, isAdmin, currentUser]);
 
   const groupedData = useMemo(() => {
     const groups: Record<string, MovementRow[]> = {};
@@ -448,7 +478,7 @@ export default function BranchStockMonitor() {
           </div>
         </div>
 
-        {/* Filter Bar: Kalender + Cabang + Refresh */}
+        {/* Filter Bar */}
         <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
           <div className="relative flex items-center">
             <Calendar className="absolute left-3 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
@@ -460,7 +490,7 @@ export default function BranchStockMonitor() {
             />
           </div>
 
-          {isOutletStaff ? (
+          {(isLeader || isCrew) ? (
             <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-600">
               <Lock className="w-3.5 h-3.5 text-indigo-600" />
               <span>Outlet {currentUser?.location_name || 'Terkunci'}</span>
@@ -513,7 +543,7 @@ export default function BranchStockMonitor() {
           </div>
           <p className="text-xl font-black text-emerald-600 mt-1">{totalUsage.toLocaleString()}</p>
           <span className="text-[10px] text-slate-400 font-medium">
-            Hasil closing {formattedColumnDate}
+            Tanggal {formattedColumnDate}
           </span>
         </div>
 
@@ -528,11 +558,11 @@ export default function BranchStockMonitor() {
 
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between text-indigo-600 text-[11px] font-bold">
-            <span>Sistem Rollover</span>
+            <span>Akses Koreksi</span>
             <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
           </div>
-          <p className="text-xs font-black text-slate-800 mt-2">Estafet Otomatis</p>
-          <span className="text-[10px] text-slate-400 font-medium">Closing kemarin ➔ Awal hari ini</span>
+          <p className="text-xs font-black text-slate-800 mt-2">Leader / Admin</p>
+          <span className="text-[10px] text-slate-400 font-medium">Koreksi 4 kolom aktif</span>
         </div>
       </div>
 
@@ -570,7 +600,7 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* TABEL MONITOR PERGERAKAN STOK */}
+      {/* TABEL MONITOR DENGAN KOREKSI LENGKAP SEMUA KOLOM */}
       <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead className="bg-slate-50/80 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-sm">
@@ -584,7 +614,7 @@ export default function BranchStockMonitor() {
                 = Stok Akhir ({formattedColumnDate})
               </th>
               <th className="py-3 px-3">Update Terakhir</th>
-              <th className="py-3 px-4 text-center">Koreksi</th>
+              {canEdit && <th className="py-3 px-4 text-center">Koreksi</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -616,6 +646,9 @@ export default function BranchStockMonitor() {
                       ? new Date(row.updated_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })
                       : '-';
 
+                    // Hitung preview stok akhir saat mode edit
+                    const previewEndStock = Math.max(0, (editInitial + editReceived) - editUsage - editWaste);
+
                     return (
                       <tr key={rowKey} className="hover:bg-slate-50/60 transition-colors">
                         <td className="py-3 px-4">
@@ -633,7 +666,7 @@ export default function BranchStockMonitor() {
                               step="any"
                               value={editInitial}
                               onChange={(e) => setEditInitial(parseFloat(e.target.value) || 0)}
-                              className="w-18 px-2 py-1 border border-indigo-500 rounded-xl text-right text-xs font-bold bg-white focus:outline-none ring-2 ring-indigo-500/20"
+                              className="w-16 px-1.5 py-1 border border-indigo-500 rounded-lg text-right text-xs font-bold bg-white focus:outline-none"
                             />
                           ) : (
                             <span className="text-slate-700 font-bold">{row.initial_stock} {row.unit}</span>
@@ -642,23 +675,54 @@ export default function BranchStockMonitor() {
 
                         {/* 2. + MASUK */}
                         <td className="py-3 px-3 text-right font-bold text-emerald-600">
-                          +{row.received_stock}
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              step="any"
+                              value={editReceived}
+                              onChange={(e) => setEditReceived(parseFloat(e.target.value) || 0)}
+                              className="w-16 px-1.5 py-1 border border-emerald-500 rounded-lg text-right text-xs font-bold bg-white text-emerald-600 focus:outline-none"
+                            />
+                          ) : (
+                            `+${row.received_stock}`
+                          )}
                         </td>
 
-                        {/* 3. - TERPAKAI (Hanya muncul jika sudah closing opname malam) */}
+                        {/* 3. - TERPAKAI */}
                         <td className="py-3 px-3 text-right font-bold text-indigo-600">
-                          {row.usage_qty > 0 ? `-${row.usage_qty}` : '0'}
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              step="any"
+                              value={editUsage}
+                              onChange={(e) => setEditUsage(parseFloat(e.target.value) || 0)}
+                              className="w-16 px-1.5 py-1 border border-indigo-500 rounded-lg text-right text-xs font-bold bg-white text-indigo-600 focus:outline-none"
+                            />
+                          ) : (
+                            row.usage_qty > 0 ? `-${row.usage_qty}` : '0'
+                          )}
                         </td>
 
                         {/* 4. - WASTE */}
                         <td className="py-3 px-3 text-right font-bold text-[#ff6f3c]">
-                          {row.waste_qty > 0 ? `-${row.waste_qty}` : '0'}
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              step="any"
+                              value={editWaste}
+                              onChange={(e) => setEditWaste(parseFloat(e.target.value) || 0)}
+                              className="w-16 px-1.5 py-1 border border-orange-500 rounded-lg text-right text-xs font-bold bg-white text-[#ff6f3c] focus:outline-none"
+                            />
+                          ) : (
+                            row.waste_qty > 0 ? `-${row.waste_qty}` : '0'
+                          )}
                         </td>
 
                         {/* 5. = STOK AKHIR */}
                         <td className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/80">
                           <span className="text-sm font-black text-slate-900">
-                            {row.current_stock} <span className="text-[10px] font-bold text-slate-500">{row.unit}</span>
+                            {isEditing ? previewEndStock : row.current_stock}{' '}
+                            <span className="text-[10px] font-bold text-slate-500">{row.unit}</span>
                           </span>
                         </td>
 
@@ -674,35 +738,37 @@ export default function BranchStockMonitor() {
                           </div>
                         </td>
 
-                        {/* 7. KOREKSI LANGSUNG */}
-                        <td className="py-3 px-4 text-center">
-                          {isEditing ? (
-                            <div className="flex items-center justify-center gap-1.5">
+                        {/* 7. TOMBOL KOREKSI (LEADER / ADMIN / OWNER) */}
+                        {canEdit && (
+                          <td className="py-3 px-4 text-center">
+                            {isEditing ? (
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  onClick={() => handleSaveEdit(row)}
+                                  className="p-1.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 shadow-sm transition-all"
+                                  title="Simpan Koreksi Semua Kolom"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => setEditingKey(null)}
+                                  className="p-1.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-all"
+                                  title="Batal"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
                               <button
-                                onClick={() => handleSaveEdit(row)}
-                                className="p-1.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 shadow-sm transition-all"
-                                title="Simpan Koreksi"
+                                onClick={() => handleStartEdit(row)}
+                                className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                                title="Koreksi Lengkap (Stok Awal, Masuk, Terpakai, Waste)"
                               >
-                                <Check className="w-3.5 h-3.5" />
+                                <Edit3 className="w-3.5 h-3.5" />
                               </button>
-                              <button
-                                onClick={() => setEditingKey(null)}
-                                className="p-1.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-all"
-                                title="Batal"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => handleStartEdit(row)}
-                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
-                              title="Koreksi Stok Awal"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </td>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
