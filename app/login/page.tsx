@@ -10,34 +10,33 @@ import {
   Users, 
   Crown, 
   ShieldCheck, 
+  UserCheck,
   User, 
   Lock, 
   ArrowRight,
   AlertCircle,
-  MapPin,
-  UserCheck
+  MapPin
 } from 'lucide-react';
 
-type RoleTab = 'outlet' | 'produksi' | 'admin' | 'hr' | 'owner';
+type RoleTab = 'outlet' | 'leader' | 'produksi' | 'admin' | 'hr' | 'owner';
 
 export default function LoginPage() {
   const router = useRouter();
   const [locations, setLocations] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<RoleTab>('outlet');
 
-  // State untuk Tab Outlet (Nama Staf & Pilih Peran)
+  // State untuk Tab Outlet (Tanpa Password)
   const [selectedLocationId, setSelectedLocationId] = useState('');
   const [staffName, setStaffName] = useState('');
-  const [outletRole, setOutletRole] = useState('CREW'); // CREW, KASIR, LEADER
 
-  // State untuk Tab Admin/Produksi/HR/Owner (ID Akun & PIN)
+  // State untuk Tab Proteksi (Leader, Produksi, Admin, HR, Owner)
   const [username, setUsername] = useState('');
   const [pinCode, setPinCode] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Ambil daftar lokasi cabang (BTP, Perintis, dll)
+  // Ambil daftar lokasi cabang
   useEffect(() => {
     const fetchLocations = async () => {
       const { data } = await supabase.from('locations').select('*').order('name');
@@ -52,12 +51,16 @@ export default function LoginPage() {
   const handleTabChange = (tab: RoleTab) => {
     setActiveTab(tab);
     setErrorMsg(null);
+    setPinCode('');
+
     if (tab === 'admin') setUsername('admin');
     else if (tab === 'hr') setUsername('hr');
     else if (tab === 'owner') setUsername('owner');
     else if (tab === 'produksi') setUsername('produksi');
-    else setUsername('');
-    setPinCode('');
+    else if (tab === 'leader') setUsername('leader');
+    else {
+      setUsername('');
+    }
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -66,7 +69,7 @@ export default function LoginPage() {
     setErrorMsg(null);
 
     try {
-      // 1. ALUR KHUSUS TAB OUTLET (INPUT NAMA & PERAN)
+      // 1. JIKA TAB OUTLET (CREW LAPANGAN - TANPA PASSWORD/PIN)
       if (activeTab === 'outlet') {
         if (!staffName.trim()) {
           throw new Error('Silakan masukkan nama Anda.');
@@ -80,7 +83,7 @@ export default function LoginPage() {
         const sessionData = {
           id: selectedLocationId,
           active_staff_name: staffName.trim(),
-          role: outletRole,
+          role: 'CREW',
           location_id: selectedLocationId,
           location_name: activeLoc ? activeLoc.name : 'Outlet Cabang'
         };
@@ -90,7 +93,11 @@ export default function LoginPage() {
         return;
       }
 
-      // 2. ALUR TAB ADMIN / HR / PRODUKSI / OWNER (ID AKUN & PIN)
+      // 2. JIKA TAB LAINNYA (LEADER, PRODUKSI, ADMIN, HR, OWNER) -> BUTUH PASSWORD/PIN
+      if (!pinCode.trim()) {
+        throw new Error('Silakan masukkan Password / PIN.');
+      }
+
       const { data: user, error } = await supabase
         .from('users')
         .select('*')
@@ -98,7 +105,7 @@ export default function LoginPage() {
         .single();
 
       if (error || !user) {
-        throw new Error('ID Akun tidak ditemukan.');
+        throw new Error(`Akun "${username}" tidak ditemukan.`);
       }
 
       const inputPass = pinCode.trim();
@@ -108,17 +115,20 @@ export default function LoginPage() {
         throw new Error('Password / PIN salah.');
       }
 
+      // Tentukan lokasi jika belum ada
+      const activeLoc = locations.find((l) => l.id === (user.location_id || selectedLocationId));
+
       const sessionData = {
         id: user.id,
         username: user.username,
         active_staff_name: user.username.toUpperCase(),
-        role: user.role,
-        location_id: user.location_id || null,
-        location_name: user.location_name || (user.location_id ? 'Outlet Cabang' : 'Pusat')
+        role: user.role || activeTab.toUpperCase(),
+        location_id: user.location_id || selectedLocationId || null,
+        location_name: user.location_name || (activeLoc ? activeLoc.name : 'Pusat')
       };
       localStorage.setItem('baksoibu_active_staff', JSON.stringify(sessionData));
 
-      const userRole = (user.role || '').toUpperCase();
+      const userRole = (user.role || activeTab).toUpperCase();
       if (userRole === 'OWNER' || userRole === 'HR') {
         router.push('/dashboard/executive');
       } else if (userRole === 'ADMIN') {
@@ -126,6 +136,7 @@ export default function LoginPage() {
       } else if (userRole === 'PRODUKSI' || userRole.includes('KITCHEN')) {
         router.push('/dashboard/produksi');
       } else {
+        // Leader & Kasir masuk ke dashboard outlet dengan akses menu omset
         router.push('/dashboard/outlet');
       }
 
@@ -153,7 +164,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Tab Pilihan Peran Asli */}
+        {/* Tab Pilihan Peran: Outlet, Leader, Produksi, Admin, HR, Owner */}
         <div className="bg-[#eef1f8] p-1.5 rounded-2xl flex items-center justify-between text-xs font-bold gap-1">
           <button
             type="button"
@@ -165,7 +176,20 @@ export default function LoginPage() {
             }`}
           >
             <Store className="w-4 h-4" />
-            <span className="text-[11px]">Outlet</span>
+            <span className="text-[10px]">Outlet</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabChange('leader')}
+            className={`flex-1 py-2.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all ${
+              activeTab === 'leader'
+                ? 'bg-white text-[#5252ea] shadow-xs border border-slate-200/60 font-black'
+                : 'text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <UserCheck className="w-4 h-4" />
+            <span className="text-[10px]">Leader</span>
           </button>
 
           <button
@@ -178,7 +202,7 @@ export default function LoginPage() {
             }`}
           >
             <BarChart3 className="w-4 h-4" />
-            <span className="text-[11px]">Produksi</span>
+            <span className="text-[10px]">Produksi</span>
           </button>
 
           <button
@@ -191,7 +215,7 @@ export default function LoginPage() {
             }`}
           >
             <Briefcase className="w-4 h-4" />
-            <span className="text-[11px]">Admin</span>
+            <span className="text-[10px]">Admin</span>
           </button>
 
           <button
@@ -204,7 +228,7 @@ export default function LoginPage() {
             }`}
           >
             <Users className="w-4 h-4" />
-            <span className="text-[11px]">HR</span>
+            <span className="text-[10px]">HR</span>
           </button>
 
           <button
@@ -217,17 +241,18 @@ export default function LoginPage() {
             }`}
           >
             <Crown className="w-4 h-4" />
-            <span className="text-[11px]">Owner</span>
+            <span className="text-[10px]">Owner</span>
           </button>
         </div>
 
-        {/* Card Form */}
+        {/* Card Form Login */}
         <div className="bg-white p-7 rounded-3xl border border-slate-100 shadow-xs space-y-5">
           <div className="flex items-center gap-2 text-sm font-black text-slate-800">
             <ShieldCheck className="w-4 h-4 text-[#5252ea]" />
             <span>
-              {activeTab === 'outlet' && 'Masuk Outlet Cabang'}
-              {activeTab === 'produksi' && 'Masuk Tim Produksi'}
+              {activeTab === 'outlet' && 'Masuk Outlet (Kru Lapangan)'}
+              {activeTab === 'leader' && 'Masuk Leader & Kasir Outlet'}
+              {activeTab === 'produksi' && 'Masuk Tim Rumah Produksi'}
               {activeTab === 'admin' && 'Masuk Admin Operasional'}
               {activeTab === 'hr' && 'Masuk Manajemen HR'}
               {activeTab === 'owner' && 'Masuk Executive Owner'}
@@ -242,7 +267,7 @@ export default function LoginPage() {
           )}
 
           <form onSubmit={handleLogin} className="space-y-4 text-xs font-bold">
-            {/* TAMPILAN KHUSUS TAB OUTLET (INPUT NAMA, PILIH CABANG & PERAN) */}
+            {/* JIKA TAB OUTLET: HANYA PILIH CABANG & KETIK NAMA (TANPA PASSWORD) */}
             {activeTab === 'outlet' ? (
               <>
                 <div className="space-y-1.5">
@@ -281,28 +306,33 @@ export default function LoginPage() {
                     />
                   </div>
                 </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[11px] uppercase tracking-wider text-slate-400 font-extrabold block">
-                    PERAN DI OUTLET
-                  </label>
-                  <div className="relative">
-                    <UserCheck className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
-                    <select
-                      value={outletRole}
-                      onChange={(e) => setOutletRole(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 bg-[#f6f8fc] border border-slate-200/60 rounded-xl text-slate-800 font-bold focus:outline-none focus:bg-white focus:border-[#5252ea]"
-                    >
-                      <option value="CREW">Crew Outlet</option>
-                      <option value="KASIR">Kasir</option>
-                      <option value="LEADER">Leader Outlet</option>
-                    </select>
-                  </div>
-                </div>
               </>
             ) : (
-              /* TAMPILAN UNTUK TAB PRODUKSI / ADMIN / HR / OWNER */
+              /* JIKA TAB LEADER / PRODUKSI / ADMIN / HR / OWNER: MUNCUL PASSWORD / PIN */
               <>
+                {/* Pilihan Outlet khusus jika login sebagai Leader */}
+                {activeTab === 'leader' && (
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] uppercase tracking-wider text-slate-400 font-extrabold block">
+                      OUTLET TUGAS
+                    </label>
+                    <div className="relative">
+                      <MapPin className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
+                      <select
+                        value={selectedLocationId}
+                        onChange={(e) => setSelectedLocationId(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2.5 bg-[#f6f8fc] border border-slate-200/60 rounded-xl text-slate-800 font-bold focus:outline-none focus:bg-white focus:border-[#5252ea]"
+                      >
+                        {locations.map((loc) => (
+                          <option key={loc.id} value={loc.id}>
+                            {loc.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-1.5">
                   <label className="text-[11px] uppercase tracking-wider text-slate-400 font-extrabold block">
                     ID AKUN
