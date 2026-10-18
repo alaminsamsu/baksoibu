@@ -21,24 +21,61 @@ interface Props {
 
 export default function StaffAttendanceWidget({ currentUser, locationId }: Props) {
   const activeLocationId = locationId || currentUser?.location_id;
-  const activeStaffName = currentUser?.active_staff_name || currentUser?.username || '';
-  const activeRole = currentUser?.role || 'KITCHEN_CREW';
+  
+  const [staffOptions, setStaffOptions] = useState<any[]>([]);
+  const [selectedStaffNickname, setSelectedStaffNickname] = useState('');
+  const [activeStaffProfile, setActiveStaffProfile] = useState<any | null>(null);
 
   const [activeAttendance, setActiveAttendance] = useState<any | null>(null);
   const [shift, setShift] = useState<'SHIFT_1' | 'SHIFT_2' | 'FULL_DAY'>('SHIFT_1');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
 
-  const checkTodayAttendance = async () => {
-    if (!activeStaffName || !activeLocationId) return;
+  // 1. Tarik daftar nama resmi pegawai aktif dari HR
+  useEffect(() => {
+    const fetchStaffProfiles = async () => {
+      let query = supabase
+        .from('staff_profiles')
+        .select('*')
+        .eq('is_active', true)
+        .order('nickname');
+
+      if (activeLocationId) {
+        // Tampilkan staf cabang ini atau staf mobile
+        query = query.or(`primary_location_id.eq.${activeLocationId},primary_location_id.is.null`);
+      }
+
+      const { data } = await query;
+      if (data) {
+        setStaffOptions(data);
+        // Jika user yang login sudah ada nama panggilannya, set otomatis
+        if (currentUser?.active_staff_name) {
+          const matched = data.find((s) => s.nickname.toLowerCase() === currentUser.active_staff_name.toLowerCase());
+          if (matched) {
+            setSelectedStaffNickname(matched.nickname);
+            setActiveStaffProfile(matched);
+          }
+        }
+      }
+    };
+
+    fetchStaffProfiles();
+  }, [activeLocationId, currentUser]);
+
+  // 2. Cek status presensi hari ini jika nama pegawai dipilih
+  const checkTodayAttendance = async (nickname: string) => {
+    if (!nickname) {
+      setActiveAttendance(null);
+      return;
+    }
 
     const { data } = await supabase
       .from('staff_attendances')
       .select('*')
       .eq('attendance_date', todayStr)
-      .eq('staff_name', activeStaffName)
+      .eq('staff_name', nickname)
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -49,11 +86,15 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     }
   };
 
-  useEffect(() => {
-    checkTodayAttendance();
-  }, [activeStaffName, activeLocationId]);
+  const handleStaffChange = (nick: string) => {
+    setSelectedStaffNickname(nick);
+    const profile = staffOptions.find((s) => s.nickname === nick);
+    setActiveStaffProfile(profile || null);
+    checkTodayAttendance(nick);
+    setMessage(null);
+  };
 
-  // Pengambilan koordinat GPS dengan fallback multi-tingkat agar tidak gagal deteksi
+  // Koordinat GPS
   const getCurrentCoordinates = (): Promise<{ lat: number; lng: number }> => {
     return new Promise((resolve) => {
       if (!navigator.geolocation) {
@@ -62,25 +103,11 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
       }
 
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          resolve({
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-          });
-        },
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
         () => {
-          // Fallback kedua: matikan high accuracy dan gunakan cache jaringan
           navigator.geolocation.getCurrentPosition(
-            (fallbackPos) => {
-              resolve({
-                lat: fallbackPos.coords.latitude,
-                lng: fallbackPos.coords.longitude,
-              });
-            },
-            () => {
-              // Jika izin ditolak atau sinyal mati total, tetap simpan tanpa memblokir presensi kru
-              resolve({ lat: 0, lng: 0 });
-            },
+            (fallbackPos) => resolve({ lat: fallbackPos.coords.latitude, lng: fallbackPos.coords.longitude }),
+            () => resolve({ lat: 0, lng: 0 }),
             { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
           );
         },
@@ -90,6 +117,11 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
   };
 
   const handleClockIn = async () => {
+    if (!selectedStaffNickname) {
+      setMessage({ text: 'Pilih nama panggilan Anda terlebih dahulu!', type: 'error' });
+      return;
+    }
+
     setLoading(true);
     setMessage(null);
     try {
@@ -100,8 +132,9 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
       const { data, error } = await supabase
         .from('staff_attendances')
         .insert({
-          staff_name: activeStaffName,
-          role: activeRole,
+          staff_profile_id: activeStaffProfile?.id || null,
+          staff_name: selectedStaffNickname,
+          role: activeStaffProfile?.role || currentUser?.role || 'CREW',
           location_id: activeLocationId,
           attendance_date: todayStr,
           shift,
@@ -159,7 +192,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-xs space-y-3">
+    <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-xs space-y-3 max-w-md mx-auto">
       <div className="flex items-center justify-between pb-3 border-b border-slate-100">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
@@ -167,10 +200,10 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
           </div>
           <div>
             <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider">
-              Presensi Tugas & Verifikasi Lokasi
+              Presensi Kehadiran Petugas
             </h3>
             <p className="text-[10px] text-slate-400">
-              {currentUser?.location_name || 'Outlet'} • {activeRole}
+              {currentUser?.location_name || 'Outlet'} • {activeStaffProfile?.role || 'Karyawan'}
             </p>
           </div>
         </div>
@@ -214,61 +247,47 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
         </div>
       )}
 
-      <div className="flex items-center justify-between bg-slate-50 p-3 rounded-2xl">
-        <div className="space-y-0.5">
-          <div className="text-[10px] font-bold text-slate-400 uppercase">Petugas Terdaftar</div>
-          <div className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-            <User className="w-3 h-3 text-indigo-600" />
-            <span>{activeStaffName}</span>
-          </div>
-        </div>
+      {/* DROPDOWN NAMA PANGGILAN RESMI DARI DATABASE HR */}
+      <div className="bg-slate-50 p-3.5 rounded-2xl space-y-2 border border-slate-100">
+        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
+          Pilih Nama Panggilan Anda
+        </label>
+        <select
+          value={selectedStaffNickname}
+          onChange={(e) => handleStaffChange(e.target.value)}
+          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+        >
+          <option value="">-- Pilih Nama Terdaftar --</option>
+          {staffOptions.map((s) => (
+            <option key={s.id} value={s.nickname}>
+              {s.nickname} ({s.role} - {s.full_name})
+            </option>
+          ))}
+        </select>
 
         {activeAttendance?.clock_in && (
-          <div className="text-right space-y-1">
-            <div className="flex items-center justify-end gap-1">
-              <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md uppercase">
+          <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs font-bold">
+            <span className="text-[10px] text-slate-400 uppercase">Status Hari Ini:</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md uppercase">
                 In: {new Date(activeAttendance.clock_in).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
               </span>
-              {activeAttendance.clock_in_lat && (
-                <a
-                  href={`https://www.google.com/maps?q=${activeAttendance.clock_in_lat},${activeAttendance.clock_in_lng}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="Lihat Titik GPS Masuk"
-                  className="text-indigo-600 hover:text-indigo-800 bg-white p-1 rounded-md border border-slate-200 inline-flex items-center"
-                >
-                  <MapPin className="w-2.5 h-2.5" />
-                </a>
-              )}
-            </div>
-
-            {activeAttendance.clock_out && (
-              <div className="flex items-center justify-end gap-1">
-                <span className="text-[9px] font-black text-slate-500 bg-slate-200 px-2 py-0.5 rounded-md uppercase">
+              {activeAttendance.clock_out && (
+                <span className="text-[10px] font-black text-slate-600 bg-slate-200 px-2 py-0.5 rounded-md uppercase">
                   Out: {new Date(activeAttendance.clock_out).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                 </span>
-                {activeAttendance.clock_out_lat && (
-                  <a
-                    href={`https://www.google.com/maps?q=${activeAttendance.clock_out_lat},${activeAttendance.clock_out_lng}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    title="Lihat Titik GPS Pulang"
-                    className="text-indigo-600 hover:text-indigo-800 bg-white p-1 rounded-md border border-slate-200 inline-flex items-center"
-                  >
-                    <MapPin className="w-2.5 h-2.5" />
-                  </a>
-                )}
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
       </div>
 
+      {/* TOMBOL AKSI */}
       {!activeAttendance ? (
         <button
           onClick={handleClockIn}
-          disabled={loading || !activeStaffName}
-          className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-all"
+          disabled={loading || !selectedStaffNickname}
+          className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-black text-xs rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-all"
         >
           <Navigation className="w-3.5 h-3.5" />
           <span>{loading ? 'Memverifikasi Presensi...' : 'Check-In Masuk Tugas'}</span>
@@ -277,13 +296,13 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
         <button
           onClick={handleClockOut}
           disabled={loading}
-          className="w-full py-2.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-all"
+          className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-40 text-white font-black text-xs rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-all"
         >
           <LogOut className="w-3.5 h-3.5" />
-          <span>{loading ? 'Menyimpan...' : 'Check-Out Selesai Tugas'}</span>
+          <span>{loading ? 'Menyimpan Selesai Tugas...' : 'Check-Out Selesai Tugas'}</span>
         </button>
       ) : (
-        <div className="text-center py-1 text-xs font-bold text-emerald-600">
+        <div className="text-center py-2 bg-emerald-50 rounded-xl text-xs font-black text-emerald-700 border border-emerald-100">
           ✓ Tugas hari ini telah selesai (Sudah Check-Out).
         </div>
       )}
