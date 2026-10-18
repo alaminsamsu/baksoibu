@@ -33,7 +33,6 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
 
   const [items, setItems] = useState<MasterItem[]>([]);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
-  const [source, setSource] = useState<'Dapur Pusat' | 'Belanja Luar / Supplier'>('Dapur Pusat');
   const [activeCategory, setActiveCategory] = useState<string>('Semua');
   const [searchTerm, setSearchTerm] = useState('');
   const [notes, setNotes] = useState('');
@@ -93,39 +92,56 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         throw new Error('Ketik minimal 1 barang dengan jumlah lebih dari 0.');
       }
 
+      const now = new Date();
+
       for (const [itemName, qtyStr] of validEntries) {
         const qtyNum = parseFloat(qtyStr);
         const itemMeta = items.find((i) => i.name === itemName);
         const unit = itemMeta?.uom || 'Pcs';
 
-        // 1. Simpan ke tabel receptions (hanya mencatat transaksi masuk)
+        // 1. Simpan ke stock_movements (Sumber utama kalkulasi stok masuk dashboard)
+        await supabase.from('stock_movements').insert([
+          {
+            location_id: activeLocationId,
+            item_name: itemName,
+            quantity: qtyNum,
+            unit,
+            movement_type: 'MASUK',
+            notes: notes.trim() || 'Penerimaan barang fisik tiba di outlet',
+            recorded_by: activeStaffName,
+            created_at: now.toISOString(),
+          },
+        ]);
+
+        // 2. Simpan juga ke log receptions (agar log arsip tetap lengkap)
         await supabase.from('receptions').insert([
           {
             location_id: activeLocationId,
             item_name: itemName,
             quantity: qtyNum,
             unit,
-            source,
             notes: notes.trim() || null,
             received_by: activeStaffName,
+            created_at: now.toISOString(),
           },
         ]);
 
-        // 2. Perbarui catatan updated_by dan updated_at di branch_stocks TANPA mengubah remaining_stock
+        // 3. Perbarui catatan audit dan kategori di branch_stocks
         await supabase.from('branch_stocks').upsert(
           {
             location_id: activeLocationId,
             item_name: itemName,
             unit,
+            category: itemMeta?.category || 'Bahan Baku',
             updated_by: `${activeStaffName} (Terima Barang)`,
-            updated_at: new Date().toISOString(),
+            updated_at: now.toISOString(),
           },
-          { onConflict: 'location_id, item_name', ignoreDuplicates: false }
+          { onConflict: 'location_id, item_name' }
         );
       }
 
       setMessage({
-        text: `Sukses mencatat ${validEntries.length} barang masuk dari ${source}!`,
+        text: `Sukses mencatat ${validEntries.length} barang fisik masuk! Kolom (+ Masuk) di pergerakan stok cabang otomatis terisi.`,
         type: 'success',
       });
       setQuantities({});
@@ -150,6 +166,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         </button>
       )}
 
+      {/* Header Bersih */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-slate-100 gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
@@ -157,7 +174,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
           </div>
           <div>
             <h2 className="text-lg font-black text-slate-900 tracking-tight">Lembar Penerimaan Barang Datang</h2>
-            <p className="text-xs font-medium text-slate-400">Konfirmasi barang fisik yang tiba di outlet.</p>
+            <p className="text-xs font-medium text-slate-400">Konfirmasi fisik barang nyata yang tiba di outlet.</p>
           </div>
         </div>
         <div className="text-xs font-black px-4 py-2 bg-indigo-50 text-indigo-600 border border-indigo-200/60 rounded-full w-fit">
@@ -182,36 +199,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         </div>
       )}
 
-      <div className="mb-6">
-        <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
-          Asal Barang / Sumber Pengiriman
-        </label>
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => setSource('Dapur Pusat')}
-            className={`py-3 px-4 rounded-2xl text-xs font-extrabold transition-all border ${
-              source === 'Dapur Pusat'
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
-                : 'bg-slate-50 text-slate-600 border-slate-100 hover:bg-slate-100'
-            }`}
-          >
-            🏢 Dapur Pusat
-          </button>
-          <button
-            type="button"
-            onClick={() => setSource('Belanja Luar / Supplier')}
-            className={`py-3 px-4 rounded-2xl text-xs font-extrabold transition-all border ${
-              source === 'Belanja Luar / Supplier'
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
-                : 'bg-slate-50 text-slate-600 border-slate-100 hover:bg-slate-100'
-            }`}
-          >
-            🛒 Belanja Luar / Supplier
-          </button>
-        </div>
-      </div>
-
+      {/* Kolom Pencarian & Kategori Filter */}
       <div className="space-y-3 mb-6">
         <div className="relative">
           <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
