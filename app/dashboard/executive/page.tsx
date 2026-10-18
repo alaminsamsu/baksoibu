@@ -21,9 +21,11 @@ import {
   Package,
   ShoppingBag,
   Store,
-  Receipt
+  Receipt,
+  Users
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
+import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
 
 interface SettlementRecord {
   id: string;
@@ -90,8 +92,8 @@ export default function ExecutiveOwnerDashboard() {
   const router = useRouter();
   const [locations, setLocations] = useState<any[]>([]);
   
-  // Tab Navigasi Khusus Owner: 'overview' | 'stok'
-  const [activeTab, setActiveTab] = useState<'overview' | 'stok'>('overview');
+  // Tab Navigasi Khusus Owner: 'overview' | 'hr' | 'stok'
+  const [activeTab, setActiveTab] = useState<'overview' | 'hr' | 'stok'>('overview');
   
   // Filter Global
   const [filterMode, setFilterMode] = useState<'today' | 'weekly' | 'monthly' | 'custom'>('today');
@@ -351,12 +353,12 @@ export default function ExecutiveOwnerDashboard() {
           </div>
         </div>
 
-        {/* 2 Tab Navigasi Murni Owner: Executive KPI | Monitor Stok */}
+        {/* Tab Navigasi Murni Owner: Executive KPI | Live Tim | Monitor Stok */}
         <div className="flex items-center gap-2">
-          <div className="flex bg-white p-1 rounded-2xl border border-slate-200/80 shadow-xs text-xs font-bold">
+          <div className="flex bg-white p-1 rounded-2xl border border-slate-200/80 shadow-xs text-xs font-bold overflow-x-auto">
             <button
               onClick={() => setActiveTab('overview')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'overview' ? 'bg-[#ff6f3c] text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
@@ -364,8 +366,17 @@ export default function ExecutiveOwnerDashboard() {
               Executive KPI
             </button>
             <button
+              onClick={() => setActiveTab('hr')}
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'hr' ? 'bg-[#ff6f3c] text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              Live Presensi Tim
+            </button>
+            <button
               onClick={() => setActiveTab('stok')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'stok' ? 'bg-[#ff6f3c] text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
@@ -386,13 +397,27 @@ export default function ExecutiveOwnerDashboard() {
 
       {/* Main Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
-        {activeTab === 'stok' ? (
+        {/* TAB KHUSUS MONITOR STOK */}
+        {activeTab === 'stok' && (
           <div>
             <BranchStockMonitor />
           </div>
-        ) : (
+        )}
+
+        {/* TAB KHUSUS LIVE PRESENSI TIM */}
+        {activeTab === 'hr' && (
           <div className="space-y-6">
-            {/* Filter Bar */}
+            <LiveExecutiveSummary />
+          </div>
+        )}
+
+        {/* TAB OVERVIEW UTAMA: LIVE STAF + FINANSIAL + STOK */}
+        {activeTab === 'overview' && (
+          <div className="space-y-6">
+            {/* 1. LIVE KENDALI OPERASIONAL SDM & OUTLET TERPASANG DI ATAS OMSET */}
+            <LiveExecutiveSummary />
+
+            {/* Filter Bar Finansial & Omset */}
             <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-100 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
               <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 p-1 rounded-2xl border border-slate-100 text-xs font-bold">
                 <button
