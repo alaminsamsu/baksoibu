@@ -14,6 +14,8 @@ interface Props {
 interface ClosingItem {
   item_name: string;
   unit: string;
+  stok_awal: number;
+  stok_masuk: number;
   sisa_fisik: number | string;
   waste: number | string;
 }
@@ -31,25 +33,48 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
   const [allowCorrection, setAllowCorrection] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const loadItems = async () => {
+  const loadData = async () => {
     if (!effectiveLocationId) return;
     setLoading(true);
     setMsg(null);
     try {
-      // Waktu lokal Makassar (WITA)
       const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
 
-      // 1. Ambil master bahan khusus cabang ini
+      const yDate = new Date();
+      yDate.setDate(yDate.getDate() - 1);
+      const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(yDate);
+
+      // 1. Ambil master nama barang
       const { data: stockMasters } = await supabase
         .from('branch_stocks')
         .select('item_name, unit')
         .eq('location_id', effectiveLocationId)
         .order('item_name');
 
-      // 2. Cek apakah cabang ini sudah melakukan closing hari ini
+      // 2. Ambil closing kemarin untuk Stok Awal
+      const { data: yesterdayClosings } = await supabase
+        .from('daily_closings')
+        .select('item_name, remaining_stock')
+        .eq('location_id', effectiveLocationId)
+        .eq('closing_date', yesterdayStr);
+
+      // 3. Ambil total barang masuk hari ini dari stock_movements
+      const { data: moveData } = await supabase
+        .from('stock_movements')
+        .select('item_name, quantity, created_at')
+        .eq('location_id', effectiveLocationId)
+        .or('movement_type.eq.MASUK,movement_type.eq.IN');
+
+      const todayMoves = (moveData || []).filter((m) => {
+        if (!m.created_at) return false;
+        const dStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date(m.created_at));
+        return dStr === todayStr;
+      });
+
+      // 4. Cek closing hari ini
       const { data: todayClosings } = await supabase
         .from('daily_closings')
-        .select('item_name, remaining_stock, waste_qty, is_locked')
+        .select('*')
         .eq('location_id', effectiveLocationId)
         .eq('closing_date', todayStr);
 
@@ -58,26 +83,32 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
 
       const rows: ClosingItem[] = (stockMasters || []).map((m) => {
         const clean = m.item_name.trim().toLowerCase();
+        const prev = yesterdayClosings?.find((y) => y.item_name.trim().toLowerCase() === clean);
+        const inc = todayMoves
+          .filter((i) => i.item_name.trim().toLowerCase() === clean)
+          .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0);
         const saved = todayClosings?.find((t) => t.item_name.trim().toLowerCase() === clean);
 
         return {
           item_name: m.item_name,
           unit: m.unit || 'porsi',
+          stok_awal: prev ? Number(prev.remaining_stock || 0) : 0,
+          stok_masuk: inc,
           sisa_fisik: saved ? Number(saved.remaining_stock) : '0',
-          waste: saved ? Number(saved.waste_qty) : '0'
+          waste: saved ? Number(saved.waste_qty) : '0',
         };
       });
 
       setItems(rows);
     } catch (err: any) {
-      console.error('Error load items:', err.message);
+      console.error('Error load closing:', err.message);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadItems();
+    loadData();
   }, [effectiveLocationId]);
 
   const handleInputChange = (index: number, field: 'sisa_fisik' | 'waste', val: string) => {
@@ -87,7 +118,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
   };
 
   const handleSetAllZero = () => {
-    const updated = items.map(item => ({
+    const updated = items.map((item) => ({
       ...item,
       sisa_fisik: item.sisa_fisik === '' ? '0' : item.sisa_fisik,
       waste: item.waste === '' ? '0' : item.waste,
@@ -102,71 +133,38 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
     try {
       const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
 
-      // 1. Ambil data penerimaan barang masuk khusus cabang ini hari ini
-      const { data: moveData } = await supabase
-        .from('stock_movements')
-        .select('item_name, quantity, created_at')
-        .eq('location_id', effectiveLocationId);
-
-      const incomingToday = (moveData || []).filter(m => {
-        if (!m.created_at) return false;
-        const dStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date(m.created_at));
-        return dStr === todayStr;
-      });
-
-      // 2. Ambil data closing kemarin cabang ini untuk Stok Awal
-      const yDate = new Date();
-      yDate.setDate(yDate.getDate() - 1);
-      const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(yDate);
-
-      const { data: yesterdayClosings } = await supabase
-        .from('daily_closings')
-        .select('item_name, remaining_stock')
-        .eq('location_id', effectiveLocationId)
-        .eq('closing_date', yesterdayStr);
-
       const payloads = items.map((row) => {
-        const cleanName = row.item_name.trim().toLowerCase();
-        const prev = yesterdayClosings?.find(y => y.item_name.trim().toLowerCase() === cleanName);
-        const inc = incomingToday
-          .filter(i => i.item_name.trim().toLowerCase() === cleanName)
-          .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0);
-
-        const stokAwal = prev ? Number(prev.remaining_stock) : 0;
-        const stokMasuk = inc;
-        const sisaFisik = row.sisa_fisik === '' ? 0 : Number(row.sisa_fisik);
+        const fisik = row.sisa_fisik === '' ? 0 : Number(row.sisa_fisik);
         const waste = row.waste === '' ? 0 : Number(row.waste);
-
-        // Rumus otomatis bahan terpakai
-        const totalBahan = stokAwal + stokMasuk;
-        const terpakai = Math.max(0, totalBahan - sisaFisik - waste);
+        const totalModal = row.stok_awal + row.stok_masuk;
+        const terpakai = Math.max(0, totalModal - fisik - waste);
 
         return {
           location_id: effectiveLocationId,
           closing_date: todayStr,
           item_name: row.item_name,
-          stok_awal: stokAwal,
-          stok_masuk: stokMasuk,
+          stok_awal: row.stok_awal,
+          stok_masuk: row.stok_masuk,
           terpakai: terpakai,
           waste_qty: waste,
-          remaining_stock: sisaFisik,
+          remaining_stock: fisik,
           unit: row.unit,
           reported_by: effectiveStaffName,
           is_locked: true,
           corrected_by: allowCorrection ? effectiveStaffName : null,
           corrected_at: allowCorrection ? new Date().toISOString() : null,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
         };
       });
 
-      // Simpan ke database daily_closings
+      // Simpan langsung ke tabel daily_closings
       const { error } = await supabase
         .from('daily_closings')
         .upsert(payloads, { onConflict: 'location_id,closing_date,item_name' });
 
       if (error) throw error;
 
-      // Sinkronkan sisa fisik ke branch_stocks cabang ini
+      // Update saldo fisik di branch_stocks
       for (const p of payloads) {
         await supabase
           .from('branch_stocks')
@@ -176,19 +174,19 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
             remaining_stock: p.remaining_stock,
             unit: p.unit,
             last_updated: new Date().toISOString(),
-            last_updated_by: effectiveStaffName
+            last_updated_by: effectiveStaffName,
           }, { onConflict: 'location_id,item_name' });
       }
 
       setMsg({
-        text: allowCorrection 
-          ? 'Koreksi closing berhasil disimpan dan disinkronkan ke monitor pergerakan stok cabang!' 
-          : 'Tutup toko berhasil disimpan dan dikunci! Laporan terpakai & stok akhir telah disinkronkan.',
-        type: 'success'
+        text: allowCorrection
+          ? 'Koreksi closing berhasil diperbarui di Monitor Stok Cabang.'
+          : 'Tutup toko berhasil disimpan! Neraca pergerakan stok telah dikunci.',
+        type: 'success',
       });
 
       setAllowCorrection(false);
-      await loadItems();
+      await loadData();
     } catch (err: any) {
       setMsg({ text: `Gagal simpan: ${err.message}`, type: 'error' });
     } finally {
@@ -200,7 +198,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
 
   return (
     <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4 max-w-4xl mx-auto">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
         <div className="flex items-center gap-2">
           {onBack && (
@@ -226,13 +223,12 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
               )}
             </div>
             <p className="text-[10px] text-slate-400">
-              Input hitungan fisik nyata di cabang. Bahan terpakai dihitung otomatis di dashboard stok.
+              Input sisa fisik dan waste. Terpakai dan stok akhir dikalkulasi otomatis ke dashboard monitor.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-          {/* Tombol Koreksi Khusus Leader / Owner */}
           {isLocked && !allowCorrection && isLeaderOrOwner && (
             <button
               type="button"
@@ -257,7 +253,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
 
           <button
             type="button"
-            onClick={loadItems}
+            onClick={loadData}
             className="p-2 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-500"
             title="Segarkan Data"
           >
@@ -266,11 +262,10 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         </div>
       </div>
 
-      {/* Peringatan jika Terkunci untuk Crew */}
       {isLocked && !allowCorrection && !isLeaderOrOwner && (
         <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center gap-2 text-xs font-bold text-slate-600">
           <Lock className="w-4 h-4 text-slate-400 shrink-0" />
-          <span>Tutup toko hari ini telah disimpan. Hanya <b>Leader Cabang</b> atau <b>Owner</b> yang berwenang melakukan koreksi data.</span>
+          <span>Tutup toko hari ini telah disimpan. Hanya Leader atau Owner yang berhak mengoreksi data.</span>
         </div>
       )}
 
@@ -335,17 +330,17 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
               type="submit"
               disabled={saving || items.length === 0}
               className={`w-full py-3 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 ${
-                allowCorrection 
-                  ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-500/20' 
+                allowCorrection
+                  ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-500/20'
                   : 'bg-[#5252ea] hover:bg-[#4343d6] shadow-indigo-500/20'
               } disabled:opacity-50`}
             >
               <Save className="w-4 h-4" />
               <span>
-                {saving 
-                  ? 'Menyimpan & Menghitung...' 
-                  : allowCorrection 
-                  ? 'Simpan Perubahan Koreksi (Leader)' 
+                {saving
+                  ? 'Menyimpan & Mengunci Data...'
+                  : allowCorrection
+                  ? 'Simpan Perubahan Koreksi (Leader)'
                   : 'Kunci & Simpan Tutup Toko'}
               </span>
             </button>
