@@ -15,6 +15,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import StaffManagementView from '@/components/hr/StaffManagementView';
+import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function HRDashboardPage() {
@@ -126,7 +127,7 @@ export default function HRDashboardPage() {
 
       if (error) throw error;
       setAttendance(data);
-      setAttendanceMsg({ text: `Check-in berhasil pukul ${timeStr} WIB`, type: 'success' });
+      setAttendanceMsg({ text: `Check-in berhasil pukul ${timeStr} WITA`, type: 'success' });
     } catch (err: any) {
       setAttendanceMsg({ text: `Gagal Check-in: ${err.message}`, type: 'error' });
     } finally {
@@ -160,7 +161,7 @@ export default function HRDashboardPage() {
 
       if (error) throw error;
       setAttendance(data);
-      setAttendanceMsg({ text: `Check-out berhasil pukul ${timeStr} WIB`, type: 'success' });
+      setAttendanceMsg({ text: `Check-out berhasil pukul ${timeStr} WITA`, type: 'success' });
     } catch (err: any) {
       setAttendanceMsg({ text: `Gagal Check-out: ${err.message}`, type: 'error' });
     } finally {
@@ -292,6 +293,9 @@ export default function HRDashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* 1. LIVE KENDALI OPERASIONAL STAF & OUTLET */}
+        <LiveExecutiveSummary />
 
         {/* RINGKASAN MONITORING SDM */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

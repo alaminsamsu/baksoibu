@@ -12,14 +12,16 @@ import {
   MapPin,
   Download,
   Calendar,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Users
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
+import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'monitor' | 'rekap' | 'orders'>('monitor');
+  const [activeTab, setActiveTab] = useState<'monitor' | 'rekap' | 'orders' | 'live_hr'>('monitor');
   const [orderRequests, setOrderRequests] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [selectedLoc, setSelectedLoc] = useState('all');
@@ -200,29 +202,41 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* 3 Tab Navigasi Admin */}
-        <div className="flex items-center gap-1 bg-white px-3 py-1.5 rounded-full shadow-sm shadow-slate-200/60 border border-slate-100 text-xs font-bold text-slate-500">
+        {/* 4 Tab Navigasi Admin */}
+        <div className="flex items-center gap-1 bg-white px-3 py-1.5 rounded-full shadow-sm shadow-slate-200/60 border border-slate-100 text-xs font-bold text-slate-500 overflow-x-auto">
           <button
             onClick={() => setActiveTab('monitor')}
-            className={`px-3.5 py-1 rounded-full transition-all flex items-center gap-1.5 ${
+            className={`px-3.5 py-1 rounded-full transition-all flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'monitor' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:text-slate-800'
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
             Monitor Stok
           </button>
+
+          <button
+            onClick={() => setActiveTab('live_hr')}
+            className={`px-3.5 py-1 rounded-full transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'live_hr' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:text-slate-800'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            Live Presensi Staf
+          </button>
+
           <button
             onClick={() => setActiveTab('rekap')}
-            className={`px-3.5 py-1 rounded-full transition-all flex items-center gap-1.5 ${
+            className={`px-3.5 py-1 rounded-full transition-all flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'rekap' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:text-slate-800'
             }`}
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
             Download Rekap
           </button>
+
           <button
             onClick={() => setActiveTab('orders')}
-            className={`px-3.5 py-1 rounded-full transition-all flex items-center gap-1.5 ${
+            className={`px-3.5 py-1 rounded-full transition-all flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'orders' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:text-slate-800'
             }`}
           >
@@ -253,8 +267,17 @@ export default function AdminDashboardPage() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
+        {/* TAB MONITOR STOK */}
         {activeTab === 'monitor' && (
-          <BranchStockMonitor />
+          <div className="space-y-6">
+            <LiveExecutiveSummary />
+            <BranchStockMonitor />
+          </div>
+        )}
+
+        {/* TAB LIVE PRESENSI STAF KHUSUS OWNER/ADMIN */}
+        {activeTab === 'live_hr' && (
+          <LiveExecutiveSummary />
         )}
 
         {/* TAB KHUSUS DOWNLOAD REKAP PEMAKAIAN */}
