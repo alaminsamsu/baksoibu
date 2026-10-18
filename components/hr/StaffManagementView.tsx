@@ -13,7 +13,9 @@ import {
   ExternalLink,
   Home,
   Cake,
-  Clock
+  Clock,
+  Edit2,
+  X
 } from 'lucide-react';
 
 export default function StaffManagementView() {
@@ -27,7 +29,7 @@ export default function StaffManagementView() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // Form Modal Tambah Karyawan Baru
+  // State Modal Tambah Karyawan
   const [showAddModal, setShowAddModal] = useState(false);
   const [nickname, setNickname] = useState('');
   const [fullName, setFullName] = useState('');
@@ -39,6 +41,20 @@ export default function StaffManagementView() {
   const [address, setAddress] = useState('');
   const [joinDate, setJoinDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [employmentType, setEmploymentType] = useState('FULL_TIME');
+
+  // State Modal Edit Karyawan
+  const [editingStaff, setEditingStaff] = useState<any | null>(null);
+  const [editNickname, setEditNickname] = useState('');
+  const [editFullName, setEditFullName] = useState('');
+  const [editRole, setEditRole] = useState('CREW');
+  const [editPrimaryLocationId, setEditPrimaryLocationId] = useState('');
+  const [editPhoneNumber, setEditPhoneNumber] = useState('');
+  const [editBirthPlace, setEditBirthPlace] = useState('');
+  const [editBirthDate, setEditBirthDate] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editJoinDate, setEditJoinDate] = useState('');
+  const [editEmploymentType, setEditEmploymentType] = useState('FULL_TIME');
+  const [editIsActive, setEditIsActive] = useState(true);
 
   const fetchData = async () => {
     setLoading(true);
@@ -77,6 +93,23 @@ export default function StaffManagementView() {
     fetchData();
   }, [selectedDate, selectedLocation]);
 
+  // Handler Buka Modal Edit
+  const openEditModal = (staff: any) => {
+    setEditingStaff(staff);
+    setEditNickname(staff.nickname || '');
+    setEditFullName(staff.full_name || '');
+    setEditRole(staff.role || 'CREW');
+    setEditPrimaryLocationId(staff.primary_location_id || '');
+    setEditPhoneNumber(staff.phone_number || '');
+    setEditBirthPlace(staff.birth_place || '');
+    setEditBirthDate(staff.birth_date || '');
+    setEditAddress(staff.address || '');
+    setEditJoinDate(staff.join_date || '');
+    setEditEmploymentType(staff.employment_type || 'FULL_TIME');
+    setEditIsActive(staff.is_active ?? true);
+  };
+
+  // Handler Simpan Tambah Baru
   const handleCreateStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nickname.trim()) {
@@ -102,7 +135,6 @@ export default function StaffManagementView() {
       if (error) throw error;
 
       setShowAddModal(false);
-      // Reset isian
       setNickname('');
       setFullName('');
       setPhoneNumber('');
@@ -112,6 +144,43 @@ export default function StaffManagementView() {
       fetchData();
     } catch (err: any) {
       alert('Gagal menambah karyawan: ' + err.message);
+    }
+  };
+
+  // Handler Simpan Update / Edit Karyawan
+  const handleUpdateStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStaff) return;
+    if (!editNickname.trim()) {
+      alert('Nama panggilan tidak boleh kosong!');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('staff_profiles')
+        .update({
+          nickname: editNickname.trim(),
+          full_name: editFullName.trim(),
+          role: editRole,
+          primary_location_id: editPrimaryLocationId || null,
+          phone_number: editPhoneNumber.trim() || null,
+          birth_place: editBirthPlace.trim() || null,
+          birth_date: editBirthDate || null,
+          address: editAddress.trim() || null,
+          join_date: editJoinDate || null,
+          employment_type: editEmploymentType,
+          is_active: editIsActive,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingStaff.id);
+
+      if (error) throw error;
+
+      setEditingStaff(null);
+      fetchData();
+    } catch (err: any) {
+      alert('Gagal memperbarui data karyawan: ' + err.message);
     }
   };
 
@@ -317,7 +386,8 @@ export default function StaffManagementView() {
                 (s.nickname || '').toLowerCase().includes(searchQuery.toLowerCase())
               )
               .map((staff) => (
-                <div key={staff.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
+                <div key={staff.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 relative group hover:border-slate-300 transition-all">
+                  {/* Tombol Edit di pojok kanan atas kartu */}
                   <div className="flex justify-between items-start">
                     <div>
                       <div className="flex items-center gap-1.5">
@@ -330,9 +400,19 @@ export default function StaffManagementView() {
                         {staff.role}
                       </span>
                     </div>
-                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                      {staff.is_active ? 'Aktif' : 'Non-Aktif'}
-                    </span>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${staff.is_active ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 bg-slate-200'}`}>
+                        {staff.is_active ? 'Aktif' : 'Non-Aktif'}
+                      </span>
+                      <button
+                        onClick={() => openEditModal(staff)}
+                        className="p-1.5 bg-white hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 border border-slate-200 rounded-lg shadow-2xs transition-all"
+                        title="Edit Data Karyawan"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="text-xs text-slate-500 space-y-1 pt-2 border-t border-slate-200/60">
@@ -379,7 +459,6 @@ export default function StaffManagementView() {
             </div>
 
             <form onSubmit={handleCreateStaff} className="space-y-3 text-xs">
-              {/* Identitas Utama */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">
@@ -411,7 +490,6 @@ export default function StaffManagementView() {
                 </div>
               </div>
 
-              {/* Jabatan & Penempatan */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">Jabatan / Role</label>
@@ -446,7 +524,6 @@ export default function StaffManagementView() {
                 </div>
               </div>
 
-              {/* TTL (Tempat, Tanggal Lahir) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">Tempat Lahir</label>
@@ -470,7 +547,6 @@ export default function StaffManagementView() {
                 </div>
               </div>
 
-              {/* Tanggal Mulai Bekerja & Kontak */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">Tanggal Mulai Bekerja</label>
@@ -494,7 +570,6 @@ export default function StaffManagementView() {
                 </div>
               </div>
 
-              {/* Alamat Domisili */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">Alamat Tinggal / Domisili</label>
                 <textarea
@@ -506,7 +581,6 @@ export default function StaffManagementView() {
                 />
               </div>
 
-              {/* Tombol Simpan */}
               <div className="flex gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"
@@ -520,6 +594,175 @@ export default function StaffManagementView() {
                   className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-colors shadow-xs"
                 >
                   Simpan Pegawai
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL EDIT KARYAWAN */}
+      {editingStaff && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">Edit Data Pegawai</h3>
+                <p className="text-[11px] text-slate-400">Perbarui profil biodata & penempatan</p>
+              </div>
+              <button 
+                onClick={() => setEditingStaff(null)}
+                className="p-1 rounded-xl text-slate-400 hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateStaff} className="space-y-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Nama Panggilan <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editNickname}
+                    onChange={(e) => setEditNickname(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  />
+                  <span className="text-[9px] text-slate-400">Kunci login & presensi</span>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Nama Lengkap Resmi <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editFullName}
+                    onChange={(e) => setEditFullName(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Jabatan / Role</label>
+                  <select
+                    value={editRole}
+                    onChange={(e) => setEditRole(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none"
+                  >
+                    <option value="CREW">Crew Outlet</option>
+                    <option value="KASIR">Kasir Outlet</option>
+                    <option value="LEADER">Leader Outlet</option>
+                    <option value="ADMIN">Admin Operasional</option>
+                    <option value="HR">HR Personalia</option>
+                    <option value="LOGISTIK">Dapur Pusat / Logistik</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Penempatan Cabang</label>
+                  <select
+                    value={editPrimaryLocationId}
+                    onChange={(e) => setEditPrimaryLocationId(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold text-slate-700 focus:outline-none"
+                  >
+                    <option value="">Semua Lokasi / Mobile</option>
+                    {locations.map((l) => (
+                      <option key={l.id} value={l.id}>{l.name}</option>
+                    ))}
+                    <option value="kantor">Kantor Pusat</option>
+                    <option value="dapur_pusat">Dapur Pusat</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Tempat Lahir</label>
+                  <input
+                    type="text"
+                    value={editBirthPlace}
+                    onChange={(e) => setEditBirthPlace(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Tanggal Lahir</label>
+                  <input
+                    type="date"
+                    value={editBirthDate}
+                    onChange={(e) => setEditBirthDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Tanggal Mulai Bekerja</label>
+                  <input
+                    type="date"
+                    value={editJoinDate}
+                    onChange={(e) => setEditJoinDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">No. WhatsApp / HP</label>
+                  <input
+                    type="text"
+                    value={editPhoneNumber}
+                    onChange={(e) => setEditPhoneNumber(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">Alamat Tinggal / Domisili</label>
+                <textarea
+                  rows={2}
+                  value={editAddress}
+                  onChange={(e) => setEditAddress(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl font-semibold text-slate-800 focus:outline-none"
+                />
+              </div>
+
+              {/* Status Keaktifan Pegawai */}
+              <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <input
+                  type="checkbox"
+                  id="editIsActive"
+                  checked={editIsActive}
+                  onChange={(e) => setEditIsActive(e.target.checked)}
+                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                />
+                <label htmlFor="editIsActive" className="text-xs font-bold text-slate-700 cursor-pointer">
+                  Status Pegawai Aktif (Centang jika masih bekerja)
+                </label>
+              </div>
+
+              <div className="flex gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingStaff(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-colors shadow-xs"
+                >
+                  Simpan Perubahan
                 </button>
               </div>
             </form>
