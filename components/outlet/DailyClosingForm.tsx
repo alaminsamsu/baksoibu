@@ -1,486 +1,259 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { compressImage } from '@/lib/imageCompressor';
-import { 
-  Store, 
-  ArrowLeft, 
-  Camera, 
-  CheckCircle2, 
-  AlertCircle, 
-  Search, 
-  Trash2,
-  TrendingDown
-} from 'lucide-react';
+import { Store, CheckCircle2, AlertCircle, Save, RefreshCw } from 'lucide-react';
 
 interface Props {
-  user?: any;
-  onBack?: () => void;
-  locationId?: string;
-  staffName?: string;
+  locationId: string;
+  staffName: string;
 }
 
-interface MasterItem {
-  id: string;
-  name: string;
-  category: string;
-  uom: string;
+interface ItemRow {
+  item_name: string;
+  unit: string;
+  stok_awal: number;
+  stok_masuk: number;
+  sisa_fisik: number | '';
+  waste: number | '';
 }
 
-interface CurrentStockContext {
-  initial_stock: number;
-  received_stock: number;
-}
+export default function DailyClosingForm({ locationId, staffName }: Props) {
+  const [items, setItems] = useState<ItemRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-const CATEGORY_ORDER = [
-  'Semua',
-  'Bakso & Olahan Frozen',
-  'Bahan Dapur & Bumbu',
-  'Sayur, Mie & Pelengkap',
-  'Minuman & Es',
-  'Kemasan & Operasional',
-];
+  // Ambil data bahan beserta riwayat stok awal & masuk hari ini
+  const loadClosingData = async () => {
+    if (!locationId) return;
+    setLoading(true);
+    setMsg(null);
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
 
-export default function DailyClosingForm({ user, onBack, locationId, staffName }: Props) {
-  const activeLocationId = locationId || user?.location_id;
-  const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
+      // 1. Ambil daftar bahan master dari branch_stocks
+      const { data: stockMasters } = await supabase
+        .from('branch_stocks')
+        .select('item_name, unit')
+        .eq('location_id', locationId)
+        .order('item_name');
 
-  const [items, setItems] = useState<MasterItem[]>([]);
-  const [stockContext, setStockContext] = useState<Record<string, CurrentStockContext>>({});
-  const [closingStocks, setClosingStocks] = useState<Record<string, string>>({});
-  const [wasteQtys, setWasteQtys] = useState<Record<string, string>>({});
-  const [activeCategory, setActiveCategory] = useState('Semua');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [notes, setNotes] = useState('');
-  
-  const [wastePhotoFile, setWastePhotoFile] = useState<File | null>(null);
-  const [wastePhotoPreview, setWastePhotoPreview] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+      // 2. Ambil total stok masuk hari ini
+      const { data: incomingMoves } = await supabase
+        .from('stock_movements')
+        .select('item_name, quantity')
+        .eq('location_id', locationId)
+        .gte('created_at', `${todayStr}T00:00:00Z`);
 
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+      // 3. Ambil sisa stok kemarin sebagai stok awal
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
 
-  useEffect(() => {
-    async function loadInitialData() {
-      // 1. Ambil master items
-      const { data: itemData } = await supabase.from('items').select('*').order('name');
-      if (itemData) setItems(itemData);
-
-      if (!activeLocationId) return;
-
-      const today = new Date().toISOString().split('T')[0];
-      const prevDate = new Date();
-      prevDate.setDate(prevDate.getDate() - 1);
-      const yesterdayStr = prevDate.toISOString().split('T')[0];
-
-      // 2. Ambil stok awal (dari closing kemarin jika ada, atau branch_stocks)
-      const { data: yestClosings } = await supabase
+      const { data: yesterdayClosings } = await supabase
         .from('daily_closings')
         .select('item_name, remaining_stock')
-        .eq('location_id', activeLocationId)
+        .eq('location_id', locationId)
         .eq('closing_date', yesterdayStr);
 
-      const { data: bStocks } = await supabase
-        .from('branch_stocks')
-        .select('item_name, initial_stock')
-        .eq('location_id', activeLocationId);
+      // 4. Cek apakah hari ini sudah pernah disimpan
+      const { data: todayClosings } = await supabase
+        .from('daily_closings')
+        .select('*')
+        .eq('location_id', locationId)
+        .eq('closing_date', todayStr);
 
-      // 3. Ambil total barang masuk hari ini
-      const { data: receptions } = await supabase
-        .from('receptions')
-        .select('item_name, quantity')
-        .eq('location_id', activeLocationId)
-        .gte('created_at', `${today}T00:00:00Z`);
+      const rows: ItemRow[] = (stockMasters || []).map((m) => {
+        const prev = yesterdayClosings?.find((y) => y.item_name === m.item_name);
+        const inc = incomingMoves?.filter((i) => i.item_name === m.item_name)
+          .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0) || 0;
+        const savedToday = todayClosings?.find((t) => t.item_name === m.item_name);
 
-      const ctxMap: Record<string, CurrentStockContext> = {};
-
-      (itemData || []).forEach((it) => {
-        const yest = (yestClosings || []).find((c) => c.item_name === it.name);
-        const b = (bStocks || []).find((s) => s.item_name === it.name);
-        const init = yest ? Number(yest.remaining_stock || 0) : Number(b?.initial_stock || 0);
-
-        const rec = (receptions || [])
-          .filter((r) => r.item_name === it.name)
-          .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0);
-
-        ctxMap[it.name] = {
-          initial_stock: init,
-          received_stock: rec,
+        return {
+          item_name: m.item_name,
+          unit: m.unit || 'porsi',
+          stok_awal: prev ? Number(prev.remaining_stock) : 0,
+          stok_masuk: inc,
+          sisa_fisik: savedToday ? Number(savedToday.remaining_stock) : '',
+          waste: savedToday ? Number(savedToday.waste_qty) : ''
         };
       });
 
-      setStockContext(ctxMap);
-    }
-
-    loadInitialData();
-  }, [activeLocationId]);
-
-  const filteredItems = useMemo(() => {
-    return items.filter((item) => {
-      const matchCat = activeCategory === 'Semua' || item.category === activeCategory;
-      const matchSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
-      return matchCat && matchSearch;
-    });
-  }, [items, activeCategory, searchTerm]);
-
-  const groupedItems = useMemo(() => {
-    const groups: Record<string, MasterItem[]> = {};
-    filteredItems.forEach((item) => {
-      const cat = item.category || 'Lain-lain';
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(item);
-    });
-    return groups;
-  }, [filteredItems]);
-
-  const totalWasteCount = useMemo(() => {
-    return Object.values(wasteQtys).filter((w) => parseFloat(w) > 0).length;
-  }, [wasteQtys]);
-
-  const handleStockChange = (name: string, val: string) => {
-    setClosingStocks((prev) => ({ ...prev, [name]: val }));
-  };
-
-  const handleWasteChange = (name: string, val: string) => {
-    setWasteQtys((prev) => ({ ...prev, [name]: val }));
-  };
-
-  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      try {
-        const compressed = await compressImage(file, 1200, 0.7);
-        setWastePhotoFile(compressed);
-        setWastePhotoPreview(URL.createObjectURL(compressed));
-      } catch {
-        setWastePhotoFile(file);
-        setWastePhotoPreview(URL.createObjectURL(file));
-      }
-    }
-  };
-
-  const handleRemovePhoto = () => {
-    setWastePhotoFile(null);
-    setWastePhotoPreview(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage(null);
-
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const validStockEntries = Object.entries(closingStocks).filter(([_, val]) => val !== '' && !isNaN(Number(val)));
-      const hasWaste = totalWasteCount > 0;
-
-      if (validStockEntries.length === 0) {
-        throw new Error('Harap isi minimal 1 sisa fisik barang saat closing.');
-      }
-
-      if (hasWaste && !wastePhotoFile) {
-        throw new Error('Ada pencatatan barang waste. Wajib melampirkan foto bukti fisik waste sebelum menyimpan.');
-      }
-
-      let uploadedPhotoUrl = null;
-      if (wastePhotoFile) {
-        const fileExt = wastePhotoFile.name.split('.').pop() || 'jpg';
-        const filePath = `waste_${activeLocationId}_${today}_${Date.now()}.${fileExt}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from('receipts')
-          .upload(filePath, wastePhotoFile);
-
-        if (!uploadError) {
-          const { data: pubData } = supabase.storage.from('receipts').getPublicUrl(filePath);
-          uploadedPhotoUrl = pubData?.publicUrl;
-        }
-      }
-
-      for (const [itemName, remainStr] of validStockEntries) {
-        const remainQty = parseFloat(remainStr) || 0;
-        const wasteQty = parseFloat(wasteQtys[itemName] || '0') || 0;
-        const itemMeta = items.find((i) => i.name === itemName);
-        const unit = itemMeta?.uom || 'Pcs';
-
-        // Simpan sisa fisik dan waste ke daily_closings
-        await supabase.from('daily_closings').upsert(
-          {
-            location_id: activeLocationId,
-            closing_date: today,
-            item_name: itemName,
-            remaining_stock: remainQty,
-            waste_qty: wasteQty,
-            unit,
-            reported_by: activeStaffName,
-            photo_url: uploadedPhotoUrl,
-            notes: notes.trim() || null,
-          },
-          { onConflict: 'location_id, closing_date, item_name' }
-        );
-
-        // Update remaining_stock di branch_stocks agar sinkron
-        await supabase.from('branch_stocks').upsert(
-          {
-            location_id: activeLocationId,
-            item_name: itemName,
-            remaining_stock: remainQty,
-            unit,
-            updated_at: new Date().toISOString(),
-            updated_by: `${activeStaffName} (Closing Opname)`,
-          },
-          { onConflict: 'location_id, item_name' }
-        );
-      }
-
-      setMessage({
-        text: `Closing berhasil disimpan! Sisa fisik dan waste otomatis dikalkulasi menjadi angka terpakai di dashboard.`,
-        type: 'success',
-      });
-
-      setClosingStocks({});
-      setWasteQtys({});
-      setNotes('');
-      handleRemovePhoto();
+      setItems(rows);
     } catch (err: any) {
-      setMessage({ text: err.message || 'Gagal menyimpan closing toko.', type: 'error' });
+      console.error('Error load closing:', err.message);
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    loadClosingData();
+  }, [locationId]);
+
+  const handleInputChange = (index: number, field: 'sisa_fisik' | 'waste', val: string) => {
+    const updated = [...items];
+    updated[index][field] = val === '' ? '' : Number(val);
+    setItems(updated);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setMsg(null);
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      const payloads = items.map((row) => {
+        const fisik = row.sisa_fisik === '' ? 0 : Number(row.sisa_fisik);
+        const waste = row.waste === '' ? 0 : Number(row.waste);
+        const totalModal = row.stok_awal + row.stok_masuk;
+        const terpakai = Math.max(0, totalModal - fisik - waste);
+
+        return {
+          location_id: locationId,
+          closing_date: todayStr,
+          item_name: row.item_name,
+          stok_awal: row.stok_awal,
+          stok_masuk: row.stok_masuk,
+          terpakai: terpakai,
+          waste_qty: waste,
+          remaining_stock: fisik, // Stok Akhir
+          unit: row.unit,
+          reported_by: staffName,
+          created_at: new Date().toISOString()
+        };
+      });
+
+      const { error } = await supabase
+        .from('daily_closings')
+        .upsert(payloads, { onConflict: 'location_id,closing_date,item_name' });
+
+      if (error) throw error;
+
+      setMsg({
+        text: 'Tutup toko berhasil disimpan! Data Terpakai dan Stok Akhir telah disinkronkan ke Dashboard.',
+        type: 'success'
+      });
+      await loadClosingData();
+    } catch (err: any) {
+      setMsg({ text: `Gagal simpan: ${err.message}`, type: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-7 shadow-xs">
-      {onBack && (
+    <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
+      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div className="flex items-center gap-2">
+          <Store className="w-5 h-5 text-indigo-600" />
+          <div>
+            <h3 className="text-xs font-black uppercase text-slate-800 tracking-wider">
+              Form Tutup Toko (Closing Harian)
+            </h3>
+            <p className="text-[10px] text-slate-400">
+              Input sisa fisik & waste. Sistem otomatis menghitung bahan terpakai dan mengunci stok akhir.
+            </p>
+          </div>
+        </div>
+
         <button
           type="button"
-          onClick={onBack}
-          className="text-xs font-bold text-slate-400 hover:text-indigo-600 mb-4 flex items-center gap-1.5 transition-colors"
+          onClick={loadClosingData}
+          className="p-2 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-500"
+          title="Segarkan Data"
         >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          Kembali
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
-      )}
-
-      <div className="flex items-center gap-3 pb-5 mb-5 border-b border-slate-100">
-        <div className="w-10 h-10 rounded-2xl bg-[#ff6f3c] text-white flex items-center justify-center shadow-sm">
-          <Store className="w-5 h-5" />
-        </div>
-        <div>
-          <h2 className="text-base font-black text-slate-900 leading-tight">Form Tutup Toko (Closing Harian)</h2>
-          <p className="text-xs text-slate-400">
-            Isi sisa fisik riil & barang waste. Sistem otomatis menghitung jumlah barang yang terpakai.
-          </p>
-        </div>
       </div>
 
-      {message && (
-        <div
-          className={`p-3.5 mb-5 rounded-2xl text-xs font-bold flex items-center gap-2 ${
-            message.type === 'success'
-              ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-              : 'bg-red-50 border border-red-200 text-red-700'
-          }`}
-        >
-          {message.type === 'success' ? (
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-          ) : (
-            <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-          )}
-          <span>{message.text}</span>
+      {msg && (
+        <div className={`p-3 rounded-2xl text-xs font-bold flex items-center gap-2 ${
+          msg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'
+        }`}>
+          {msg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+          <span>{msg.text}</span>
         </div>
       )}
 
-      {/* Filter Kategori & Search */}
-      <div className="space-y-2 mb-4 text-xs">
-        <div className="relative">
-          <Search className="absolute left-3.5 top-3 w-3.5 h-3.5 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Cari barang closing..."
-            className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
-          />
-        </div>
+      {loading ? (
+        <div className="text-center py-8 text-xs text-slate-400 font-bold">Memuat daftar bahan...</div>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-medium">
+              <thead>
+                <tr className="border-b border-slate-100 text-[10px] uppercase text-slate-400 font-black">
+                  <th className="py-2.5 px-2">Bahan</th>
+                  <th className="py-2.5 px-2 text-center bg-slate-50 rounded-l-lg">Awal</th>
+                  <th className="py-2.5 px-2 text-center bg-slate-50">+ Masuk</th>
+                  <th className="py-2.5 px-2 text-center bg-indigo-50/60 text-indigo-800">Sisa Fisik</th>
+                  <th className="py-2.5 px-2 text-center bg-amber-50/60 text-amber-800">Waste</th>
+                  <th className="py-2.5 px-2 text-center font-black text-slate-700 bg-slate-100 rounded-r-lg">= Terpakai</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 font-bold">
+                {items.map((row, idx) => {
+                  const fisik = row.sisa_fisik === '' ? 0 : Number(row.sisa_fisik);
+                  const waste = row.waste === '' ? 0 : Number(row.waste);
+                  const total = row.stok_awal + row.stok_masuk;
+                  const terpakai = Math.max(0, total - fisik - waste);
 
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          {CATEGORY_ORDER.map((cat) => (
-            <button
-              key={cat}
-              type="button"
-              onClick={() => setActiveCategory(cat)}
-              className={`px-3 py-1.5 rounded-xl text-[11px] font-bold whitespace-nowrap transition-all ${
-                activeCategory === cat
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-slate-50 text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-      </div>
+                  return (
+                    <tr key={idx} className="hover:bg-slate-50/60">
+                      <td className="py-2.5 px-2">
+                        <span className="text-slate-800 block">{row.item_name}</span>
+                        <span className="text-[10px] text-slate-400 font-normal">{row.unit}</span>
+                      </td>
+                      <td className="py-2.5 px-2 text-center text-slate-500 bg-slate-50/50">
+                        {row.stok_awal}
+                      </td>
+                      <td className="py-2.5 px-2 text-center text-indigo-600 bg-slate-50/50">
+                        +{row.stok_masuk}
+                      </td>
+                      <td className="py-2.5 px-2 text-center bg-indigo-50/30">
+                        <input
+                          type="number"
+                          step="any"
+                          required
+                          value={row.sisa_fisik}
+                          onChange={(e) => handleInputChange(idx, 'sisa_fisik', e.target.value)}
+                          placeholder="0"
+                          className="w-16 px-2 py-1 text-center bg-white border border-indigo-200 rounded-lg text-slate-800 font-black focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </td>
+                      <td className="py-2.5 px-2 text-center bg-amber-50/30">
+                        <input
+                          type="number"
+                          step="any"
+                          value={row.waste}
+                          onChange={(e) => handleInputChange(idx, 'waste', e.target.value)}
+                          placeholder="0"
+                          className="w-16 px-2 py-1 text-center bg-white border border-amber-200 rounded-lg text-amber-700 font-black focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                      </td>
+                      <td className="py-2.5 px-2 text-center font-black text-slate-800 bg-slate-100/50">
+                        {terpakai}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-        {/* Tabel Input Sisa Fisik & Waste */}
-        <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-96 overflow-y-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead className="bg-slate-50 sticky top-0 border-b border-slate-100 z-10">
-              <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                <th className="py-2.5 px-3">Nama Barang</th>
-                <th className="py-2.5 px-2 text-right w-24">Sisa Fisik</th>
-                <th className="py-2.5 px-2 text-right w-24 text-[#ff6f3c]">Waste</th>
-                <th className="py-2.5 px-3 text-right w-24 text-indigo-600 bg-indigo-50/40">Terpakai</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {Object.entries(groupedItems).map(([groupName, groupList]) => (
-                <React.Fragment key={groupName}>
-                  <tr className="bg-slate-50/60">
-                    <td colSpan={4} className="py-1.5 px-3 font-black text-slate-600 text-[10px] uppercase">
-                      • {groupName}
-                    </td>
-                  </tr>
-                  {groupList.map((item) => {
-                    const ctx = stockContext[item.name] || { initial_stock: 0, received_stock: 0 };
-                    const totalAvailable = ctx.initial_stock + ctx.received_stock;
-                    
-                    const remainInput = closingStocks[item.name];
-                    const wasteInput = wasteQtys[item.name] || '0';
-                    
-                    const hasInput = remainInput !== undefined && remainInput !== '';
-                    const remainVal = parseFloat(remainInput || '0');
-                    const wasteVal = parseFloat(wasteInput || '0');
-
-                    // Kalkulasi otomatis pemakaian:
-                    // Terpakai = (Stok Awal + Masuk) - Sisa Fisik - Waste
-                    const usageCalculated = hasInput
-                      ? Math.max(0, totalAvailable - remainVal - wasteVal)
-                      : null;
-
-                    return (
-                      <tr key={item.id} className="hover:bg-slate-50/50">
-                        <td className="py-2 px-3 font-semibold text-slate-800">
-                          <div>{item.name}</div>
-                          <div className="text-[9px] text-slate-400 font-normal">
-                            Tersedia: {totalAvailable} {item.uom || 'Pcs'}
-                          </div>
-                        </td>
-
-                        {/* Input Sisa Fisik Riil */}
-                        <td className="py-1.5 px-2 text-right">
-                          <div className="inline-flex items-center gap-1">
-                            <input
-                              type="number"
-                              step="any"
-                              min="0"
-                              value={closingStocks[item.name] || ''}
-                              onChange={(e) => handleStockChange(item.name, e.target.value)}
-                              placeholder="0"
-                              className="w-16 px-2 py-1 text-right rounded-lg text-xs font-bold border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                            />
-                            <span className="text-[10px] text-slate-400 w-5 text-left">{item.uom || 'Pcs'}</span>
-                          </div>
-                        </td>
-
-                        {/* Input Waste (Basi/Rusak) */}
-                        <td className="py-1.5 px-2 text-right">
-                          <div className="inline-flex items-center gap-1">
-                            <input
-                              type="number"
-                              step="any"
-                              min="0"
-                              value={wasteQtys[item.name] || ''}
-                              onChange={(e) => handleWasteChange(item.name, e.target.value)}
-                              placeholder="0"
-                              className="w-16 px-2 py-1 text-right rounded-lg text-xs font-bold border border-orange-200 bg-orange-50/40 text-[#ff6f3c] focus:outline-none"
-                            />
-                            <span className="text-[10px] text-slate-400 w-5 text-left">{item.uom || 'Pcs'}</span>
-                          </div>
-                        </td>
-
-                        {/* Kolom Pratinjau Terpakai Langsung */}
-                        <td className="py-1.5 px-3 text-right bg-indigo-50/30 font-black text-indigo-700">
-                          {usageCalculated !== null ? (
-                            <span>{usageCalculated} <span className="text-[9px] font-normal text-indigo-400">{item.uom || 'Pcs'}</span></span>
-                          ) : (
-                            <span className="text-slate-300 font-normal">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </React.Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Upload Bukti Waste Jika Ada */}
-        <div>
-          <input
-            type="file"
-            ref={fileInputRef}
-            accept="image/*"
-            capture="environment"
-            onChange={handlePhotoSelect}
-            className="hidden"
-          />
-          {wastePhotoPreview ? (
-            <div className="relative w-32 h-24 rounded-xl overflow-hidden border border-slate-200">
-              <img src={wastePhotoPreview} alt="Bukti Waste" className="w-full h-full object-cover" />
-              <button
-                type="button"
-                onClick={handleRemovePhoto}
-                className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded-lg shadow-xs hover:bg-red-700"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className={`w-full py-3 border border-dashed rounded-xl flex items-center justify-center gap-2 transition-colors ${
-                totalWasteCount > 0
-                  ? 'border-red-300 bg-red-50/30 text-red-600'
-                  : 'border-slate-200 bg-slate-50 text-slate-500'
-              }`}
-            >
-              <Camera className="w-4 h-4" />
-              <span className="font-bold">
-                {totalWasteCount > 0 ? 'Foto Bukti Waste (Wajib Ada)' : 'Foto Bukti Waste (Jika ada)'}
-              </span>
-            </button>
-          )}
-        </div>
-
-        {/* Catatan Closing */}
-        <input
-          type="text"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Catatan closing / alasan barang terbuang (opsional)"
-          className="w-full px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl font-semibold text-slate-800 focus:outline-none"
-        />
-
-        {/* Tombol Simpan */}
-        <button
-          type="submit"
-          disabled={loading || (totalWasteCount > 0 && !wastePhotoFile)}
-          className={`w-full py-3.5 font-black rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2 ${
-            totalWasteCount > 0 && !wastePhotoFile
-              ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-              : 'bg-[#ff6f3c] hover:bg-orange-600 text-white'
-          }`}
-        >
-          <TrendingDown className="w-4 h-4" />
-          <span>{loading ? 'Menyimpan...' : 'Kunci Closing Harian & Hitung Pemakaian'}</span>
-        </button>
-      </form>
+          <button
+            type="submit"
+            disabled={saving || items.length === 0}
+            className="w-full py-3 bg-[#5252ea] hover:bg-[#4343d6] disabled:opacity-50 text-white font-black text-xs rounded-xl shadow-md shadow-indigo-500/20 flex items-center justify-center gap-2 transition-all"
+          >
+            <Save className="w-4 h-4" />
+            <span>{saving ? 'Mengunci Data & Menghitung...' : 'Kunci & Simpan Tutup Toko'}</span>
+          </button>
+        </form>
+      )}
     </div>
   );
 }
