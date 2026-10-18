@@ -2,11 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { Store, CheckCircle2, AlertCircle, Save, RefreshCw } from 'lucide-react';
+import { Store, CheckCircle2, AlertCircle, Save, RefreshCw, ArrowLeft } from 'lucide-react';
 
 interface Props {
-  locationId: string;
-  staffName: string;
+  user?: any;
+  onBack?: () => void;
+  locationId?: string;
+  staffName?: string;
 }
 
 interface ItemRow {
@@ -18,15 +20,18 @@ interface ItemRow {
   waste: number | '';
 }
 
-export default function DailyClosingForm({ locationId, staffName }: Props) {
+export default function DailyClosingForm({ user, onBack, locationId: propLocationId, staffName: propStaffName }: Props) {
+  // Ambil location_id dan nama staf baik dari prop langsung maupun dari objek user
+  const effectiveLocationId = propLocationId || user?.location_id || user?.id || '';
+  const effectiveStaffName = propStaffName || user?.active_staff_name || user?.username || 'Kru Outlet';
+
   const [items, setItems] = useState<ItemRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // Ambil data bahan beserta riwayat stok awal & masuk hari ini
   const loadClosingData = async () => {
-    if (!locationId) return;
+    if (!effectiveLocationId) return;
     setLoading(true);
     setMsg(null);
     try {
@@ -36,14 +41,14 @@ export default function DailyClosingForm({ locationId, staffName }: Props) {
       const { data: stockMasters } = await supabase
         .from('branch_stocks')
         .select('item_name, unit')
-        .eq('location_id', locationId)
+        .eq('location_id', effectiveLocationId)
         .order('item_name');
 
       // 2. Ambil total stok masuk hari ini
       const { data: incomingMoves } = await supabase
         .from('stock_movements')
         .select('item_name, quantity')
-        .eq('location_id', locationId)
+        .eq('location_id', effectiveLocationId)
         .gte('created_at', `${todayStr}T00:00:00Z`);
 
       // 3. Ambil sisa stok kemarin sebagai stok awal
@@ -54,14 +59,14 @@ export default function DailyClosingForm({ locationId, staffName }: Props) {
       const { data: yesterdayClosings } = await supabase
         .from('daily_closings')
         .select('item_name, remaining_stock')
-        .eq('location_id', locationId)
+        .eq('location_id', effectiveLocationId)
         .eq('closing_date', yesterdayStr);
 
       // 4. Cek apakah hari ini sudah pernah disimpan
       const { data: todayClosings } = await supabase
         .from('daily_closings')
         .select('*')
-        .eq('location_id', locationId)
+        .eq('location_id', effectiveLocationId)
         .eq('closing_date', todayStr);
 
       const rows: ItemRow[] = (stockMasters || []).map((m) => {
@@ -90,7 +95,7 @@ export default function DailyClosingForm({ locationId, staffName }: Props) {
 
   useEffect(() => {
     loadClosingData();
-  }, [locationId]);
+  }, [effectiveLocationId]);
 
   const handleInputChange = (index: number, field: 'sisa_fisik' | 'waste', val: string) => {
     const updated = [...items];
@@ -112,16 +117,16 @@ export default function DailyClosingForm({ locationId, staffName }: Props) {
         const terpakai = Math.max(0, totalModal - fisik - waste);
 
         return {
-          location_id: locationId,
+          location_id: effectiveLocationId,
           closing_date: todayStr,
           item_name: row.item_name,
           stok_awal: row.stok_awal,
           stok_masuk: row.stok_masuk,
           terpakai: terpakai,
           waste_qty: waste,
-          remaining_stock: fisik, // Stok Akhir
+          remaining_stock: fisik,
           unit: row.unit,
-          reported_by: staffName,
+          reported_by: effectiveStaffName,
           created_at: new Date().toISOString()
         };
       });
@@ -133,7 +138,7 @@ export default function DailyClosingForm({ locationId, staffName }: Props) {
       if (error) throw error;
 
       setMsg({
-        text: 'Tutup toko berhasil disimpan! Data Terpakai dan Stok Akhir telah disinkronkan ke Dashboard.',
+        text: 'Tutup toko berhasil disimpan! Data Terpakai dan Stok Akhir telah disinkronkan.',
         type: 'success'
       });
       await loadClosingData();
@@ -148,6 +153,16 @@ export default function DailyClosingForm({ locationId, staffName }: Props) {
     <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
       <div className="flex items-center justify-between pb-3 border-b border-slate-100">
         <div className="flex items-center gap-2">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="p-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-slate-600 transition-all mr-1"
+              title="Kembali"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          )}
           <Store className="w-5 h-5 text-indigo-600" />
           <div>
             <h3 className="text-xs font-black uppercase text-slate-800 tracking-wider">
