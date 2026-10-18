@@ -19,26 +19,25 @@ import {
   Calendar
 } from 'lucide-react';
 
-interface ClosingRow {
+interface RowItem {
   id: string;
   item_name: string;
   location_id: string;
-  location_name?: string;
-  closing_date: string;
+  location_name: string;
   stok_awal: number;
   stok_masuk: number;
   terpakai: number;
   waste_qty: number;
-  remaining_stock: number;
+  current_stock: number;
   unit: string;
   reported_by?: string;
-  corrected_by?: string;
-  created_at: string;
+  is_closed: boolean;
+  updated_at?: string;
 }
 
 export default function BranchStockMonitor() {
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [dataList, setDataList] = useState<ClosingRow[]>([]);
+  const [dataList, setDataList] = useState<RowItem[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [selectedLocation, setSelectedLocation] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -49,8 +48,8 @@ export default function BranchStockMonitor() {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
   });
 
-  // State Koreksi Kolom oleh Leader
-  const [editingId, setEditingId] = useState<string | null>(null);
+  // State Edit Kolom oleh Leader
+  const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editInitial, setEditInitial] = useState<number>(0);
   const [editReceived, setEditReceived] = useState<number>(0);
   const [editUsage, setEditUsage] = useState<number>(0);
@@ -77,96 +76,145 @@ export default function BranchStockMonitor() {
   const isCrew = currentUser?.role === 'CREW' || currentUser?.role === 'KASIR';
   const canEdit = isLeader || isAdmin || isOwner;
 
-  // Tarik data langsung dari daily_closings secara sederhana
-  const fetchMovementData = async () => {
+  const fetchLiveStockMovement = async () => {
     setLoading(true);
     try {
+      // 1. Ambil data cabang
       const { data: locData } = await supabase.from('locations').select('id, name');
       if (locData) setLocations(locData);
 
-      let query = supabase
-        .from('daily_closings')
-        .select('*')
-        .eq('closing_date', selectedDate)
-        .order('item_name');
-
-      // Batasi lokasi jika akun kru/leader
+      // 2. Ambil master bahan aktif dari branch_stocks
+      let branchQuery = supabase.from('branch_stocks').select('*, locations(name)');
       if ((isLeader || isCrew) && currentUser?.location_id) {
-        query = query.eq('location_id', currentUser.location_id);
+        branchQuery = branchQuery.eq('location_id', currentUser.location_id);
       } else if (selectedLocation !== 'all') {
-        query = query.eq('location_id', selectedLocation);
+        branchQuery = branchQuery.eq('location_id', selectedLocation);
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      const { data: stocks, error: stockErr } = await branchQuery;
+      if (stockErr) throw stockErr;
 
-      // Petakan nama lokasi
-      const mapped = (data || []).map((row) => {
-        const loc = locData?.find((l) => l.id === row.location_id);
+      // 3. Ambil sisa kemarin untuk patokan Stok Awal
+      const currDateObj = new Date(selectedDate + 'T00:00:00');
+      const prevDateObj = new Date(currDateObj);
+      prevDateObj.setDate(prevDateObj.getDate() - 1);
+      const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(prevDateObj);
+
+      const { data: yesterdayClosings } = await supabase
+        .from('daily_closings')
+        .select('item_name, remaining_stock, location_id')
+        .eq('closing_date', yesterdayStr);
+
+      // 4. Ambil barang masuk hari ini dari stock_movements (Live Real-time)
+      const { data: moveData } = await supabase
+        .from('stock_movements')
+        .select('item_name, quantity, location_id, created_at')
+        .or('movement_type.eq.MASUK,movement_type.eq.IN');
+
+      const todayMoves = (moveData || []).filter((m) => {
+        if (!m.created_at) return false;
+        const dStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date(m.created_at));
+        return dStr === selectedDate;
+      });
+
+      // 5. Ambil data closing hari ini (jika toko sudah ditutup)
+      const { data: todayClosings } = await supabase
+        .from('daily_closings')
+        .select('*')
+        .eq('closing_date', selectedDate);
+
+      // 6. Gabungkan secara langsung dan presisi
+      const rows: RowItem[] = (stocks || []).map((s: any) => {
+        const cleanName = s.item_name.trim().toLowerCase();
+
+        // Stok kemarin
+        const yest = (yesterdayClosings || []).find(
+          (y) => y.location_id === s.location_id && y.item_name.trim().toLowerCase() === cleanName
+        );
+        const awal = yest ? Number(yest.remaining_stock || 0) : Number(s.initial_stock || 0);
+
+        // Masuk hari ini
+        const masuk = todayMoves
+          .filter((m) => m.location_id === s.location_id && m.item_name.trim().toLowerCase() === cleanName)
+          .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0);
+
+        // Data closing hari ini (jika sudah closing)
+        const closed = (todayClosings || []).find(
+          (c) => c.location_id === s.location_id && c.item_name.trim().toLowerCase() === cleanName
+        );
+
+        const isClosed = !!closed;
+        const waste = closed ? Number(closed.waste_qty || 0) : 0;
+        const terpakai = closed ? Number(closed.terpakai || 0) : 0;
+        const sisaAkhir = closed ? Number(closed.remaining_stock || 0) : (awal + masuk);
+
         return {
-          ...row,
-          location_name: loc ? loc.name : 'Outlet',
-          stok_awal: Number(row.stok_awal || 0),
-          stok_masuk: Number(row.stok_masuk || 0),
-          terpakai: Number(row.terpakai || 0),
-          waste_qty: Number(row.waste_qty || 0),
-          remaining_stock: Number(row.remaining_stock || 0),
+          id: s.id,
+          item_name: s.item_name,
+          location_id: s.location_id,
+          location_name: s.locations?.name || 'Outlet',
+          stok_awal: awal,
+          stok_masuk: masuk,
+          terpakai: terpakai,
+          waste_qty: waste,
+          current_stock: sisaAkhir,
+          unit: s.unit || 'porsi',
+          reported_by: closed?.reported_by || s.last_updated_by || 'Sistem',
+          is_closed: isClosed,
+          updated_at: closed?.created_at || s.last_updated,
         };
       });
 
-      setDataList(mapped);
+      setDataList(rows);
     } catch (err: any) {
-      console.error('Error load stock movement:', err.message);
+      console.error('Error load movement:', err.message);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchMovementData();
+    fetchLiveStockMovement();
   }, [selectedDate, selectedLocation, currentUser]);
 
-  // Mulai mode koreksi
-  const handleStartEdit = (row: ClosingRow) => {
+  // Handle Edit Koreksi Leader
+  const handleStartEdit = (row: RowItem) => {
     if (!canEdit) {
-      alert('Hanya Leader Outlet atau Owner yang berhak mengoreksi stok.');
+      alert('Hanya Leader atau Owner yang berhak mengoreksi stok.');
       return;
     }
-    if (isLeader && row.location_id !== currentUser?.location_id) {
-      alert('Leader hanya berhak mengoreksi data di outlet sendiri.');
-      return;
-    }
-
-    setEditingId(row.id);
+    setEditingKey(row.id);
     setEditInitial(row.stok_awal);
     setEditReceived(row.stok_masuk);
     setEditUsage(row.terpakai);
     setEditWaste(row.waste_qty);
   };
 
-  // Simpan koreksi Leader
-  const handleSaveEdit = async (row: ClosingRow) => {
+  const handleSaveEdit = async (row: RowItem) => {
     try {
       const editorName = currentUser?.active_staff_name || currentUser?.username || 'Leader';
       const calculatedEnd = Math.max(0, (editInitial + editReceived) - editUsage - editWaste);
 
-      // 1. Update baris daily_closings
-      const { error: closingErr } = await supabase
+      // Simpan ke daily_closings
+      await supabase
         .from('daily_closings')
-        .update({
+        .upsert({
+          location_id: row.location_id,
+          closing_date: selectedDate,
+          item_name: row.item_name,
           stok_awal: editInitial,
           stok_masuk: editReceived,
           terpakai: editUsage,
           waste_qty: editWaste,
           remaining_stock: calculatedEnd,
+          unit: row.unit,
+          reported_by: `${editorName} (Koreksi)`,
+          is_locked: true,
           corrected_by: editorName,
           corrected_at: new Date().toISOString(),
-        })
-        .eq('id', row.id);
+        }, { onConflict: 'location_id,closing_date,item_name' });
 
-      if (closingErr) throw closingErr;
-
-      // 2. Sinkronkan saldo akhir ke branch_stocks
+      // Update saldo fisik di branch_stocks
       await supabase
         .from('branch_stocks')
         .upsert({
@@ -175,11 +223,11 @@ export default function BranchStockMonitor() {
           remaining_stock: calculatedEnd,
           unit: row.unit,
           last_updated: new Date().toISOString(),
-          last_updated_by: `${editorName} (Koreksi Leader)`,
+          last_updated_by: `${editorName} (Koreksi)`,
         }, { onConflict: 'location_id,item_name' });
 
-      setEditingId(null);
-      await fetchMovementData();
+      setEditingKey(null);
+      await fetchLiveStockMovement();
     } catch (err: any) {
       alert('Gagal simpan koreksi: ' + err.message);
     }
@@ -191,14 +239,8 @@ export default function BranchStockMonitor() {
     );
   }, [dataList, searchTerm]);
 
-  const totalUsage = useMemo(
-    () => filteredData.reduce((acc, curr) => acc + curr.terpakai, 0),
-    [filteredData]
-  );
-  const totalWaste = useMemo(
-    () => filteredData.reduce((acc, curr) => acc + curr.waste_qty, 0),
-    [filteredData]
-  );
+  const totalMasuk = useMemo(() => filteredData.reduce((acc, curr) => acc + curr.stok_masuk, 0), [filteredData]);
+  const totalTerpakai = useMemo(() => filteredData.reduce((acc, curr) => acc + curr.terpakai, 0), [filteredData]);
 
   return (
     <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-xs">
@@ -213,12 +255,11 @@ export default function BranchStockMonitor() {
               Monitor Pergerakan Stok Cabang
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              (Awal + Masuk) - Terpakai - Waste = <b>Stok Akhir</b>
+              (Stok Awal + Masuk) - Terpakai - Waste = <b>Stok Akhir</b>
             </p>
           </div>
         </div>
 
-        {/* Filter Tanggal & Lokasi */}
         <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
           <div className="relative flex items-center">
             <Calendar className="absolute left-3 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
@@ -254,7 +295,7 @@ export default function BranchStockMonitor() {
           )}
 
           <button
-            onClick={fetchMovementData}
+            onClick={fetchLiveStockMovement}
             title="Segarkan Data"
             className="p-2.5 text-slate-400 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 rounded-2xl border border-slate-100 transition-colors"
           >
@@ -263,11 +304,11 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* 3 Kartu Ringkasan Sederhana */}
+      {/* Ringkasan Realtime */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-5 bg-[#fafbfe] border-b border-slate-100">
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
-            <span>Barang Tercatat</span>
+            <span>Item Dipantau</span>
             <Layers className="w-3.5 h-3.5 text-indigo-500" />
           </div>
           <p className="text-xl font-black text-slate-900 mt-1">{filteredData.length}</p>
@@ -275,22 +316,22 @@ export default function BranchStockMonitor() {
 
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
           <div className="flex items-center justify-between text-emerald-600 text-[11px] font-bold">
-            <span>Total Terpakai</span>
-            <TrendingDown className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Total Masuk Hari Ini</span>
+            <span className="text-xs font-black text-emerald-600">+ Realtime</span>
           </div>
-          <p className="text-xl font-black text-emerald-600 mt-1">{totalUsage.toLocaleString()}</p>
+          <p className="text-xl font-black text-emerald-600 mt-1">+{totalMasuk.toLocaleString()}</p>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
-          <div className="flex items-center justify-between text-amber-600 text-[11px] font-bold">
-            <span>Total Waste (Rusak/Basi)</span>
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+          <div className="flex items-center justify-between text-indigo-600 text-[11px] font-bold">
+            <span>Total Terpakai</span>
+            <TrendingDown className="w-3.5 h-3.5 text-indigo-600" />
           </div>
-          <p className="text-xl font-black text-amber-600 mt-1">{totalWaste.toLocaleString()}</p>
+          <p className="text-xl font-black text-indigo-600 mt-1">{totalTerpakai.toLocaleString()}</p>
         </div>
       </div>
 
-      {/* Search Bar */}
+      {/* Pencarian Barang */}
       <div className="p-4 border-b border-slate-100">
         <div className="relative">
           <Search className="absolute left-4 top-3 w-4 h-4 text-slate-400" />
@@ -298,13 +339,13 @@ export default function BranchStockMonitor() {
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Cari nama barang di monitor stok..."
+            placeholder="Cari barang di tabel monitor..."
             className="w-full pl-11 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none"
           />
         </div>
       </div>
 
-      {/* Tabel Data Neraca Stok */}
+      {/* Tabel Pergerakan Stok */}
       <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead className="bg-slate-50/80 sticky top-0 border-b border-slate-100 z-10">
@@ -315,7 +356,7 @@ export default function BranchStockMonitor() {
               <th className="py-3 px-3 text-right text-indigo-600">- Terpakai</th>
               <th className="py-3 px-3 text-right text-amber-600">- Waste</th>
               <th className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/80">= Stok Akhir</th>
-              <th className="py-3 px-3">Petugas</th>
+              <th className="py-3 px-3 text-center">Status</th>
               {canEdit && <th className="py-3 px-4 text-center">Koreksi</th>}
             </tr>
           </thead>
@@ -323,22 +364,19 @@ export default function BranchStockMonitor() {
             {loading ? (
               <tr>
                 <td colSpan={8} className="py-12 text-center text-slate-400 font-bold">
-                  Memuat data stok pergerakan...
+                  Memuat data pergerakan stok...
                 </td>
               </tr>
             ) : filteredData.length === 0 ? (
               <tr>
                 <td colSpan={8} className="py-12 text-center text-slate-400 font-bold">
-                  Belum ada laporan tutup toko untuk tanggal {selectedDate} di cabang ini.
+                  Belum ada master bahan terdaftar di cabang ini.
                 </td>
               </tr>
             ) : (
               filteredData.map((row) => {
-                const isEditing = editingId === row.id;
+                const isEditing = editingKey === row.id;
                 const previewEnd = Math.max(0, (editInitial + editReceived) - editUsage - editWaste);
-                const formattedTime = row.created_at
-                  ? new Date(row.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
-                  : '-';
 
                 return (
                   <tr key={row.id} className="hover:bg-slate-50/60 transition-colors">
@@ -373,7 +411,7 @@ export default function BranchStockMonitor() {
                           className="w-16 px-1.5 py-1 border border-emerald-500 rounded-lg text-right text-xs font-bold bg-white text-emerald-600 focus:outline-none"
                         />
                       ) : (
-                        `+${row.stok_masuk}`
+                        row.stok_masuk > 0 ? `+${row.stok_masuk}` : '0'
                       )}
                     </td>
 
@@ -410,29 +448,25 @@ export default function BranchStockMonitor() {
                     {/* 5. = STOK AKHIR */}
                     <td className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/80">
                       <span className="text-sm font-black text-slate-900">
-                        {isEditing ? previewEnd : row.remaining_stock}{' '}
+                        {isEditing ? previewEnd : row.current_stock}{' '}
                         <span className="text-[10px] font-bold text-slate-500">{row.unit}</span>
                       </span>
                     </td>
 
-                    {/* 6. PETUGAS */}
-                    <td className="py-3 px-3">
-                      <div className="text-[11px] font-bold text-slate-800 flex items-center gap-1">
-                        <UserCheck className="w-3 h-3 text-emerald-600" />
-                        <span>{row.reported_by || '-'}</span>
-                      </div>
-                      {row.corrected_by && (
-                        <span className="text-[9px] text-amber-600 font-bold block">
-                          Koreksi: {row.corrected_by}
+                    {/* 6. STATUS */}
+                    <td className="py-3 px-3 text-center">
+                      {row.is_closed ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          Closed
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-600 border border-indigo-100">
+                          Live Open
                         </span>
                       )}
-                      <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                        <Clock className="w-2.5 h-2.5" />
-                        <span>{formattedTime} WITA</span>
-                      </div>
                     </td>
 
-                    {/* 7. TOMBOL KOREKSI LEADER */}
+                    {/* 7. KOREKSI LEADER */}
                     {canEdit && (
                       <td className="py-3 px-4 text-center">
                         {isEditing ? (
@@ -445,7 +479,7 @@ export default function BranchStockMonitor() {
                               <Check className="w-3.5 h-3.5" />
                             </button>
                             <button
-                              onClick={() => setEditingId(null)}
+                              onClick={() => setEditingKey(null)}
                               className="p-1.5 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-all"
                               title="Batal"
                             >
@@ -456,7 +490,7 @@ export default function BranchStockMonitor() {
                           <button
                             onClick={() => handleStartEdit(row)}
                             className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
-                            title="Koreksi Leader"
+                            title="Koreksi Data"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
