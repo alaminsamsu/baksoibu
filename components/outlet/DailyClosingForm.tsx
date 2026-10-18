@@ -56,12 +56,11 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
       yDate.setDate(yDate.getDate() - 1);
       const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(yDate);
 
-      const { data: masterItems } = await supabase.from('items').select('name, category');
-
-      const { data: stockMasters } = await supabase
-        .from('branch_stocks')
-        .select('item_name, unit, category')
-        .eq('location_id', effectiveLocationId);
+      // Ambil langsung dari master items agar selalu ada dan tidak pernah kosong
+      const { data: masterItems } = await supabase
+        .from('items')
+        .select('name, category, uom')
+        .order('name');
 
       const { data: yesterdayClosings } = await supabase
         .from('daily_closings')
@@ -91,11 +90,8 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
       const hasClosed = todayClosings && todayClosings.length > 0;
       setIsLocked(hasClosed);
 
-      const rows: ClosingItem[] = (stockMasters || []).map((m) => {
-        const clean = m.item_name.trim().toLowerCase();
-        const itemMeta = masterItems?.find((i) => i.name.trim().toLowerCase() === clean);
-        const category = m.category || itemMeta?.category || 'Lain-lain';
-
+      const rows: ClosingItem[] = (masterItems || []).map((m) => {
+        const clean = m.name.trim().toLowerCase();
         const prev = yesterdayClosings?.find((y) => y.item_name.trim().toLowerCase() === clean);
         const inc = todayMoves
           .filter((i) => i.item_name.trim().toLowerCase() === clean)
@@ -103,9 +99,9 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         const saved = todayClosings?.find((t) => t.item_name.trim().toLowerCase() === clean);
 
         return {
-          item_name: m.item_name,
-          category,
-          unit: m.unit || 'porsi',
+          item_name: m.name,
+          category: m.category || 'Lain-lain',
+          unit: m.uom || 'porsi',
           stok_awal: prev ? Number(prev.remaining_stock || 0) : 0,
           stok_masuk: inc,
           sisa_fisik: saved ? Number(saved.remaining_stock) : '0',
