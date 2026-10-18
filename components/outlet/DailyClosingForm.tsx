@@ -56,7 +56,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
       yDate.setDate(yDate.getDate() - 1);
       const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(yDate);
 
-      // Ambil langsung dari master items agar selalu ada dan tidak pernah kosong
       const { data: masterItems } = await supabase
         .from('items')
         .select('name, category, uom')
@@ -91,12 +90,12 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
       setIsLocked(hasClosed);
 
       const rows: ClosingItem[] = (masterItems || []).map((m) => {
-        const clean = m.name.trim().toLowerCase();
-        const prev = yesterdayClosings?.find((y) => y.item_name.trim().toLowerCase() === clean);
+        const clean = m.name.trim().toUpperCase();
+        const prev = yesterdayClosings?.find((y) => y.item_name.trim().toUpperCase() === clean);
         const inc = todayMoves
-          .filter((i) => i.item_name.trim().toLowerCase() === clean)
+          .filter((i) => i.item_name.trim().toUpperCase() === clean)
           .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0);
-        const saved = todayClosings?.find((t) => t.item_name.trim().toLowerCase() === clean);
+        const saved = todayClosings?.find((t) => t.item_name.trim().toUpperCase() === clean);
 
         return {
           item_name: m.name,
@@ -104,8 +103,8 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
           unit: m.uom || 'porsi',
           stok_awal: prev ? Number(prev.remaining_stock || 0) : 0,
           stok_masuk: inc,
-          sisa_fisik: saved ? Number(saved.remaining_stock) : '0',
-          waste: saved ? Number(saved.waste_qty) : '0',
+          sisa_fisik: saved !== undefined ? String(saved.remaining_stock) : '0',
+          waste: saved !== undefined ? String(saved.waste_qty) : '0',
         };
       });
 
@@ -122,8 +121,34 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
   }, [effectiveLocationId]);
 
   const handleInputChange = (itemName: string, field: 'sisa_fisik' | 'waste', val: string) => {
+    // Izinkan input kosong atau angka positif
+    if (val !== '' && Number(val) < 0) return;
     setItems((prev) =>
       prev.map((item) => (item.item_name === itemName ? { ...item, [field]: val } : item))
+    );
+  };
+
+  const handleFocus = (itemName: string, field: 'sisa_fisik' | 'waste') => {
+    // Jika masih '0', kosongkan otomatis saat input diklik agar kru tidak perlu hapus angka nol
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.item_name === itemName && item[field] === '0') {
+          return { ...item, [field]: '' };
+        }
+        return item;
+      })
+    );
+  };
+
+  const handleBlur = (itemName: string, field: 'sisa_fisik' | 'waste') => {
+    // Jika ditinggal kosong saat klik di luar, kembalikan ke '0'
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.item_name === itemName && item[field] === '') {
+          return { ...item, [field]: '0' };
+        }
+        return item;
+      })
     );
   };
 
@@ -131,8 +156,8 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
     setItems((prev) =>
       prev.map((item) => ({
         ...item,
-        sisa_fisik: item.sisa_fisik === '' ? '0' : item.sisa_fisik,
-        waste: item.waste === '' ? '0' : item.waste,
+        sisa_fisik: '0',
+        waste: '0',
       }))
     );
   };
@@ -198,6 +223,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         type: 'success',
       });
 
+      setIsLocked(true);
       setAllowCorrection(false);
       await loadData();
     } catch (err: any) {
@@ -293,7 +319,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
               className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
             >
               <CheckSquare className="w-3.5 h-3.5" />
-              <span>Set Kosong = 0</span>
+              <span>Set Semua = 0</span>
             </button>
           )}
 
@@ -373,7 +399,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
                   <React.Fragment key={category}>
                     <tr className="bg-slate-50/80 border-y border-slate-100">
                       <td colSpan={4} className="py-2 px-3 font-black text-slate-700 uppercase tracking-wider text-[11px]">
-                        • {category} <span className="text-slate-400 font-normal lowercase">({list.length} item)</span>
+                        {category} <span className="text-slate-400 font-normal lowercase">({list.length} item)</span>
                       </td>
                     </tr>
                     {list.map((row) => (
@@ -387,6 +413,8 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
                             min="0"
                             disabled={isFormDisabled}
                             value={row.sisa_fisik}
+                            onFocus={() => handleFocus(row.item_name, 'sisa_fisik')}
+                            onBlur={() => handleBlur(row.item_name, 'sisa_fisik')}
                             onChange={(e) => handleInputChange(row.item_name, 'sisa_fisik', e.target.value)}
                             className="w-24 px-2 py-1.5 text-center bg-white border border-indigo-200 rounded-xl text-slate-900 font-black focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60 disabled:bg-slate-100"
                           />
@@ -398,6 +426,8 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
                             min="0"
                             disabled={isFormDisabled}
                             value={row.waste}
+                            onFocus={() => handleFocus(row.item_name, 'waste')}
+                            onBlur={() => handleBlur(row.item_name, 'waste')}
                             onChange={(e) => handleInputChange(row.item_name, 'waste', e.target.value)}
                             className="w-24 px-2 py-1.5 text-center bg-white border border-amber-200 rounded-xl text-amber-800 font-black focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-60 disabled:bg-slate-100"
                           />
