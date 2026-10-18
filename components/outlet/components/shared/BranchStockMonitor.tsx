@@ -48,7 +48,7 @@ export default function BranchStockMonitor() {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
   });
 
-  // State Edit Kolom oleh Leader
+  // State Koreksi Kolom oleh Leader
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editInitial, setEditInitial] = useState<number>(0);
   const [editReceived, setEditReceived] = useState<number>(0);
@@ -62,7 +62,7 @@ export default function BranchStockMonitor() {
         const u = JSON.parse(saved);
         setCurrentUser(u);
         if (u.location_id && (u.role === 'LEADER' || u.role === 'CREW' || u.role === 'KASIR')) {
-          setSelectedLocation(u.location_id);
+          setSelectedLocation(String(u.location_id));
         }
       } catch (e) {
         console.error(e);
@@ -105,42 +105,43 @@ export default function BranchStockMonitor() {
         .select('item_name, remaining_stock, location_id')
         .eq('closing_date', yesterdayStr);
 
-      // 4. Ambil barang masuk hari ini dari stock_movements (Live Real-time)
+      // 4. Ambil barang masuk hari ini (Query aman tanpa error URL encode)
       const { data: moveData } = await supabase
         .from('stock_movements')
-        .select('item_name, quantity, location_id, created_at')
-        .or('movement_type.eq.MASUK,movement_type.eq.IN');
+        .select('item_name, quantity, location_id, created_at, movement_type');
 
       const todayMoves = (moveData || []).filter((m) => {
         if (!m.created_at) return false;
+        const isMasuk = m.movement_type === 'MASUK' || m.movement_type === 'IN';
+        if (!isMasuk) return false;
         const dStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date(m.created_at));
         return dStr === selectedDate;
       });
 
-      // 5. Ambil data closing hari ini (jika toko sudah ditutup)
+      // 5. Ambil data closing hari ini
       const { data: todayClosings } = await supabase
         .from('daily_closings')
         .select('*')
         .eq('closing_date', selectedDate);
 
-      // 6. Gabungkan secara langsung dan presisi
+      // 6. Gabungkan kalkulasi
       const rows: RowItem[] = (stocks || []).map((s: any) => {
         const cleanName = s.item_name.trim().toLowerCase();
 
         // Stok kemarin
         const yest = (yesterdayClosings || []).find(
-          (y) => y.location_id === s.location_id && y.item_name.trim().toLowerCase() === cleanName
+          (y) => String(y.location_id) === String(s.location_id) && y.item_name.trim().toLowerCase() === cleanName
         );
         const awal = yest ? Number(yest.remaining_stock || 0) : Number(s.initial_stock || 0);
 
         // Masuk hari ini
         const masuk = todayMoves
-          .filter((m) => m.location_id === s.location_id && m.item_name.trim().toLowerCase() === cleanName)
+          .filter((m) => String(m.location_id) === String(s.location_id) && m.item_name.trim().toLowerCase() === cleanName)
           .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0);
 
-        // Data closing hari ini (jika sudah closing)
+        // Data closing
         const closed = (todayClosings || []).find(
-          (c) => c.location_id === s.location_id && c.item_name.trim().toLowerCase() === cleanName
+          (c) => String(c.location_id) === String(s.location_id) && c.item_name.trim().toLowerCase() === cleanName
         );
 
         const isClosed = !!closed;
