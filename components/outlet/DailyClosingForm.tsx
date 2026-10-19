@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { Store, CheckCircle2, AlertCircle, Save, RefreshCw, ArrowLeft, CheckSquare, Lock, Unlock, Search } from 'lucide-react';
+import { Store, CheckCircle2, AlertCircle, Save, RefreshCw, ArrowLeft, CheckSquare, Search } from 'lucide-react';
 
 interface Props {
   user?: any;
@@ -33,16 +33,12 @@ const CATEGORY_ORDER = [
 export default function DailyClosingForm({ user, onBack, locationId: propLocId, staffName: propStaff }: Props) {
   const effectiveLocationId = propLocId || user?.location_id || user?.id || '';
   const effectiveStaffName = propStaff || user?.active_staff_name || user?.username || 'Kru Outlet';
-  const userRole = (user?.role || '').toUpperCase();
-  const isLeaderOrOwner = userRole === 'LEADER' || userRole === 'OWNER';
 
   const [items, setItems] = useState<ClosingItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [isLocked, setIsLocked] = useState(false);
-  const [allowCorrection, setAllowCorrection] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const loadData = async () => {
@@ -56,17 +52,20 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
       yDate.setDate(yDate.getDate() - 1);
       const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(yDate);
 
+      // 1. Ambil 71 master items resmi
       const { data: masterItems } = await supabase
         .from('items')
         .select('name, category, uom')
         .order('name');
 
+      // 2. Ambil stok closing kemarin sebagai modal awal
       const { data: yesterdayClosings } = await supabase
         .from('daily_closings')
         .select('item_name, remaining_stock')
         .eq('location_id', effectiveLocationId)
         .eq('closing_date', yesterdayStr);
 
+      // 3. Ambil data penerimaan/stok masuk hari ini
       const { data: moveData } = await supabase
         .from('stock_movements')
         .select('item_name, quantity, created_at, movement_type')
@@ -80,14 +79,12 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         return dStr === todayStr;
       });
 
+      // 4. Ambil data closing hari ini yang sudah tersimpan
       const { data: todayClosings } = await supabase
         .from('daily_closings')
         .select('*')
         .eq('location_id', effectiveLocationId)
         .eq('closing_date', todayStr);
-
-      const hasClosed = todayClosings && todayClosings.length > 0;
-      setIsLocked(hasClosed);
 
       const rows: ClosingItem[] = (masterItems || []).map((m) => {
         const clean = m.name.trim().toUpperCase();
@@ -121,7 +118,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
   }, [effectiveLocationId]);
 
   const handleInputChange = (itemName: string, field: 'sisa_fisik' | 'waste', val: string) => {
-    // Izinkan input kosong atau angka positif
     if (val !== '' && Number(val) < 0) return;
     setItems((prev) =>
       prev.map((item) => (item.item_name === itemName ? { ...item, [field]: val } : item))
@@ -129,7 +125,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
   };
 
   const handleFocus = (itemName: string, field: 'sisa_fisik' | 'waste') => {
-    // Jika masih '0', kosongkan otomatis saat input diklik agar kru tidak perlu hapus angka nol
     setItems((prev) =>
       prev.map((item) => {
         if (item.item_name === itemName && item[field] === '0') {
@@ -141,7 +136,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
   };
 
   const handleBlur = (itemName: string, field: 'sisa_fisik' | 'waste') => {
-    // Jika ditinggal kosong saat klik di luar, kembalikan ke '0'
     setItems((prev) =>
       prev.map((item) => {
         if (item.item_name === itemName && item[field] === '') {
@@ -152,13 +146,15 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
     );
   };
 
-  const handleSetAllZero = () => {
+  const handleSetCurrentTabZero = () => {
+    const targetNames = new Set(filteredItems.map((i) => i.item_name));
     setItems((prev) =>
-      prev.map((item) => ({
-        ...item,
-        sisa_fisik: '0',
-        waste: '0',
-      }))
+      prev.map((item) => {
+        if (targetNames.has(item.item_name)) {
+          return { ...item, sisa_fisik: '0', waste: '0' };
+        }
+        return item;
+      })
     );
   };
 
@@ -169,10 +165,13 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
     try {
       const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
 
-      const payloads = items.map((row) => {
+      // HANYA simpan barang yang sedang aktif di tab/filter saat ini agar tidak menimpa bagian kru lain
+      const targetItemsToSave = selectedCategory === 'Semua' ? items : filteredItems;
+
+      const payloads = targetItemsToSave.map((row) => {
         const fisik = row.sisa_fisik === '' ? 0 : Number(row.sisa_fisik);
         const waste = row.waste === '' ? 0 : Number(row.waste);
-        const totalModal = row.stok_awal + row.stok_masuk;
+        const totalModal = Number(row.stok_awal || 0) + Number(row.stok_masuk || 0);
         const terpakai = Math.max(0, totalModal - fisik - waste);
 
         return {
@@ -180,53 +179,50 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
           closing_date: todayStr,
           item_name: row.item_name,
           category: row.category,
-          stok_awal: row.stok_awal,
-          stok_masuk: row.stok_masuk,
+          stok_awal: Number(row.stok_awal || 0),
+          stok_masuk: Number(row.stok_masuk || 0),
           terpakai: terpakai,
           waste_qty: waste,
           remaining_stock: fisik,
           unit: row.unit,
           reported_by: effectiveStaffName,
-          is_locked: true,
-          corrected_by: allowCorrection ? effectiveStaffName : null,
-          corrected_at: allowCorrection ? new Date().toISOString() : null,
+          is_locked: false,
           created_at: new Date().toISOString(),
         };
       });
 
-      const { error } = await supabase
+      // 1. Simpan ke daily_closings
+      const { error: closingError } = await supabase
         .from('daily_closings')
         .upsert(payloads, { onConflict: 'location_id,closing_date,item_name' });
 
-      if (error) throw error;
+      if (closingError) throw closingError;
 
-      for (const p of payloads) {
-        await supabase
-          .from('branch_stocks')
-          .upsert({
-            location_id: p.location_id,
-            item_name: p.item_name,
-            remaining_stock: p.remaining_stock,
-            unit: p.unit,
-            category: p.category,
-            updated_at: new Date().toISOString(),
-            last_updated: new Date().toISOString(),
-            updated_by: effectiveStaffName,
-            last_updated_by: effectiveStaffName,
-          }, { onConflict: 'location_id,item_name' });
+      // 2. Simpan ke branch_stocks
+      const branchPayloads = payloads.map((p) => ({
+        location_id: p.location_id,
+        item_name: p.item_name,
+        remaining_stock: p.remaining_stock,
+        unit: p.unit,
+        category: p.category,
+      }));
+
+      const { error: stockError } = await supabase
+        .from('branch_stocks')
+        .upsert(branchPayloads, { onConflict: 'location_id,item_name' });
+
+      if (stockError) {
+        console.warn('Peringatan update branch_stocks:', stockError.message);
       }
 
       setMsg({
-        text: allowCorrection
-          ? 'Koreksi closing berhasil diperbarui di Monitor Stok Cabang.'
-          : 'Tutup toko berhasil disimpan! Neraca pergerakan stok telah dikunci.',
+        text: `Berhasil disimpan oleh ${effectiveStaffName}! (${payloads.length} item kategori ${selectedCategory} terupdate)`,
         type: 'success',
       });
 
-      setIsLocked(true);
-      setAllowCorrection(false);
       await loadData();
     } catch (err: any) {
+      console.error('Gagal simpan closing:', err);
       setMsg({ text: `Gagal simpan: ${err.message}`, type: 'error' });
     } finally {
       setSaving(false);
@@ -266,10 +262,9 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
     return ordered;
   }, [filteredItems]);
 
-  const isFormDisabled = isLocked && !allowCorrection;
-
   return (
     <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4 max-w-4xl mx-auto">
+      {/* Header Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
         <div className="flex items-center gap-2">
           {onBack && (
@@ -284,56 +279,38 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
           )}
           <Store className="w-5 h-5 text-indigo-600" />
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-xs font-black uppercase text-slate-800 tracking-wider">
-                Form Tutup Toko (Sisa Fisik & Waste)
-              </h3>
-              {isLocked && !allowCorrection && (
-                <span className="flex items-center gap-1 text-[10px] font-black bg-amber-50 text-amber-700 px-2 py-0.5 rounded-md border border-amber-200">
-                  <Lock className="w-3 h-3" /> Terkunci
-                </span>
-              )}
-            </div>
+            <h3 className="text-xs font-black uppercase text-slate-800 tracking-wider">
+              Form Tutup Toko (Sisa Fisik & Waste)
+            </h3>
             <p className="text-[10px] text-slate-400">
-              Input sisa fisik dan waste. Terpakai dan stok akhir dikalkulasi otomatis ke dashboard monitor.
+              Input sisa fisik dan waste. Data dapat disimpan berkali-kali oleh tiap crew tanpa terkunci.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-          {isLocked && !allowCorrection && isLeaderOrOwner && (
-            <button
-              type="button"
-              onClick={() => setAllowCorrection(true)}
-              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs"
-            >
-              <Unlock className="w-3.5 h-3.5" />
-              <span>Buka Kunci Koreksi (Leader)</span>
-            </button>
-          )}
-
-          {!isFormDisabled && (
-            <button
-              type="button"
-              onClick={handleSetAllZero}
-              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
-            >
-              <CheckSquare className="w-3.5 h-3.5" />
-              <span>Set Semua = 0</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleSetCurrentTabZero}
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
+            title="Set item pada tab aktif menjadi 0"
+          >
+            <CheckSquare className="w-3.5 h-3.5" />
+            <span>Set Kategori Ini = 0</span>
+          </button>
 
           <button
             type="button"
             onClick={loadData}
             className="p-2 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-500"
-            title="Segarkan Data"
+            title="Segarkan Data Terbaru"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
+      {/* Filter Kategori & Pencarian Cepat */}
       <div className="space-y-3">
         <div className="relative">
           <Search className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400" />
@@ -341,7 +318,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Cari bahan di form tutup toko..."
+            placeholder="Cari bahan cepat..."
             className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none"
           />
         </div>
@@ -352,7 +329,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
               key={cat}
               type="button"
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
                 selectedCategory === cat
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -363,13 +340,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
           ))}
         </div>
       </div>
-
-      {isLocked && !allowCorrection && !isLeaderOrOwner && (
-        <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center gap-2 text-xs font-bold text-slate-600">
-          <Lock className="w-4 h-4 text-slate-400 shrink-0" />
-          <span>Tutup toko hari ini telah disimpan. Hanya Leader atau Owner yang berhak mengoreksi data.</span>
-        </div>
-      )}
 
       {msg && (
         <div className={`p-3 rounded-2xl text-xs font-bold flex items-center gap-2 ${
@@ -411,12 +381,11 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
                             type="number"
                             step="any"
                             min="0"
-                            disabled={isFormDisabled}
                             value={row.sisa_fisik}
                             onFocus={() => handleFocus(row.item_name, 'sisa_fisik')}
                             onBlur={() => handleBlur(row.item_name, 'sisa_fisik')}
                             onChange={(e) => handleInputChange(row.item_name, 'sisa_fisik', e.target.value)}
-                            className="w-24 px-2 py-1.5 text-center bg-white border border-indigo-200 rounded-xl text-slate-900 font-black focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-60 disabled:bg-slate-100"
+                            className="w-24 px-2 py-1.5 text-center bg-white border border-indigo-200 rounded-xl text-slate-900 font-black focus:outline-none focus:ring-2 focus:ring-indigo-500"
                           />
                         </td>
                         <td className="py-2.5 px-3 text-center bg-amber-50/20">
@@ -424,12 +393,11 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
                             type="number"
                             step="any"
                             min="0"
-                            disabled={isFormDisabled}
                             value={row.waste}
                             onFocus={() => handleFocus(row.item_name, 'waste')}
                             onBlur={() => handleBlur(row.item_name, 'waste')}
                             onChange={(e) => handleInputChange(row.item_name, 'waste', e.target.value)}
-                            className="w-24 px-2 py-1.5 text-center bg-white border border-amber-200 rounded-xl text-amber-800 font-black focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-60 disabled:bg-slate-100"
+                            className="w-24 px-2 py-1.5 text-center bg-white border border-amber-200 rounded-xl text-amber-800 font-black focus:outline-none focus:ring-2 focus:ring-amber-500"
                           />
                         </td>
                       </tr>
@@ -440,26 +408,20 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
             </table>
           </div>
 
-          {!isFormDisabled && (
-            <button
-              type="submit"
-              disabled={saving || items.length === 0}
-              className={`w-full py-3 text-white font-black text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 ${
-                allowCorrection
-                  ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-500/20'
-                  : 'bg-[#5252ea] hover:bg-[#4343d6] shadow-indigo-500/20'
-              } disabled:opacity-50`}
-            >
-              <Save className="w-4 h-4" />
-              <span>
-                {saving
-                  ? 'Menyimpan & Mengunci Data...'
-                  : allowCorrection
-                  ? 'Simpan Perubahan Koreksi (Leader)'
-                  : 'Kunci & Simpan Tutup Toko'}
-              </span>
-            </button>
-          )}
+          <button
+            type="submit"
+            disabled={saving || items.length === 0}
+            className="w-full py-3.5 bg-[#5252ea] hover:bg-[#4343d6] text-white font-black text-xs rounded-xl shadow-md shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            <Save className="w-4 h-4" />
+            <span>
+              {saving
+                ? 'Menyimpan Data...'
+                : selectedCategory === 'Semua'
+                ? 'Simpan Semua Data Tutup Toko'
+                : `Simpan Data Kategori "${selectedCategory}"`}
+            </span>
+          </button>
         </form>
       )}
     </div>
