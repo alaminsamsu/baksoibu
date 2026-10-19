@@ -10,7 +10,8 @@ import {
   Banknote, 
   LogOut, 
   User, 
-  MapPin 
+  MapPin,
+  TrendingUp
 } from 'lucide-react';
 
 import ReceptionForm from '@/components/outlet/ReceptionForm';
@@ -18,6 +19,7 @@ import ExpenseForm from '@/components/outlet/ExpenseForm';
 import OrderRequestForm from '@/components/outlet/OrderRequestForm';
 import DailyClosingForm from '@/components/outlet/DailyClosingForm';
 import CashSettlementForm from '@/components/outlet/CashSettlementForm';
+import LeaderSettlementMonitor from '@/components/outlet/LeaderSettlementMonitor';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 import StaffAttendanceWidget from '@/components/hr/StaffAttendanceWidget';
 
@@ -45,7 +47,9 @@ export default function OutletDashboard() {
     router.push('/login');
   };
 
-  const isLeaderOrCashier = currentUser?.role === 'KASIR' || currentUser?.role === 'LEADER';
+  const userRole = (currentUser?.role || '').toUpperCase();
+  const isLeaderOrCashier = userRole === 'KASIR' || userRole === 'LEADER' || userRole === 'OWNER';
+  const isLeaderOrOwner = userRole === 'LEADER' || userRole === 'OWNER';
 
   return (
     <div className="min-h-screen bg-[#f8f9fd] text-slate-800 font-sans flex flex-col">
@@ -123,6 +127,23 @@ export default function OutletDashboard() {
           />
         )}
 
+        {/* Dashboard Omset per Shift khusus Leader / Owner */}
+        {activeForm === 'shift_monitor' && isLeaderOrOwner && (
+          <div className="space-y-4">
+            <button
+              type="button"
+              onClick={() => setActiveForm(null)}
+              className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all flex items-center gap-1.5"
+            >
+              ← Kembali ke Menu Outlet
+            </button>
+            <LeaderSettlementMonitor 
+              user={currentUser} 
+              locationId={currentUser?.location_id} 
+            />
+          </div>
+        )}
+
         {/* Tampilan Utama Dashboard Outlet */}
         {!activeForm && (
           <div className="space-y-6">
@@ -132,7 +153,7 @@ export default function OutletDashboard() {
               locationId={currentUser?.location_id} 
             />
 
-            {/* 5 Menu Kartu Operasional */}
+            {/* Menu Kartu Operasional */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {/* Menu 1: Terima Barang */}
               <button
@@ -210,7 +231,7 @@ export default function OutletDashboard() {
                 </div>
               </button>
 
-              {/* Menu 5: Rekap Omset (Hanya Kasir & Leader) */}
+              {/* Menu 5: Input Kasir & Setoran */}
               {isLeaderOrCashier && (
                 <button
                   type="button"
@@ -222,10 +243,32 @@ export default function OutletDashboard() {
                   </div>
                   <div>
                     <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-emerald-700 transition-colors">
-                      5. Rekap Omset & Kas Kasir
+                      5. Input Kasir & Setoran Omset
                     </h3>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      Modal laci, total bill, omset tunai, Grab, Gojek & Shopee
+                      Input modal, total omset tunai, QRIS & uang laci
+                    </p>
+                  </div>
+                </button>
+              )}
+
+              {/* Menu 6: Monitor Omset Shift (Khusus Leader / Owner) */}
+              {isLeaderOrOwner && (
+                <button
+                  type="button"
+                  onClick={() => setActiveForm('shift_monitor')}
+                  className="p-5 rounded-3xl bg-gradient-to-br from-indigo-50/50 to-white border border-indigo-100 shadow-sm shadow-indigo-100/40 hover:border-indigo-300 hover:shadow-md transition-all text-left flex flex-col justify-between group"
+                >
+                  <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm mb-3">
+                    <TrendingUp className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-indigo-950 text-sm group-hover:text-indigo-600 transition-colors flex items-center gap-1.5">
+                      6. Pantau Omset per Shift
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 font-black">LEADER</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Lihat rincian Shift 1 & 2, pilih tanggal, dan cek selisih laci
                     </p>
                   </div>
                 </button>
