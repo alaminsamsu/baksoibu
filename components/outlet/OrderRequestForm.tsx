@@ -160,7 +160,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             <ShoppingBag className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-lg font-black text-slate-900 tracking-tight">Lembar Request Order Malam</h2>
+            <h2 className="text-lg font-black text-slate-900 tracking-tight">Lembar Permintaan Belanja</h2>
             <p className="text-xs font-medium text-slate-400">Pilih kebutuhan pengadaan berdasarkan 12 Vendor & Rumah Produksi.</p>
           </div>
         </div>
@@ -327,7 +327,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           className="w-full py-3.5 bg-gradient-to-r from-[#ff6f3c] to-orange-500 hover:from-orange-600 hover:to-orange-500 text-white text-xs font-black rounded-2xl shadow-lg shadow-orange-500/25 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
         >
           <Send className="w-4 h-4" />
-          {loading ? 'Mengirim Permintaan...' : `Kirim Request Order (${totalFilled} Item Terpilih)`}
+          {loading ? 'Mengirim Permintaan...' : `Kirim Permintaan Belanja (${totalFilled} Item Terpilih)`}
         </button>
       </form>
     </div>
