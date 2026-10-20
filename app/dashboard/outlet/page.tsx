@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 
 import ReceptionForm from '@/components/outlet/ReceptionForm';
-import OrderRequestForm from '@/components/outlet/OrderRequestForm';
+import OrderSummaryView from '@/components/outlet/OrderSummaryView';
 import DailyClosingForm from '@/components/outlet/DailyClosingForm';
 import CashSettlementForm from '@/components/outlet/CashSettlementForm';
 import LeaderSettlementMonitor from '@/components/outlet/LeaderSettlementMonitor';
@@ -44,9 +44,9 @@ export default function OutletDashboard() {
     router.push('/login');
   };
 
-  const userRole = (currentUser?.role || '').toUpperCase();
-  const isLeaderOrCashier = userRole === 'KASIR' || userRole === 'LEADER' || userRole === 'OWNER';
-  const isLeaderOrOwner = userRole === 'LEADER' || userRole === 'OWNER';
+  const rawRole = (currentUser?.role || currentUser?.role_name || '').toUpperCase();
+  const isLeaderOrCashier = rawRole.includes('KASIR') || rawRole.includes('LEADER') || rawRole.includes('ADMIN') || rawRole.includes('OWNER');
+  const isLeaderOrOwner = rawRole.includes('LEADER') || rawRole.includes('ADMIN') || rawRole.includes('OWNER');
 
   return (
     <div className="min-h-screen bg-[#f8f9fd] text-slate-800 font-sans flex flex-col">
@@ -88,7 +88,7 @@ export default function OutletDashboard() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
-        {/* Render Form Aktif jika ada kartu menu diklik */}
+        {/* Menu 1: Terima Barang */}
         {activeForm === 'reception' && (
           <ReceptionForm 
             user={currentUser} 
@@ -96,13 +96,15 @@ export default function OutletDashboard() {
           />
         )}
 
+        {/* Menu 2: Permintaan Belanja (Langsung Output Rekap & Unduh) */}
         {activeForm === 'order' && (
-          <OrderRequestForm 
+          <OrderSummaryView 
             user={currentUser} 
             onBack={() => setActiveForm(null)} 
           />
         )}
 
+        {/* Menu 3: Tutup Toko (Closing) */}
         {activeForm === 'closing' && (
           <DailyClosingForm 
             user={currentUser} 
@@ -110,6 +112,7 @@ export default function OutletDashboard() {
           />
         )}
 
+        {/* Menu 4: Rekap Omset & Kas Kasir */}
         {activeForm === 'settlement' && isLeaderOrCashier && (
           <CashSettlementForm 
             user={currentUser} 
@@ -120,7 +123,7 @@ export default function OutletDashboard() {
         {/* Tampilan Utama Dashboard Outlet */}
         {!activeForm && (
           <div className="space-y-6">
-            {/* WIDGET PRESENSI */}
+            {/* Widget Presensi */}
             <StaffAttendanceWidget 
               currentUser={currentUser} 
               locationId={currentUser?.location_id} 
@@ -128,7 +131,7 @@ export default function OutletDashboard() {
 
             {/* 4 Menu Kartu Operasional Utama */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-              {/* Menu 1: Terima Barang */}
+              {/* Menu 1 */}
               <button
                 type="button"
                 onClick={() => setActiveForm('reception')}
@@ -161,12 +164,12 @@ export default function OutletDashboard() {
                     2. Permintaan Belanja
                   </h3>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Pengadaan besok: Rumah Produksi, Pasar & Vendor
+                    Rekap belanjaan, cetak PDF checklist & export Excel
                   </p>
                 </div>
               </button>
 
-              {/* Menu 3: Form Tutup Toko */}
+              {/* Menu 3 */}
               <button
                 type="button"
                 onClick={() => setActiveForm('closing')}
@@ -185,7 +188,7 @@ export default function OutletDashboard() {
                 </div>
               </button>
 
-              {/* Menu 4: Input Kasir & Setoran */}
+              {/* Menu 4 */}
               {isLeaderOrCashier && (
                 <button
                   type="button"
@@ -197,7 +200,7 @@ export default function OutletDashboard() {
                   </div>
                   <div>
                     <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-emerald-700 transition-colors">
-                      4. Input Kasir & Setoran Omset
+                      4. Rekap Omset & Kas Kasir
                     </h3>
                     <p className="text-[11px] text-slate-400 mt-0.5">
                       Input modal, total omset tunai, QRIS & uang laci
@@ -207,7 +210,7 @@ export default function OutletDashboard() {
               )}
             </div>
 
-            {/* DASHBOARD REKAP OMSET PER SHIFT (KHUSUS LEADER / OWNER) */}
+            {/* DASHBOARD OMSET (LEADER / ADMIN) */}
             {isLeaderOrOwner && (
               <div className="pt-1">
                 <LeaderSettlementMonitor 
@@ -217,7 +220,7 @@ export default function OutletDashboard() {
               </div>
             )}
 
-            {/* MONITOR PERGERAKAN STOK CABANG */}
+            {/* MONITOR PERGERAKAN STOK */}
             <div className="pt-1">
               <BranchStockMonitor />
             </div>
