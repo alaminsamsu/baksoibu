@@ -6,7 +6,7 @@ import {
   Activity, 
   RefreshCw, 
   MapPin, 
-  AlertTriangle, 
+  TrendingDown, 
   Edit3, 
   Check, 
   X, 
@@ -15,9 +15,7 @@ import {
   Clock, 
   UserCheck, 
   Lock,
-  Calendar,
-  Percent,
-  TrendingDown
+  Calendar
 } from 'lucide-react';
 
 interface RowItem {
@@ -53,13 +51,6 @@ export default function BranchStockMonitor() {
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
-
-  // Akumulasi data waste dan konsumsi bulanan
-  const [monthlyWasteStats, setMonthlyWasteStats] = useState({
-    totalWaste: 0,
-    totalUsed: 0,
-    percentage: 0
-  });
 
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
@@ -115,10 +106,6 @@ export default function BranchStockMonitor() {
       prevDateObj.setDate(prevDateObj.getDate() - 1);
       const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(prevDateObj);
 
-      // Rentang awal bulan untuk kalkulasi Waste Bulanan
-      const yearMonth = selectedDate.substring(0, 7); // e.g. "2026-10"
-      const startOfMonthStr = `${yearMonth}-01`;
-
       const { data: yesterdayClosings } = await supabase
         .from('daily_closings')
         .select('item_name, remaining_stock, location_id')
@@ -136,38 +123,10 @@ export default function BranchStockMonitor() {
         return dStr === selectedDate;
       });
 
-      // Ambil closing hari ini
       const { data: todayClosings } = await supabase
         .from('daily_closings')
         .select('*')
         .eq('closing_date', selectedDate);
-
-      // Query data bulanan untuk kalkulasi persentase waste bulanan
-      let monthQuery = supabase
-        .from('daily_closings')
-        .select('terpakai, waste_qty, location_id')
-        .gte('closing_date', startOfMonthStr)
-        .lte('closing_date', selectedDate);
-
-      if ((isLeader || isCrew) && currentUser?.location_id) {
-        monthQuery = monthQuery.eq('location_id', currentUser.location_id);
-      } else if (selectedLocation !== 'all') {
-        monthQuery = monthQuery.eq('location_id', selectedLocation);
-      }
-
-      const { data: monthlyData } = await monthQuery;
-
-      if (monthlyData) {
-        const mWaste = monthlyData.reduce((acc, curr) => acc + Number(curr.waste_qty || 0), 0);
-        const mUsed = monthlyData.reduce((acc, curr) => acc + Number(curr.terpakai || 0), 0);
-        const totalBase = mUsed + mWaste;
-        const pct = totalBase > 0 ? (mWaste / totalBase) * 100 : 0;
-        setMonthlyWasteStats({
-          totalWaste: mWaste,
-          totalUsed: mUsed,
-          percentage: Number(pct.toFixed(2))
-        });
-      }
 
       const rows: RowItem[] = (stocks || []).map((s: any) => {
         const cleanName = s.item_name.trim().toLowerCase();
@@ -311,6 +270,10 @@ export default function BranchStockMonitor() {
     return ordered;
   }, [filteredData]);
 
+  const totalMasuk = useMemo(() => filteredData.reduce((acc, curr) => acc + curr.stok_masuk, 0), [filteredData]);
+  const totalTerpakai = useMemo(() => filteredData.reduce((acc, curr) => acc + curr.terpakai, 0), [filteredData]);
+
+  // Fungsi helper untuk memformat Tanggal dan Jam WITA (Makassar)
   const formatDateTimeWita = (isoString?: string) => {
     if (!isoString) return { dateStr: '-', timeStr: '' };
     const date = new Date(isoString);
@@ -331,14 +294,8 @@ export default function BranchStockMonitor() {
     return { dateStr, timeStr };
   };
 
-  // Label nama bulan saat ini
-  const monthName = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(
-    new Date(selectedDate + 'T00:00:00')
-  );
-
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-xs font-sans">
-      {/* Header Bar */}
+    <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-xs">
       <div className="p-6 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-200">
@@ -349,7 +306,7 @@ export default function BranchStockMonitor() {
               Monitor Pergerakan Stok Cabang
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Pantau sisa fisik opname, efisiensi bahan, dan waste outlet.
+              (Stok Awal + Masuk) - Terpakai - Waste = <b>Stok Akhir</b>
             </p>
           </div>
         </div>
@@ -398,52 +355,32 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* 2 KARTU METRIK: ITEM DIPANTAU & PERSENTASE WASTE BULANAN */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-5 bg-[#fafbfe] border-b border-slate-100">
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
-          <div>
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Item Dipantau</span>
-            <p className="text-2xl font-black text-slate-900 mt-1">{filteredData.length} <span className="text-xs text-slate-400 font-semibold">Bahan</span></p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-5 bg-[#fafbfe] border-b border-slate-100">
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
+            <span>Item Dipantau</span>
+            <Layers className="w-3.5 h-3.5 text-indigo-500" />
           </div>
-          <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-            <Layers className="w-5 h-5" />
-          </div>
+          <p className="text-xl font-black text-slate-900 mt-1">{filteredData.length}</p>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                Persentase Waste Bulanan ({monthName})
-              </span>
-              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                monthlyWasteStats.percentage <= 2 
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
-                  : monthlyWasteStats.percentage <= 5 
-                  ? 'bg-amber-50 text-amber-700 border border-amber-200' 
-                  : 'bg-rose-50 text-rose-700 border border-rose-200'
-              }`}>
-                {monthlyWasteStats.percentage <= 2 ? 'Sangat Aman (<2%)' : monthlyWasteStats.percentage <= 5 ? 'Perhatian (2-5%)' : 'Tinggi (>5%)'}
-              </span>
-            </div>
-            <p className={`text-2xl font-black mt-1 ${
-              monthlyWasteStats.percentage <= 2 ? 'text-emerald-600' : monthlyWasteStats.percentage <= 5 ? 'text-amber-600' : 'text-rose-600'
-            }`}>
-              {monthlyWasteStats.percentage}%
-              <span className="text-xs font-semibold text-slate-400 ml-2">
-                (Total: {monthlyWasteStats.totalWaste.toLocaleString('id-ID')} unit waste)
-              </span>
-            </p>
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between text-emerald-600 text-[11px] font-bold">
+            <span>Total Masuk Hari Ini</span>
+            <span className="text-xs font-black text-emerald-600">+ Realtime</span>
           </div>
-          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
-            monthlyWasteStats.percentage <= 2 ? 'bg-emerald-50 text-emerald-600' : monthlyWasteStats.percentage <= 5 ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'
-          }`}>
-            <Percent className="w-5 h-5" />
+          <p className="text-xl font-black text-emerald-600 mt-1">+{totalMasuk.toLocaleString()}</p>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
+          <div className="flex items-center justify-between text-indigo-600 text-[11px] font-bold">
+            <span>Total Terpakai</span>
+            <TrendingDown className="w-3.5 h-3.5 text-indigo-600" />
           </div>
+          <p className="text-xl font-black text-indigo-600 mt-1">{totalTerpakai.toLocaleString()}</p>
         </div>
       </div>
 
-      {/* Filter Kategori & Cari */}
       <div className="p-4 border-b border-slate-100 space-y-3">
         <div className="relative">
           <Search className="absolute left-4 top-3 w-4 h-4 text-slate-400" />
@@ -474,13 +411,14 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* TABEL STOK (TANPA TOTAL MASUK & TANPA TERPAKAI) */}
       <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead className="bg-slate-50/80 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-xs">
             <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
               <th className="py-3 px-4">Nama Barang & Cabang</th>
               <th className="py-3 px-3 text-right">Stok Awal</th>
+              <th className="py-3 px-3 text-right text-emerald-600">+ Masuk</th>
+              <th className="py-3 px-3 text-right text-indigo-600">- Terpakai</th>
               <th className="py-3 px-3 text-right text-amber-600">- Waste</th>
               <th className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/80">= Stok Akhir</th>
               <th className="py-3 px-4 text-right">Terakhir Update</th>
@@ -490,13 +428,13 @@ export default function BranchStockMonitor() {
           <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
             {loading ? (
               <tr>
-                <td colSpan={canEdit ? 6 : 5} className="py-12 text-center text-slate-400 font-bold">
+                <td colSpan={canEdit ? 8 : 7} className="py-12 text-center text-slate-400 font-bold">
                   Memuat data pergerakan stok...
                 </td>
               </tr>
             ) : groupedData.length === 0 ? (
               <tr>
-                <td colSpan={canEdit ? 6 : 5} className="py-12 text-center text-slate-400 font-bold">
+                <td colSpan={canEdit ? 8 : 7} className="py-12 text-center text-slate-400 font-bold">
                   Tidak ada barang yang cocok.
                 </td>
               </tr>
@@ -504,7 +442,7 @@ export default function BranchStockMonitor() {
               groupedData.map(({ category, items }) => (
                 <React.Fragment key={category}>
                   <tr className="bg-slate-50/80 border-y border-slate-100">
-                    <td colSpan={canEdit ? 6 : 5} className="py-2 px-4 font-black text-slate-700 uppercase tracking-wider text-[11px]">
+                    <td colSpan={canEdit ? 8 : 7} className="py-2 px-4 font-black text-slate-700 uppercase tracking-wider text-[11px]">
                       • {category} <span className="text-slate-400 font-normal lowercase">({items.length} item)</span>
                     </td>
                   </tr>
@@ -532,6 +470,34 @@ export default function BranchStockMonitor() {
                             />
                           ) : (
                             `${row.stok_awal} ${row.unit}`
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3 text-right font-black text-emerald-600">
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              step="any"
+                              value={editReceived}
+                              onChange={(e) => setEditReceived(parseFloat(e.target.value) || 0)}
+                              className="w-16 px-1.5 py-1 border border-emerald-500 rounded-lg text-right text-xs font-bold bg-white text-emerald-600 focus:outline-none"
+                            />
+                          ) : (
+                            row.stok_masuk > 0 ? `+${row.stok_masuk}` : '0'
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3 text-right font-black text-indigo-600">
+                          {isEditing ? (
+                            <input
+                              type="number"
+                              step="any"
+                              value={editUsage}
+                              onChange={(e) => setEditUsage(parseFloat(e.target.value) || 0)}
+                              className="w-16 px-1.5 py-1 border border-indigo-500 rounded-lg text-right text-xs font-bold bg-white text-indigo-600 focus:outline-none"
+                            />
+                          ) : (
+                            row.terpakai > 0 ? `-${row.terpakai}` : '0'
                           )}
                         </td>
 
