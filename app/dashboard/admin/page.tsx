@@ -17,8 +17,7 @@ import {
   Store,
   Printer,
   CheckCircle2,
-  Clock,
-  Layers
+  Clock
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
@@ -26,7 +25,7 @@ import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'monitor' | 'rekap' | 'orders' | 'live_hr'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'monitor' | 'rekap' | 'live_hr'>('orders');
   const [orderRequests, setOrderRequests] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [selectedLoc, setSelectedLoc] = useState('all');
@@ -36,7 +35,7 @@ export default function AdminDashboardPage() {
   const todayWita = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
   const [orderFilterDate, setOrderFilterDate] = useState<string>(todayWita);
 
-  // State untuk Fitur Download Rekap Pemakaian Bahan Baku
+  // State untuk Fitur Download Rekap
   const [periodType, setPeriodType] = useState<'weekly' | 'monthly'>('weekly');
   const [downloadingUsage, setDownloadingUsage] = useState(false);
   const [downloadingOrders, setDownloadingOrders] = useState(false);
@@ -59,7 +58,6 @@ export default function AdminDashboardPage() {
       const { data: locs } = await supabase.from('locations').select('*');
       if (locs) setLocations(locs);
 
-      // Ambil order_requests dengan filter tanggal & lokasi
       let query = supabase
         .from('order_requests')
         .select('*, locations(name)')
@@ -334,7 +332,7 @@ export default function AdminDashboardPage() {
           </button>
         </div>
 
-        {/* User Info & Out */}
+        {/* User Info & Logout */}
         <div className="flex items-center gap-3">
           <div className="text-right hidden sm:block">
             <div className="text-xs font-extrabold text-slate-900 leading-tight">
