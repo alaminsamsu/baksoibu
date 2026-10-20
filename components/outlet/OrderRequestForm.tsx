@@ -2,7 +2,17 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { ShoppingBag, ArrowLeft, CheckCircle2, AlertCircle, Search, Send, Store, Layers } from 'lucide-react';
+import { 
+  ShoppingBag, 
+  ArrowLeft, 
+  CheckCircle2, 
+  AlertCircle, 
+  Search, 
+  Send, 
+  Store, 
+  CheckSquare, 
+  Square 
+} from 'lucide-react';
 
 interface Props {
   user?: any;
@@ -41,6 +51,9 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
 
   const [items, setItems] = useState<MasterItem[]>([]);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
+  // State untuk checklist apakah barang sudah dipesan langsung oleh Leader ke vendor
+  const [orderedByLeader, setOrderedByLeader] = useState<Record<string, boolean>>({});
+  
   const [activeSupplier, setActiveSupplier] = useState<string>('Semua Supplier');
   const [searchTerm, setSearchTerm] = useState('');
   const [notes, setNotes] = useState('');
@@ -62,7 +75,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     fetchItems();
   }, []);
 
-  // Filter pencarian & filter vendor
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       const matchSupplier =
@@ -75,7 +87,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     });
   }, [items, activeSupplier, searchTerm]);
 
-  // Kelompokkan barang berdasarkan Vendor/Supplier
   const groupedItems = useMemo(() => {
     const groups: Record<string, MasterItem[]> = {};
     filteredItems.forEach((item) => {
@@ -93,9 +104,22 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     }));
   };
 
+  const handleToggleOrdered = (itemName: string) => {
+    setOrderedByLeader((prev) => ({
+      ...prev,
+      [itemName]: !prev[itemName],
+    }));
+  };
+
   const totalFilled = useMemo(() => {
     return Object.values(quantities).filter((q) => parseFloat(q) > 0).length;
   }, [quantities]);
+
+  const totalDirectOrdered = useMemo(() => {
+    return Object.entries(quantities).filter(
+      ([name, q]) => parseFloat(q) > 0 && orderedByLeader[name]
+    ).length;
+  }, [quantities, orderedByLeader]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,6 +131,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         .filter(([_, qty]) => parseFloat(qty) > 0)
         .map(([itemName, qty]) => {
           const itemMeta = items.find((i) => i.name === itemName);
+          const isDirect = !!orderedByLeader[itemName];
           return {
             location_id: activeLocationId,
             item_name: itemName,
@@ -116,7 +141,8 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             target_type: itemMeta?.supplier || 'RUMAH PRODUKSI',
             notes: notes.trim() || null,
             requested_by: activeStaffName,
-            status: 'pending',
+            status: isDirect ? 'ORDERED_BY_LEADER' : 'pending',
+            is_ordered_by_leader: isDirect, // Flag checklist
           };
         });
 
@@ -128,10 +154,11 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
       if (error) throw error;
 
       setMessage({
-        text: `Berhasil mengirim permintaan untuk ${orderPayload.length} barang pengadaan!`,
+        text: `Berhasil mengirim ${orderPayload.length} permintaan belanja! (${totalDirectOrdered} item ditandai sudah diorder oleh Leader).`,
         type: 'success',
       });
       setQuantities({});
+      setOrderedByLeader({});
       setNotes('');
     } catch (err: any) {
       setMessage({ text: err.message || 'Gagal mengirim order.', type: 'error' });
@@ -153,7 +180,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </button>
       )}
 
-      {/* Top Header Card */}
+      {/* Header Form */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-slate-100 gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-[#ff6f3c] text-white flex items-center justify-center shadow-md shadow-orange-500/20">
@@ -161,11 +188,20 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           </div>
           <div>
             <h2 className="text-lg font-black text-slate-900 tracking-tight">Lembar Permintaan Belanja</h2>
-            <p className="text-xs font-medium text-slate-400">Pilih kebutuhan pengadaan berdasarkan 12 Vendor & Rumah Produksi.</p>
+            <p className="text-xs font-medium text-slate-400">
+              Isi kebutuhan bahan & beri tanda centang jika bahan sudah langsung dipesan ke vendor oleh Leader.
+            </p>
           </div>
         </div>
-        <div className="text-xs font-black px-4 py-2 bg-orange-50 text-[#ff6f3c] border border-orange-200/60 rounded-full w-fit">
-          {totalFilled} barang diisi
+        <div className="flex items-center gap-2">
+          <div className="text-xs font-black px-3.5 py-1.5 bg-orange-50 text-[#ff6f3c] border border-orange-200/60 rounded-full">
+            {totalFilled} barang diisi
+          </div>
+          {totalDirectOrdered > 0 && (
+            <div className="text-xs font-black px-3.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
+              {totalDirectOrdered} diorder Leader
+            </div>
+          )}
         </div>
       </div>
 
@@ -186,7 +222,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </div>
       )}
 
-      {/* Search & Vendor Filter Tabs */}
+      {/* Pencarian & Filter Tab Vendor */}
       <div className="space-y-3 mb-6">
         <div className="relative">
           <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
@@ -199,11 +235,9 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           />
         </div>
 
-        {/* Tab 12 Supplier / Vendor */}
         <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-none">
           {VENDOR_LIST.map((sup) => {
             const isActive = activeSupplier === sup;
-            // Hitung berapa barang yang sudah diisi qty di vendor ini
             const vendorItems = items.filter((i) => (i.supplier || 'RUMAH PRODUKSI').toUpperCase() === sup.toUpperCase());
             const filledCount = vendorItems.filter((i) => parseFloat(quantities[i.name] || '0') > 0).length;
 
@@ -233,7 +267,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </div>
       </div>
 
-      {/* Form & Table */}
+      {/* Form & Tabel Barang */}
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-[32rem] overflow-y-auto">
           <table className="w-full text-left border-collapse text-xs">
@@ -241,12 +275,13 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
               <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
                 <th className="py-3 px-4">Nama Bahan & Kategori</th>
                 <th className="py-3 px-4 text-right w-36">Jumlah Pesan</th>
+                <th className="py-3 px-4 text-center w-44">Sudah Diorder Leader?</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {Object.keys(groupedItems).length === 0 ? (
                 <tr>
-                  <td colSpan={2} className="py-12 text-center text-slate-400 font-medium">
+                  <td colSpan={3} className="py-12 text-center text-slate-400 font-medium">
                     Tidak ada barang ditemukan untuk filter ini.
                   </td>
                 </tr>
@@ -254,7 +289,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                 Object.entries(groupedItems).map(([vendorName, groupList]) => (
                   <React.Fragment key={vendorName}>
                     <tr className="bg-slate-100/70 border-y border-slate-200/60">
-                      <td colSpan={2} className="py-2.5 px-4 font-black text-slate-800 uppercase tracking-wider text-[11px] flex items-center justify-between">
+                      <td colSpan={3} className="py-2.5 px-4 font-black text-slate-800 uppercase tracking-wider text-[11px] flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
                           <Store className="w-3.5 h-3.5 text-indigo-600" />
                           {vendorName}
@@ -267,17 +302,21 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                     {groupList.map((item) => {
                       const val = quantities[item.name] || '';
                       const isSelected = parseFloat(val) > 0;
+                      const isOrdered = !!orderedByLeader[item.name];
+
                       return (
                         <tr
                           key={item.id}
                           className={`transition-colors ${
-                            isSelected ? 'bg-orange-50/50 font-bold' : 'hover:bg-slate-50/60'
+                            isSelected ? 'bg-orange-50/40 font-bold' : 'hover:bg-slate-50/60'
                           }`}
                         >
                           <td className="py-2.5 px-4">
                             <div className="text-slate-800 font-bold">{item.name}</div>
                             <div className="text-[10px] text-slate-400">{item.category}</div>
                           </td>
+
+                          {/* Input Qty */}
                           <td className="py-2 px-4 text-right">
                             <div className="inline-flex items-center gap-2">
                               <input
@@ -297,6 +336,30 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                                 {item.uom || 'Pcs'}
                               </span>
                             </div>
+                          </td>
+
+                          {/* Checklist: Sudah Diorder Leader ke Vendor? */}
+                          <td className="py-2 px-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleOrdered(item.name)}
+                              disabled={!isSelected}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                !isSelected
+                                  ? 'opacity-30 cursor-not-allowed text-slate-400'
+                                  : isOrdered
+                                  ? 'bg-emerald-600 text-white shadow-xs'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                              }`}
+                              title={isSelected ? 'Centang jika Leader sudah memesan ke vendor' : 'Isi jumlah dulu'}
+                            >
+                              {isOrdered ? (
+                                <CheckSquare className="w-4 h-4 text-white" />
+                              ) : (
+                                <Square className="w-4 h-4 text-slate-400" />
+                              )}
+                              <span>{isOrdered ? 'Sudah Diorder' : 'Belum Diorder'}</span>
+                            </button>
                           </td>
                         </tr>
                       );
