@@ -6,7 +6,6 @@ import {
   Activity, 
   RefreshCw, 
   MapPin, 
-  TrendingDown, 
   Edit3, 
   Check, 
   X, 
@@ -15,7 +14,9 @@ import {
   Clock, 
   UserCheck, 
   Lock,
-  Calendar
+  Calendar,
+  AlertTriangle,
+  TrendingDown
 } from 'lucide-react';
 
 interface RowItem {
@@ -51,6 +52,13 @@ export default function BranchStockMonitor() {
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
+
+  // Metrik Waste Bulanan
+  const [monthlyWasteStats, setMonthlyWasteStats] = useState<{
+    wasteQty: number;
+    usedQty: number;
+    wasteRate: number;
+  }>({ wasteQty: 0, usedQty: 0, wasteRate: 0 });
 
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
@@ -127,6 +135,34 @@ export default function BranchStockMonitor() {
         .from('daily_closings')
         .select('*')
         .eq('closing_date', selectedDate);
+
+      // --- HITUNG WASTE BULANAN (Bulan berjalan berdasarkan selectedDate) ---
+      const activeYearMonth = selectedDate.substring(0, 7); // Contoh: "2026-10"
+      let monthlyQuery = supabase
+        .from('daily_closings')
+        .select('waste_qty, terpakai, location_id')
+        .gte('closing_date', `${activeYearMonth}-01`)
+        .lte('closing_date', `${activeYearMonth}-31`);
+
+      if ((isLeader || isCrew) && currentUser?.location_id) {
+        monthlyQuery = monthlyQuery.eq('location_id', currentUser.location_id);
+      } else if (selectedLocation !== 'all') {
+        monthlyQuery = monthlyQuery.eq('location_id', selectedLocation);
+      }
+
+      const { data: monthData } = await monthlyQuery;
+      if (monthData) {
+        const totalMonthWaste = monthData.reduce((sum, d) => sum + Number(d.waste_qty || 0), 0);
+        const totalMonthUsed = monthData.reduce((sum, d) => sum + Number(d.terpakai || 0), 0);
+        const baseMovement = totalMonthUsed + totalMonthWaste;
+        const wasteRate = baseMovement > 0 ? (totalMonthWaste / baseMovement) * 100 : 0;
+
+        setMonthlyWasteStats({
+          wasteQty: totalMonthWaste,
+          usedQty: totalMonthUsed,
+          wasteRate: parseFloat(wasteRate.toFixed(2)),
+        });
+      }
 
       const rows: RowItem[] = (stocks || []).map((s: any) => {
         const cleanName = s.item_name.trim().toLowerCase();
@@ -270,10 +306,6 @@ export default function BranchStockMonitor() {
     return ordered;
   }, [filteredData]);
 
-  const totalMasuk = useMemo(() => filteredData.reduce((acc, curr) => acc + curr.stok_masuk, 0), [filteredData]);
-  const totalTerpakai = useMemo(() => filteredData.reduce((acc, curr) => acc + curr.terpakai, 0), [filteredData]);
-
-  // Fungsi helper untuk memformat Tanggal dan Jam WITA (Makassar)
   const formatDateTimeWita = (isoString?: string) => {
     if (!isoString) return { dateStr: '-', timeStr: '' };
     const date = new Date(isoString);
@@ -355,29 +387,41 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-5 bg-[#fafbfe] border-b border-slate-100">
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
-          <div className="flex items-center justify-between text-slate-400 text-[11px] font-bold">
-            <span>Item Dipantau</span>
-            <Layers className="w-3.5 h-3.5 text-indigo-500" />
+      {/* METRIK HEADER: ITEM DIPANTAU & PERSENTASE WASTE BULANAN */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-5 bg-[#fafbfe] border-b border-slate-100">
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-1.5 text-slate-400 text-[11px] font-bold">
+              <span>Item Dipantau</span>
+              <Layers className="w-3.5 h-3.5 text-indigo-500" />
+            </div>
+            <p className="text-2xl font-black text-slate-900 mt-1">{filteredData.length}</p>
+            <span className="text-[10px] text-slate-400 font-semibold">Master bahan baku outlet</span>
           </div>
-          <p className="text-xl font-black text-slate-900 mt-1">{filteredData.length}</p>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
-          <div className="flex items-center justify-between text-emerald-600 text-[11px] font-bold">
-            <span>Total Masuk Hari Ini</span>
-            <span className="text-xs font-black text-emerald-600">+ Realtime</span>
+        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-1.5 text-amber-600 text-[11px] font-bold">
+              <span>Persentase Waste Bulanan</span>
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+            </div>
+            <div className="flex items-baseline gap-2 mt-1">
+              <p className={`text-2xl font-black ${monthlyWasteStats.wasteRate > 3 ? 'text-rose-600' : 'text-amber-600'}`}>
+                {monthlyWasteStats.wasteRate}%
+              </p>
+              <span className="text-[11px] font-bold text-slate-400">
+                ({monthlyWasteStats.wasteQty.toLocaleString()} qty terbuang)
+              </span>
+            </div>
+            <span className="text-[10px] text-slate-400 font-semibold">
+              Akumulasi bulan {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(selectedDate))}
+            </span>
           </div>
-          <p className="text-xl font-black text-emerald-600 mt-1">+{totalMasuk.toLocaleString()}</p>
-        </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs">
-          <div className="flex items-center justify-between text-indigo-600 text-[11px] font-bold">
-            <span>Total Terpakai</span>
-            <TrendingDown className="w-3.5 h-3.5 text-indigo-600" />
+          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${monthlyWasteStats.wasteRate > 3 ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600'}`}>
+            <TrendingDown className="w-6 h-6" />
           </div>
-          <p className="text-xl font-black text-indigo-600 mt-1">{totalTerpakai.toLocaleString()}</p>
         </div>
       </div>
 
