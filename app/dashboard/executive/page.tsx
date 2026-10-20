@@ -18,7 +18,8 @@ import {
   ShoppingBag,
   Store,
   Receipt,
-  Users
+  Users,
+  Wallet
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
@@ -88,15 +89,12 @@ export default function ExecutiveOwnerDashboard() {
   const router = useRouter();
   const [locations, setLocations] = useState<any[]>([]);
   
-  // Tab Navigasi Khusus Owner: 'overview' | 'hr' | 'stok'
   const [activeTab, setActiveTab] = useState<'overview' | 'hr' | 'stok'>('overview');
   
-  // Filter Global
   const [filterMode, setFilterMode] = useState<'today' | 'weekly' | 'monthly' | 'custom'>('today');
   const [customDate, setCustomDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [selectedLocation, setSelectedLocation] = useState<string>('all');
   
-  // Data State
   const [settlements, setSettlements] = useState<SettlementRecord[]>([]);
   const [closings, setClosings] = useState<ClosingRecord[]>([]);
   const [orders, setOrders] = useState<OrderRequestRecord[]>([]);
@@ -139,7 +137,6 @@ export default function ExecutiveOwnerDashboard() {
         endDateStr = customDate;
       }
 
-      // 1. Ambil Data Settlement
       let sQuery = supabase
         .from('cash_settlements')
         .select('*, locations(name)')
@@ -153,7 +150,6 @@ export default function ExecutiveOwnerDashboard() {
       const { data: sData } = await sQuery;
       if (sData) setSettlements(sData);
 
-      // 2. Ambil Data Closing
       let cQuery = supabase
         .from('daily_closings')
         .select('*, locations(name)')
@@ -166,7 +162,6 @@ export default function ExecutiveOwnerDashboard() {
       const { data: cData } = await cQuery;
       if (cData) setClosings(cData);
 
-      // 3. Ambil Data Order Request
       let oQuery = supabase
         .from('order_requests')
         .select('*, locations(name)')
@@ -179,7 +174,6 @@ export default function ExecutiveOwnerDashboard() {
       const { data: oData } = await oQuery;
       if (oData) setOrders(oData);
 
-      // 4. Ambil Stok Realtime Cabang
       let stQuery = supabase
         .from('branch_stocks')
         .select('*, locations(name)');
@@ -235,16 +229,17 @@ export default function ExecutiveOwnerDashboard() {
   }, [settlements]);
 
   const outletComparison = useMemo(() => {
-    const compMap: Record<string, { name: string; omset: number; bills: number; cashDiff: number; wasteCount: number }> = {};
+    const compMap: Record<string, { name: string; omset: number; bills: number; cashDiff: number; wasteCount: number; expense: number }> = {};
     
     settlements.forEach((s) => {
       const locName = s.locations?.name || 'Cabang';
       if (!compMap[locName]) {
-        compMap[locName] = { name: locName, omset: 0, bills: 0, cashDiff: 0, wasteCount: 0 };
+        compMap[locName] = { name: locName, omset: 0, bills: 0, cashDiff: 0, wasteCount: 0, expense: 0 };
       }
       compMap[locName].omset += Number(s.total_omset || 0);
       compMap[locName].bills += Number(s.total_bills || 0);
       compMap[locName].cashDiff += Number(s.cash_difference || 0);
+      compMap[locName].expense += Number(s.expense_nominal || 0);
     });
 
     closings.forEach((c) => {
@@ -257,6 +252,21 @@ export default function ExecutiveOwnerDashboard() {
     return Object.values(compMap);
   }, [settlements, closings]);
 
+  // Daftar rincian pengeluaran kas kecil dari laporan kasir
+  const expenseLogs = useMemo(() => {
+    return settlements
+      .filter((s) => Number(s.expense_nominal || 0) > 0)
+      .map((s) => ({
+        id: s.id,
+        date: s.settlement_date,
+        outlet: s.locations?.name || 'Cabang',
+        shift: s.shift === 'SHIFT_2' ? 'Shift 2' : 'Shift 1',
+        cashier: s.reported_by || 'Kasir',
+        nominal: Number(s.expense_nominal || 0),
+        notes: s.expense_notes || 'Tanpa catatan'
+      }));
+  }, [settlements]);
+
   const handleDownloadReport = () => {
     setDownloading(true);
     try {
@@ -264,7 +274,7 @@ export default function ExecutiveOwnerDashboard() {
         alert('Tidak ada data pada periode ini untuk diunduh.');
         return;
       }
-      const headers = ['Tanggal', 'Outlet', 'Shift', 'Pelapor', 'Modal Kas', 'Tunai', 'QRIS', 'Grab', 'GoFood', 'Shopee', 'Pengeluaran', 'Total Omset', 'Total Bill', 'Fisik Laci', 'Selisih'];
+      const headers = ['Tanggal', 'Outlet', 'Shift', 'Pelapor', 'Modal Kas', 'Tunai', 'QRIS', 'Grab', 'GoFood', 'Shopee', 'Pengeluaran Kas Kecil', 'Catatan Pengeluaran', 'Total Omset', 'Total Bill', 'Fisik Laci', 'Selisih'];
       const rows = settlements.map((s) => [
         `"${s.settlement_date}"`,
         `"${s.locations?.name || 'Outlet'}"`,
@@ -277,6 +287,7 @@ export default function ExecutiveOwnerDashboard() {
         Number(s.gofood_nominal || 0),
         Number(s.shopee_nominal || 0),
         Number(s.expense_nominal || 0),
+        `"${(s.expense_notes || '').replace(/"/g, '""')}"`,
         Number(s.total_omset || 0),
         Number(s.total_bills || 0),
         Number(s.actual_cash_deposited || 0),
@@ -315,7 +326,6 @@ export default function ExecutiveOwnerDashboard() {
           </div>
         </div>
 
-        {/* Tab Navigasi Khusus Owner: Executive KPI | Live Presensi Tim | Monitor Stok */}
         <div className="flex items-center gap-2">
           <div className="flex bg-white p-1 rounded-2xl border border-slate-200/80 shadow-xs text-xs font-bold overflow-x-auto">
             <button
@@ -373,10 +383,9 @@ export default function ExecutiveOwnerDashboard() {
           </div>
         )}
 
-        {/* TAB OVERVIEW UTAMA: LIVE PRESENSI TIM + FINANSIAL */}
+        {/* TAB OVERVIEW UTAMA */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* 1. LIVE PRESENSI TIM TETAP MUNCUL DI ATAS OMSET */}
             <LiveExecutiveSummary />
 
             {/* Filter Bar Finansial & Omset */}
@@ -468,7 +477,7 @@ export default function ExecutiveOwnerDashboard() {
               </div>
             </div>
 
-            {/* KPI UTAMA */}
+            {/* KPI UTAMA (Termasuk Total Pengeluaran Kasir) */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
                 <span className="text-[10px] font-bold text-slate-400 block uppercase">Total Omset</span>
@@ -484,14 +493,15 @@ export default function ExecutiveOwnerDashboard() {
                 <span className="text-[10px] text-slate-400 font-medium">Struk terbit</span>
               </div>
 
+              {/* METRIK PENGELUARAN KAS KECIL */}
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Rata-rata Bill (AOV)</span>
-                <p className="text-lg font-black text-slate-800 mt-1">Rp {kpi.aov.toLocaleString('id-ID')}</p>
-                <span className="text-[10px] text-slate-400 font-medium">Daya beli/meja</span>
+                <span className="text-[10px] font-bold text-rose-500 block uppercase">Kas Kecil Keluar</span>
+                <p className="text-lg font-black text-rose-600 mt-1">Rp {kpi.totalExpense.toLocaleString('id-ID')}</p>
+                <span className="text-[10px] text-rose-400 font-medium">Belanja operasional</span>
               </div>
 
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Arus Kas Masuk (Net)</span>
+                <span className="text-[10px] font-bold text-slate-400 block uppercase">Kas Bersih (Net)</span>
                 <p className="text-lg font-black text-emerald-700 mt-1">Rp {kpi.netCashFlow.toLocaleString('id-ID')}</p>
                 <span className="text-[10px] text-slate-400 font-medium">Tunai - kas kecil</span>
               </div>
@@ -535,17 +545,17 @@ export default function ExecutiveOwnerDashboard() {
                         <div className="grid grid-cols-3 gap-2 text-[11px] pt-1 border-t border-slate-200/60">
                           <div>
                             <span className="text-slate-400 block">Total Struk:</span>
-                            <span className="font-bold text-slate-700">{out.bills} Transaksi</span>
+                            <span className="font-bold text-slate-700">{out.bills} Struk</span>
                           </div>
                           <div>
-                            <span className="text-slate-400 block">Selisih Kasir:</span>
+                            <span className="text-slate-400 block">Pengeluaran:</span>
+                            <span className="font-bold text-rose-600">Rp {out.expense.toLocaleString('id-ID')}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">Selisih Kas:</span>
                             <span className={`font-bold ${out.cashDiff < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                               {out.cashDiff === 0 ? 'Pas' : `Rp ${out.cashDiff.toLocaleString('id-ID')}`}
                             </span>
-                          </div>
-                          <div>
-                            <span className="text-slate-400 block">Barang Waste:</span>
-                            <span className="font-bold text-[#ff6f3c]">{out.wasteCount} Unit</span>
                           </div>
                         </div>
                       </div>
@@ -606,6 +616,58 @@ export default function ExecutiveOwnerDashboard() {
                 </div>
               </div>
             </div>
+
+            {/* TABEL RINCIAN PENGELUARAN KAS KECIL & NOTA KASIR UNTUK OWNER */}
+            {expenseLogs.length > 0 && (
+              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <Wallet className="w-4 h-4 text-rose-600" />
+                    <h3 className="text-xs font-black uppercase text-slate-800">
+                      Rincian Pengeluaran Kasir & Nota ({expenseLogs.length} Transaksi)
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700">
+                    Kas Keluar Cabang
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px] border-b border-slate-100">
+                        <th className="py-2.5 px-3">Tanggal & Cabang</th>
+                        <th className="py-2.5 px-3">Shift & Kasir</th>
+                        <th className="py-2.5 px-3 text-right">Nominal</th>
+                        <th className="py-2.5 px-3">Keperluan / Catatan Nota</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {expenseLogs.map((log) => (
+                        <tr key={log.id} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="py-2.5 px-3">
+                            <div className="font-bold text-slate-800">{log.outlet}</div>
+                            <div className="text-[10px] text-slate-400">{log.date}</div>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className="font-bold text-slate-700">{log.shift}</span>
+                            <div className="text-[10px] text-slate-400">{log.cashier}</div>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-black text-rose-600">
+                            -Rp {log.nominal.toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600">
+                            <span className="bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100 text-[11px] block sm:inline-block">
+                              "{log.notes}"
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
           </div>
         )}

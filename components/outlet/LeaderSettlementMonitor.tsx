@@ -10,10 +10,8 @@ import {
   QrCode, 
   ShoppingBag, 
   Receipt, 
-  AlertCircle, 
-  CheckCircle2, 
-  TrendingUp, 
-  UserCheck 
+  UserCheck,
+  Wallet
 } from 'lucide-react';
 
 interface Props {
@@ -44,7 +42,6 @@ interface Settlement {
 export default function LeaderSettlementMonitor({ user, locationId: propLocId }: Props) {
   const effectiveLocationId = propLocId || user?.location_id || user?.id || '';
   
-  // Default tanggal hari ini (Timezone Makassar/WITA)
   const todayWita = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
   const [selectedDate, setSelectedDate] = useState<string>(todayWita);
   
@@ -75,7 +72,6 @@ export default function LeaderSettlementMonitor({ user, locationId: propLocId }:
     fetchSettlementData();
   }, [effectiveLocationId, selectedDate]);
 
-  // Kalkulasi Akumulasi Gabungan Semua Shift pada Tanggal Tersebut
   const dailyTotal = useMemo(() => {
     return settlements.reduce(
       (acc, s) => ({
@@ -104,7 +100,7 @@ export default function LeaderSettlementMonitor({ user, locationId: propLocId }:
               Rekap Omset Kasir & Shift Cabang
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Pantau laporan setoran kasir per shift dan selisih kas fisik laci.
+              Pantau laporan setoran kasir, pengeluaran kas kecil, dan uang laci fisik.
             </p>
           </div>
         </div>
@@ -130,39 +126,48 @@ export default function LeaderSettlementMonitor({ user, locationId: propLocId }:
         </div>
       </div>
 
-      {/* Ringkasan Akumulasi Harian */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-          <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Omset Harian</span>
-          <span className="text-base sm:text-lg font-black text-emerald-600 mt-1 block">
+      {/* Ringkasan Akumulasi Harian (5 Metrik: Omset, Tunai, Non-Tunai, Pengeluaran Kas Kecil, Selisih) */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+          <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Omset</span>
+          <span className="text-base font-black text-emerald-600 mt-1 block">
             Rp {dailyTotal.omset.toLocaleString('id-ID')}
           </span>
-          <span className="text-[10px] text-slate-400 font-medium">{dailyTotal.bills} Total Transaksi</span>
+          <span className="text-[10px] text-slate-400 font-medium">{dailyTotal.bills} Transaksi</span>
         </div>
 
-        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-          <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Tunai (Cash)</span>
-          <span className="text-base sm:text-lg font-black text-slate-800 mt-1 block">
+        <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+          <span className="text-[10px] font-bold text-slate-400 uppercase block">Tunai (Cash)</span>
+          <span className="text-base font-black text-slate-800 mt-1 block">
             Rp {dailyTotal.cash.toLocaleString('id-ID')}
           </span>
-          <span className="text-[10px] text-slate-400 font-medium">Uang masuk kasir</span>
+          <span className="text-[10px] text-slate-400 font-medium">Uang masuk</span>
         </div>
 
-        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-          <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Non-Tunai</span>
-          <span className="text-base sm:text-lg font-black text-indigo-600 mt-1 block">
+        <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
+          <span className="text-[10px] font-bold text-slate-400 uppercase block">Non-Tunai</span>
+          <span className="text-base font-black text-indigo-600 mt-1 block">
             Rp {(dailyTotal.qris + dailyTotal.online).toLocaleString('id-ID')}
           </span>
-          <span className="text-[10px] text-slate-400 font-medium">QRIS + Online Ojol</span>
+          <span className="text-[10px] text-slate-400 font-medium">QRIS & Ojol</span>
         </div>
 
-        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+        {/* METRIK PENGELUARAN KAS KECIL */}
+        <div className="p-3.5 rounded-2xl bg-rose-50/50 border border-rose-100">
+          <span className="text-[10px] font-bold text-rose-500 uppercase block">Kas Kecil Terpakai</span>
+          <span className="text-base font-black text-rose-600 mt-1 block">
+            Rp {dailyTotal.expense.toLocaleString('id-ID')}
+          </span>
+          <span className="text-[10px] text-rose-400 font-medium">Belanja operasional</span>
+        </div>
+
+        <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 col-span-2 sm:col-span-1">
           <span className="text-[10px] font-bold text-slate-400 uppercase block">Selisih Kas Laci</span>
-          <span className={`text-base sm:text-lg font-black mt-1 block ${dailyTotal.diff < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+          <span className={`text-base font-black mt-1 block ${dailyTotal.diff < 0 ? 'text-red-600' : 'text-slate-800'}`}>
             {dailyTotal.diff < 0 ? `-Rp ${Math.abs(dailyTotal.diff).toLocaleString('id-ID')}` : `Rp ${dailyTotal.diff.toLocaleString('id-ID')}`}
           </span>
           <span className="text-[10px] text-slate-400 font-medium">
-            {dailyTotal.diff === 0 ? 'Klop Sesuai' : dailyTotal.diff < 0 ? 'Uang Kurang' : 'Uang Lebih'}
+            {dailyTotal.diff === 0 ? 'Klop' : dailyTotal.diff < 0 ? 'Kurang' : 'Lebih'}
           </span>
         </div>
       </div>
@@ -187,6 +192,7 @@ export default function LeaderSettlementMonitor({ user, locationId: propLocId }:
             {settlements.map((s) => {
               const shiftLabel = s.shift === 'SHIFT_1' ? 'Shift 1 (Siang)' : s.shift === 'SHIFT_2' ? 'Shift 2 (Malam)' : s.shift;
               const hasDiff = Number(s.cash_difference || 0) !== 0;
+              const expenseAmount = Number(s.expense_nominal || 0);
 
               return (
                 <div key={s.id} className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
@@ -209,7 +215,7 @@ export default function LeaderSettlementMonitor({ user, locationId: propLocId }:
                     </div>
                   </div>
 
-                  {/* Detail Komposisi Pembayaran */}
+                  {/* Detail Komposisi Pembayaran & Pengeluaran Kas Kecil */}
                   <div className="space-y-2 text-xs">
                     <div className="flex justify-between text-slate-600">
                       <span className="flex items-center gap-1.5">
@@ -234,15 +240,23 @@ export default function LeaderSettlementMonitor({ user, locationId: propLocId }:
                       </span>
                     </div>
 
-                    {Number(s.expense_nominal || 0) > 0 && (
-                      <div className="flex justify-between text-rose-600 pt-1 border-t border-slate-100">
-                        <span>Pengeluaran Kas Kecil:</span>
-                        <span className="font-bold">-Rp {Number(s.expense_nominal).toLocaleString('id-ID')}</span>
+                    {/* SECTION PENGELUARAN KAS KECIL KHUSUS SHIFT INI */}
+                    <div className="pt-2 border-t border-slate-100 space-y-1">
+                      <div className="flex justify-between items-center text-rose-600">
+                        <span className="flex items-center gap-1.5 font-bold">
+                          <Wallet className="w-3.5 h-3.5" /> Pengeluaran Kasir:
+                        </span>
+                        <span className="font-black">
+                          {expenseAmount > 0 ? `-Rp ${expenseAmount.toLocaleString('id-ID')}` : 'Rp 0'}
+                        </span>
                       </div>
-                    )}
-                    {s.expense_notes && (
-                      <p className="text-[10px] text-slate-400 italic">Keperluan: "{s.expense_notes}"</p>
-                    )}
+                      {s.expense_notes && expenseAmount > 0 && (
+                        <div className="bg-rose-50/70 p-2 rounded-xl text-[11px] text-rose-800 border border-rose-100">
+                          <span className="font-bold block text-[10px] text-rose-500 uppercase">Catatan Nota / Belanja:</span>
+                          "{s.expense_notes}"
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Status Uang Laci Fisik & Selisih */}
