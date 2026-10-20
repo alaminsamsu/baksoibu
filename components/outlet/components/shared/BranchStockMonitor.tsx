@@ -7,7 +7,6 @@ import {
   RefreshCw, 
   MapPin, 
   TrendingDown, 
-  AlertTriangle, 
   Edit3, 
   Check, 
   X, 
@@ -32,7 +31,6 @@ interface RowItem {
   current_stock: number;
   unit: string;
   reported_by?: string;
-  is_closed: boolean;
   updated_at?: string;
 }
 
@@ -149,7 +147,6 @@ export default function BranchStockMonitor() {
           (c) => String(c.location_id) === String(s.location_id) && c.item_name.trim().toLowerCase() === cleanName
         );
 
-        const isClosed = !!closed;
         const waste = closed ? Number(closed.waste_qty || 0) : 0;
         const terpakai = closed ? Number(closed.terpakai || 0) : 0;
         const sisaAkhir = closed ? Number(closed.remaining_stock || 0) : (awal + masuk);
@@ -166,9 +163,8 @@ export default function BranchStockMonitor() {
           waste_qty: waste,
           current_stock: sisaAkhir,
           unit: s.unit || 'porsi',
-          reported_by: closed?.reported_by || s.last_updated_by || 'Sistem',
-          is_closed: isClosed,
-          updated_at: closed?.created_at || s.last_updated,
+          reported_by: closed?.reported_by || s.last_updated_by || s.updated_by || 'Sistem',
+          updated_at: closed?.created_at || s.last_updated || s.updated_at,
         };
       });
 
@@ -200,6 +196,7 @@ export default function BranchStockMonitor() {
     try {
       const editorName = currentUser?.active_staff_name || currentUser?.username || 'Leader';
       const calculatedEnd = Math.max(0, (editInitial + editReceived) - editUsage - editWaste);
+      const nowIso = new Date().toISOString();
 
       await supabase
         .from('daily_closings')
@@ -215,9 +212,10 @@ export default function BranchStockMonitor() {
           remaining_stock: calculatedEnd,
           unit: row.unit,
           reported_by: `${editorName} (Koreksi)`,
-          is_locked: true,
+          is_locked: false,
           corrected_by: editorName,
-          corrected_at: new Date().toISOString(),
+          corrected_at: nowIso,
+          created_at: nowIso,
         }, { onConflict: 'location_id,closing_date,item_name' });
 
       await supabase
@@ -227,7 +225,8 @@ export default function BranchStockMonitor() {
           item_name: row.item_name,
           remaining_stock: calculatedEnd,
           unit: row.unit,
-          last_updated: new Date().toISOString(),
+          category: row.category,
+          last_updated: nowIso,
           last_updated_by: `${editorName} (Koreksi)`,
         }, { onConflict: 'location_id,item_name' });
 
@@ -273,6 +272,27 @@ export default function BranchStockMonitor() {
 
   const totalMasuk = useMemo(() => filteredData.reduce((acc, curr) => acc + curr.stok_masuk, 0), [filteredData]);
   const totalTerpakai = useMemo(() => filteredData.reduce((acc, curr) => acc + curr.terpakai, 0), [filteredData]);
+
+  // Fungsi helper untuk memformat Tanggal dan Jam WITA (Makassar)
+  const formatDateTimeWita = (isoString?: string) => {
+    if (!isoString) return { dateStr: '-', timeStr: '' };
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return { dateStr: '-', timeStr: '' };
+
+    const dateStr = new Intl.DateTimeFormat('id-ID', {
+      timeZone: 'Asia/Makassar',
+      day: 'numeric',
+      month: 'short',
+    }).format(date);
+
+    const timeStr = new Intl.DateTimeFormat('id-ID', {
+      timeZone: 'Asia/Makassar',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date) + ' WITA';
+
+    return { dateStr, timeStr };
+  };
 
   return (
     <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-xs">
@@ -401,20 +421,20 @@ export default function BranchStockMonitor() {
               <th className="py-3 px-3 text-right text-indigo-600">- Terpakai</th>
               <th className="py-3 px-3 text-right text-amber-600">- Waste</th>
               <th className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/80">= Stok Akhir</th>
-              <th className="py-3 px-3 text-center">Status</th>
+              <th className="py-3 px-4 text-right">Terakhir Update</th>
               {canEdit && <th className="py-3 px-4 text-center">Koreksi</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
             {loading ? (
               <tr>
-                <td colSpan={8} className="py-12 text-center text-slate-400 font-bold">
+                <td colSpan={canEdit ? 8 : 7} className="py-12 text-center text-slate-400 font-bold">
                   Memuat data pergerakan stok...
                 </td>
               </tr>
             ) : groupedData.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-12 text-center text-slate-400 font-bold">
+                <td colSpan={canEdit ? 8 : 7} className="py-12 text-center text-slate-400 font-bold">
                   Tidak ada barang yang cocok.
                 </td>
               </tr>
@@ -422,7 +442,7 @@ export default function BranchStockMonitor() {
               groupedData.map(({ category, items }) => (
                 <React.Fragment key={category}>
                   <tr className="bg-slate-50/80 border-y border-slate-100">
-                    <td colSpan={8} className="py-2 px-4 font-black text-slate-700 uppercase tracking-wider text-[11px]">
+                    <td colSpan={canEdit ? 8 : 7} className="py-2 px-4 font-black text-slate-700 uppercase tracking-wider text-[11px]">
                       • {category} <span className="text-slate-400 font-normal lowercase">({items.length} item)</span>
                     </td>
                   </tr>
@@ -430,6 +450,7 @@ export default function BranchStockMonitor() {
                   {items.map((row) => {
                     const isEditing = editingKey === row.id;
                     const previewEnd = Math.max(0, (editInitial + editReceived) - editUsage - editWaste);
+                    const { dateStr, timeStr } = formatDateTimeWita(row.updated_at);
 
                     return (
                       <tr key={row.id} className="hover:bg-slate-50/60 transition-colors">
@@ -501,16 +522,16 @@ export default function BranchStockMonitor() {
                           </span>
                         </td>
 
-                        <td className="py-3 px-3 text-center">
-                          {row.is_closed ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              Closed
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-600 border border-indigo-100">
-                              Live Open
-                            </span>
-                          )}
+                        {/* KOLOM TERAKHIR UPDATE */}
+                        <td className="py-3 px-4 text-right">
+                          <div className="font-black text-slate-800 text-[11px] flex items-center justify-end gap-1">
+                            <UserCheck className="w-3 h-3 text-indigo-600" />
+                            <span>{row.reported_by || 'Sistem'}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 flex items-center justify-end gap-1 mt-0.5">
+                            <Clock className="w-2.5 h-2.5" />
+                            <span>{dateStr} • {timeStr}</span>
+                          </div>
                         </td>
 
                         {canEdit && (
