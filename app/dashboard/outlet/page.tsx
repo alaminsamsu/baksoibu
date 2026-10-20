@@ -120,7 +120,7 @@ export default function OutletDashboard() {
         {/* Tampilan Utama Dashboard Outlet */}
         {!activeForm && (
           <div className="space-y-6">
-            {/* WIDGET PRESENSI (CHECK-IN / CHECK-OUT) */}
+            {/* WIDGET PRESENSI */}
             <StaffAttendanceWidget 
               currentUser={currentUser} 
               locationId={currentUser?.location_id} 
@@ -147,7 +147,7 @@ export default function OutletDashboard() {
                 </div>
               </button>
 
-              {/* Menu 2: Request Order Malam */}
+              {/* Menu 2: Permintaan Belanja */}
               <button
                 type="button"
                 onClick={() => setActiveForm('order')}
@@ -158,7 +158,7 @@ export default function OutletDashboard() {
                 </div>
                 <div>
                   <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-blue-600 transition-colors">
-                    2. Request Order Malam
+                    2. Permintaan Belanja
                   </h3>
                   <p className="text-[11px] text-slate-400 mt-0.5">
                     Pengadaan besok: Rumah Produksi, Pasar & Vendor
@@ -207,7 +207,7 @@ export default function OutletDashboard() {
               )}
             </div>
 
-            {/* DASHBOARD REKAP OMSET PER SHIFT (LANGSUNG TAMPIL KHUSUS LEADER / OWNER) */}
+            {/* DASHBOARD REKAP OMSET PER SHIFT (KHUSUS LEADER / OWNER) */}
             {isLeaderOrOwner && (
               <div className="pt-1">
                 <LeaderSettlementMonitor 
