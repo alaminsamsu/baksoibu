@@ -9,7 +9,9 @@ import {
   Banknote, 
   LogOut, 
   User, 
-  MapPin 
+  MapPin,
+  BarChart3,
+  ArrowLeft
 } from 'lucide-react';
 
 import ReceptionForm from '@/components/outlet/ReceptionForm';
@@ -97,7 +99,7 @@ export default function OutletDashboard() {
           />
         )}
 
-        {/* Menu 2: Permintaan Belanja (Form Kru Asli Tetap Aman) */}
+        {/* Menu 2: Permintaan Belanja */}
         {activeForm === 'order' && (
           <OrderRequestForm 
             user={currentUser} 
@@ -121,17 +123,34 @@ export default function OutletDashboard() {
           />
         )}
 
+        {/* Menu 5: Khusus Analisis Pola Konsumsi (Hanya tampil saat menu diklik) */}
+        {activeForm === 'analytics' && isLeaderOrOwner && (
+          <div className="space-y-4">
+            <button
+              onClick={() => setActiveForm(null)}
+              className="px-4 py-2 bg-white rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 shadow-2xs transition-all"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Kembali ke Menu Dashboard</span>
+            </button>
+            <StockUsageAnalytics 
+              user={currentUser} 
+              defaultLocationId={currentUser?.location_id}
+              hideLocationFilter={true} 
+            />
+          </div>
+        )}
+
         {/* Tampilan Utama Dashboard Outlet */}
         {!activeForm && (
           <div className="space-y-6">
-            {/* Widget Presensi Tim */}
             <StaffAttendanceWidget 
               currentUser={currentUser} 
               locationId={currentUser?.location_id} 
             />
 
-            {/* 4 Menu Kartu Operasional Utama */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            {/* Menu Kartu Operasional */}
+            <div className={`grid grid-cols-1 sm:grid-cols-2 ${isLeaderOrOwner ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3.5`}>
               <button
                 type="button"
                 onClick={() => setActiveForm('reception')}
@@ -197,7 +216,7 @@ export default function OutletDashboard() {
                   </div>
                   <div>
                     <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-emerald-700 transition-colors">
-                      4. Rekap Omset & Kas Kasir
+                      4. Rekap Omset & Kas
                     </h3>
                     <p className="text-[11px] text-slate-400 mt-0.5">
                       Input modal, total omset tunai, QRIS & uang laci
@@ -205,9 +224,30 @@ export default function OutletDashboard() {
                   </div>
                 </button>
               )}
+
+              {/* Menu 5 Khusus Leader & Owner */}
+              {isLeaderOrOwner && (
+                <button
+                  type="button"
+                  onClick={() => setActiveForm('analytics')}
+                  className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-purple-200 hover:shadow-md transition-all text-left flex flex-col justify-between group"
+                >
+                  <div className="w-10 h-10 rounded-2xl bg-purple-600 text-white flex items-center justify-center shadow-sm mb-3">
+                    <BarChart3 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-purple-600 transition-colors">
+                      5. Pola Konsumsi
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Rata-rata konsumsi weekdays vs weekend
+                    </p>
+                  </div>
+                </button>
+              )}
             </div>
 
-            {/* DASHBOARD OMSET SHIFT (LEADER / ADMIN / OWNER) */}
+            {/* DASHBOARD OMSET SHIFT */}
             {isLeaderOrOwner && (
               <div className="pt-1">
                 <LeaderSettlementMonitor 
@@ -221,17 +261,6 @@ export default function OutletDashboard() {
             <div className="pt-1">
               <BranchStockMonitor />
             </div>
-
-            {/* ANALISIS POLA KONSUMSI HARIAN CABANG (KHUSUS LEADER / OWNER) */}
-            {isLeaderOrOwner && (
-              <div className="pt-2">
-                <StockUsageAnalytics 
-                  user={currentUser} 
-                  defaultLocationId={currentUser?.location_id}
-                  hideLocationFilter={true} 
-                />
-              </div>
-            )}
           </div>
         )}
       </main>

@@ -13,7 +13,8 @@ import {
   Download,
   Calendar,
   FileSpreadsheet,
-  Users
+  Users,
+  BarChart3
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
@@ -22,13 +23,12 @@ import StockUsageAnalytics from '@/components/outlet/components/shared/StockUsag
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'monitor' | 'rekap' | 'orders' | 'live_hr'>('monitor');
+  const [activeTab, setActiveTab] = useState<'monitor' | 'rekap' | 'orders' | 'live_hr' | 'konsumsi'>('monitor');
   const [orderRequests, setOrderRequests] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [selectedLoc, setSelectedLoc] = useState('all');
   const [loading, setLoading] = useState(true);
 
-  // State untuk Fitur Download Rekap
   const [periodType, setPeriodType] = useState<'weekly' | 'monthly'>('weekly');
   const [downloading, setDownloading] = useState(false);
 
@@ -68,7 +68,6 @@ export default function AdminDashboardPage() {
     router.push('/login');
   };
 
-  // Fungsi Export / Download CSV Rekap Pemakaian
   const handleDownloadReport = async () => {
     setDownloading(true);
     try {
@@ -79,7 +78,6 @@ export default function AdminDashboardPage() {
       const startDateStr = startDate.toISOString().split('T')[0];
       const todayStr = now.toISOString().split('T')[0];
 
-      // 1. Ambil Data Master Items & Stocks
       const { data: items } = await supabase.from('items').select('name, category, uom');
       
       let stockQuery = supabase.from('branch_stocks').select('*, locations(name)');
@@ -88,7 +86,6 @@ export default function AdminDashboardPage() {
       }
       const { data: stocks } = await stockQuery;
 
-      // 2. Ambil Total Masuk dalam Rentang Periode
       let recQuery = supabase
         .from('receptions')
         .select('item_name, quantity, location_id')
@@ -98,7 +95,6 @@ export default function AdminDashboardPage() {
       }
       const { data: recData } = await recQuery;
 
-      // 3. Ambil Data Closing & Waste dalam Rentang Periode
       let closingQuery = supabase
         .from('daily_closings')
         .select('item_name, remaining_stock, waste_qty, location_id, closing_date')
@@ -108,7 +104,6 @@ export default function AdminDashboardPage() {
       }
       const { data: closingData } = await closingQuery;
 
-      // 4. Hitung Rekap per Barang
       const reportRows: any[] = [];
 
       (stocks || []).forEach((s: any) => {
@@ -142,7 +137,6 @@ export default function AdminDashboardPage() {
         });
       });
 
-      // 5. Susun Header & Isi CSV
       const headers = [
         'Nama Cabang',
         'Kategori',
@@ -200,7 +194,7 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* 4 Tab Navigasi Admin */}
+        {/* 5 Tab Navigasi Admin */}
         <div className="flex items-center gap-1 bg-white px-3 py-1.5 rounded-full shadow-sm shadow-slate-200/60 border border-slate-100 text-xs font-bold text-slate-500 overflow-x-auto">
           <button
             onClick={() => setActiveTab('monitor')}
@@ -210,6 +204,16 @@ export default function AdminDashboardPage() {
           >
             <Activity className="w-3.5 h-3.5" />
             Monitor Stok
+          </button>
+
+          <button
+            onClick={() => setActiveTab('konsumsi')}
+            className={`px-3.5 py-1 rounded-full transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'konsumsi' ? 'bg-indigo-600 text-white shadow-sm' : 'hover:text-slate-800'
+            }`}
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            Pola Konsumsi
           </button>
 
           <button
@@ -273,108 +277,106 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {/* TAB LIVE PRESENSI STAF KHUSUS OWNER/ADMIN */}
+        {/* TAB KHUSUS POLA KONSUMSI (HANYA MUNCUL DI TAB INI) */}
+        {activeTab === 'konsumsi' && (
+          <div className="space-y-6">
+            <StockUsageAnalytics user={user} />
+          </div>
+        )}
+
+        {/* TAB LIVE PRESENSI STAF */}
         {activeTab === 'live_hr' && (
           <LiveExecutiveSummary />
         )}
 
-        {/* TAB KHUSUS DOWNLOAD REKAP PEMAKAIAN & ANALISIS POLA KONSUMSI */}
+        {/* TAB KHUSUS DOWNLOAD REKAP PEMAKAIAN */}
         {activeTab === 'rekap' && (
-          <div className="space-y-6">
-            {/* Widget Analisis Rata-rata Konsumsi Harian & Weekdays vs Weekend */}
-            <StockUsageAnalytics user={user} />
+          <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-sm shadow-slate-200/50 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-100 gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
+                  <FileSpreadsheet className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-slate-900 tracking-tight">
+                    Download Rekap Pemakaian Bahan Baku
+                  </h2>
+                  <p className="text-xs font-medium text-slate-400">
+                    Ekspor data pemakaian, barang masuk, dan waste ke format Excel / CSV.
+                  </p>
+                </div>
+              </div>
+            </div>
 
-            <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-sm shadow-slate-200/50 space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-100 gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
-                    <FileSpreadsheet className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-black text-slate-900 tracking-tight">
-                      Download Rekap Pemakaian Bahan Baku
-                    </h2>
-                    <p className="text-xs font-medium text-slate-400">
-                      Ekspor data pemakaian, barang masuk, dan waste ke format Excel / CSV.
-                    </p>
-                  </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-3">
+                <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                  1. Pilih Rentang Waktu Rekap
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPeriodType('weekly')}
+                    className={`py-3 px-4 rounded-xl text-xs font-extrabold border transition-all ${
+                      periodType === 'weekly'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    📅 7 Hari (Mingguan)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodType('monthly')}
+                    className={`py-3 px-4 rounded-xl text-xs font-extrabold border transition-all ${
+                      periodType === 'monthly'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    🗓️ 30 Hari (Bulanan)
+                  </button>
                 </div>
               </div>
 
-              {/* Panel Pengaturan Ekspor */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Pilihan Periode */}
-                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-3">
-                  <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                    1. Pilih Rentang Waktu Rekap
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setPeriodType('weekly')}
-                      className={`py-3 px-4 rounded-xl text-xs font-extrabold border transition-all ${
-                        periodType === 'weekly'
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      📅 7 Hari (Mingguan)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPeriodType('monthly')}
-                      className={`py-3 px-4 rounded-xl text-xs font-extrabold border transition-all ${
-                        periodType === 'monthly'
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      🗓️ 30 Hari (Bulanan)
-                    </button>
-                  </div>
-                </div>
-
-                {/* Pilihan Cabang */}
-                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-3">
-                  <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                    2. Pilih Cabang Outlet
-                  </label>
-                  <div className="relative">
-                    <MapPin className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
-                    <select
-                      value={selectedLoc}
-                      onChange={(e) => setSelectedLoc(e.target.value)}
-                      className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    >
-                      <option value="all">Semua Cabang (Laporan Gabungan)</option>
-                      {locations.map((l) => (
-                        <option key={l.id} value={l.id}>
-                          Outlet {l.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-3">
+                <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                  2. Pilih Cabang Outlet
+                </label>
+                <div className="relative">
+                  <MapPin className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
+                  <select
+                    value={selectedLoc}
+                    onChange={(e) => setSelectedLoc(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  >
+                    <option value="all">Semua Cabang (Laporan Gabungan)</option>
+                    {locations.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        Outlet {l.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
+            </div>
 
-              {/* Tombol Ekspor */}
-              <div className="pt-2">
-                <button
-                  onClick={handleDownloadReport}
-                  disabled={downloading}
-                  className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-2xl shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>
-                    {downloading
-                      ? 'Sedang Menyiapkan & Mengunduh File...'
-                      : `Unduh Rekap ${periodType === 'weekly' ? 'Mingguan' : 'Bulanan'} (.CSV / Excel)`}
-                  </span>
-                </button>
-                <p className="text-center text-[11px] text-slate-400 font-medium mt-3">
-                  File .csv dapat langsung dibuka di Microsoft Excel, Apple Numbers, atau diimpor ke Google Sheets.
-                </p>
-              </div>
+            <div className="pt-2">
+              <button
+                onClick={handleDownloadReport}
+                disabled={downloading}
+                className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-2xl shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" />
+                <span>
+                  {downloading
+                    ? 'Sedang Menyiapkan & Mengunduh File...'
+                    : `Unduh Rekap ${periodType === 'weekly' ? 'Mingguan' : 'Bulanan'} (.CSV / Excel)`}
+                </span>
+              </button>
+              <p className="text-center text-[11px] text-slate-400 font-medium mt-3">
+                File .csv dapat langsung dibuka di Microsoft Excel, Apple Numbers, atau diimpor ke Google Sheets.
+              </p>
             </div>
           </div>
         )}
