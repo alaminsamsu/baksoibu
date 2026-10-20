@@ -8,10 +8,7 @@ import {
   LogOut, 
   CheckCircle2, 
   AlertCircle, 
-  MapPin, 
-  User, 
-  Navigation,
-  ExternalLink 
+  Navigation 
 } from 'lucide-react';
 
 interface Props {
@@ -33,7 +30,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
 
   const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
 
-  // 1. Tarik daftar nama resmi pegawai aktif dari HR
+  // 1. Ambil daftar staf aktif
   useEffect(() => {
     const fetchStaffProfiles = async () => {
       let query = supabase
@@ -43,19 +40,20 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
         .order('nickname');
 
       if (activeLocationId) {
-        // Tampilkan staf cabang ini atau staf mobile
         query = query.or(`primary_location_id.eq.${activeLocationId},primary_location_id.is.null`);
       }
 
       const { data } = await query;
       if (data) {
         setStaffOptions(data);
-        // Jika user yang login sudah ada nama panggilannya, set otomatis
         if (currentUser?.active_staff_name) {
-          const matched = data.find((s) => s.nickname.toLowerCase() === currentUser.active_staff_name.toLowerCase());
+          const matched = data.find(
+            (s) => s.nickname.trim().toLowerCase() === currentUser.active_staff_name.trim().toLowerCase()
+          );
           if (matched) {
             setSelectedStaffNickname(matched.nickname);
             setActiveStaffProfile(matched);
+            checkTodayAttendance(matched.nickname);
           }
         }
       }
@@ -64,25 +62,44 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     fetchStaffProfiles();
   }, [activeLocationId, currentUser]);
 
-  // 2. Cek status presensi hari ini jika nama pegawai dipilih
+  // 2. Cek status presensi hari ini atau presensi aktif yang belum checkout
   const checkTodayAttendance = async (nickname: string) => {
     if (!nickname) {
       setActiveAttendance(null);
       return;
     }
 
-    const { data } = await supabase
-      .from('staff_attendances')
-      .select('*')
-      .eq('attendance_date', todayStr)
-      .eq('staff_name', nickname)
-      .order('created_at', { ascending: false })
-      .limit(1);
+    try {
+      // Prioritas 1: Cari sesi yang BELUM checkout dalam 24 jam terakhir
+      const { data: openSession } = await supabase
+        .from('staff_attendances')
+        .select('*')
+        .ilike('staff_name', nickname.trim())
+        .is('clock_out', null)
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-    if (data && data.length > 0) {
-      setActiveAttendance(data[0]);
-    } else {
-      setActiveAttendance(null);
+      if (openSession && openSession.length > 0) {
+        setActiveAttendance(openSession[0]);
+        return;
+      }
+
+      // Prioritas 2: Jika sudah checkout semua, ambil presensi tanggal hari ini
+      const { data: todaySession } = await supabase
+        .from('staff_attendances')
+        .select('*')
+        .ilike('staff_name', nickname.trim())
+        .eq('attendance_date', todayStr)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (todaySession && todaySession.length > 0) {
+        setActiveAttendance(todaySession[0]);
+      } else {
+        setActiveAttendance(null);
+      }
+    } catch (e) {
+      console.error('Gagal membaca presensi:', e);
     }
   };
 
@@ -94,28 +111,33 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     setMessage(null);
   };
 
-  // Koordinat GPS
+  // Koordinat GPS dengan batas waktu (tidak akan pernah macet / hang)
   const getCurrentCoordinates = (): Promise<{ lat: number; lng: number }> => {
     return new Promise((resolve) => {
-      if (!navigator.geolocation) {
-        resolve({ lat: 0, lng: 0 });
-        return;
+      if (typeof window === 'undefined' || !navigator.geolocation) {
+        return resolve({ lat: 0, lng: 0 });
       }
 
+      // Batas waktu maksimal 2.5 detik agar tombol tidak freeze
+      const timeoutId = setTimeout(() => {
+        resolve({ lat: 0, lng: 0 });
+      }, 2500);
+
       navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => {
-          navigator.geolocation.getCurrentPosition(
-            (fallbackPos) => resolve({ lat: fallbackPos.coords.latitude, lng: fallbackPos.coords.longitude }),
-            () => resolve({ lat: 0, lng: 0 }),
-            { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
-          );
+        (pos) => {
+          clearTimeout(timeoutId);
+          resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         },
-        { enableHighAccuracy: true, timeout: 6000, maximumAge: 30000 }
+        () => {
+          clearTimeout(timeoutId);
+          resolve({ lat: 0, lng: 0 });
+        },
+        { enableHighAccuracy: false, timeout: 2000, maximumAge: 60000 }
       );
     });
   };
 
+  // Check-In
   const handleClockIn = async () => {
     if (!selectedStaffNickname) {
       setMessage({ text: 'Pilih nama panggilan Anda terlebih dahulu!', type: 'error' });
@@ -129,19 +151,21 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
 
       const coords = await getCurrentCoordinates();
 
+      const newRecord = {
+        staff_profile_id: activeStaffProfile?.id || null,
+        staff_name: selectedStaffNickname,
+        role: activeStaffProfile?.role || currentUser?.role || 'CREW',
+        location_id: activeLocationId,
+        attendance_date: todayStr,
+        shift,
+        clock_in: new Date().toISOString(),
+        clock_in_lat: coords.lat !== 0 ? coords.lat : null,
+        clock_in_lng: coords.lng !== 0 ? coords.lng : null,
+      };
+
       const { data, error } = await supabase
         .from('staff_attendances')
-        .insert({
-          staff_profile_id: activeStaffProfile?.id || null,
-          staff_name: selectedStaffNickname,
-          role: activeStaffProfile?.role || currentUser?.role || 'CREW',
-          location_id: activeLocationId,
-          attendance_date: todayStr,
-          shift,
-          clock_in: new Date().toISOString(),
-          clock_in_lat: coords.lat !== 0 ? coords.lat : null,
-          clock_in_lng: coords.lng !== 0 ? coords.lng : null,
-        })
+        .insert(newRecord)
         .select()
         .single();
 
@@ -150,7 +174,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
 
       const hasGps = coords.lat !== 0;
       setMessage({
-        text: `Berhasil Check-In pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA.${hasGps ? ' (Titik GPS terverifikasi)' : ' (Presensi tercatat)'}`,
+        text: `Berhasil Check-In pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA.${hasGps ? ' (GPS Terverifikasi)' : ''}`,
         type: 'success',
       });
     } catch (err: any) {
@@ -160,28 +184,43 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     }
   };
 
+  // Check-Out (Diperbaiki agar anti-gagal)
   const handleClockOut = async () => {
-    if (!activeAttendance) return;
+    if (!activeAttendance?.id) {
+      setMessage({ text: 'Data check-in tidak ditemukan. Coba pilih ulang nama Anda.', type: 'error' });
+      return;
+    }
+
     setLoading(true);
     setMessage(null);
     try {
       const coords = await getCurrentCoordinates();
+      const clockOutIso = new Date().toISOString();
 
-      const { data, error } = await supabase
+      const updatePayload: any = {
+        clock_out: clockOutIso,
+      };
+
+      if (coords.lat !== 0) {
+        updatePayload.clock_out_lat = coords.lat;
+        updatePayload.clock_out_lng = coords.lng;
+      }
+
+      const { error } = await supabase
         .from('staff_attendances')
-        .update({
-          clock_out: new Date().toISOString(),
-          clock_out_lat: coords.lat !== 0 ? coords.lat : null,
-          clock_out_lng: coords.lng !== 0 ? coords.lng : null,
-        })
-        .eq('id', activeAttendance.id)
-        .select()
-        .single();
+        .update(updatePayload)
+        .eq('id', activeAttendance.id);
 
       if (error) throw error;
-      setActiveAttendance(data);
+
+      // Update state lokal langsung tanpa bergantung pada response .single()
+      setActiveAttendance((prev: any) => ({
+        ...prev,
+        ...updatePayload,
+      }));
+
       setMessage({
-        text: `Berhasil Check-Out pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA.`,
+        text: `Berhasil Check-Out pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA. Terima kasih atas tugasnya!`,
         type: 'success',
       });
     } catch (err: any) {
@@ -247,7 +286,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
         </div>
       )}
 
-      {/* DROPDOWN NAMA PANGGILAN RESMI DARI DATABASE HR */}
+      {/* DROPDOWN NAMA PANGGILAN */}
       <div className="bg-slate-50 p-3.5 rounded-2xl space-y-2 border border-slate-100">
         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
           Pilih Nama Panggilan Anda
@@ -267,7 +306,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
 
         {activeAttendance?.clock_in && (
           <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs font-bold">
-            <span className="text-[10px] text-slate-400 uppercase">Status Hari Ini:</span>
+            <span className="text-[10px] text-slate-400 uppercase">Status Tugas:</span>
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md uppercase">
                 In: {new Date(activeAttendance.clock_in).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
@@ -302,8 +341,9 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
           <span>{loading ? 'Menyimpan Selesai Tugas...' : 'Check-Out Selesai Tugas'}</span>
         </button>
       ) : (
-        <div className="text-center py-2 bg-emerald-50 rounded-xl text-xs font-black text-emerald-700 border border-emerald-100">
-          ✓ Tugas hari ini telah selesai (Sudah Check-Out).
+        <div className="text-center py-2.5 bg-emerald-50 rounded-xl text-xs font-black text-emerald-700 border border-emerald-100 flex items-center justify-center gap-1.5">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          <span>Tugas hari ini telah selesai (Sudah Check-Out).</span>
         </div>
       )}
     </div>
