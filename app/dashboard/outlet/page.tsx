@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Package, 
-  Wallet, 
   Send, 
   Store, 
   Banknote, 
@@ -15,7 +14,6 @@ import {
 } from 'lucide-react';
 
 import ReceptionForm from '@/components/outlet/ReceptionForm';
-import ExpenseForm from '@/components/outlet/ExpenseForm';
 import OrderRequestForm from '@/components/outlet/OrderRequestForm';
 import DailyClosingForm from '@/components/outlet/DailyClosingForm';
 import CashSettlementForm from '@/components/outlet/CashSettlementForm';
@@ -99,13 +97,6 @@ export default function OutletDashboard() {
           />
         )}
 
-        {activeForm === 'expense' && (
-          <ExpenseForm 
-            user={currentUser} 
-            onBack={() => setActiveForm(null)} 
-          />
-        )}
-
         {activeForm === 'order' && (
           <OrderRequestForm 
             user={currentUser} 
@@ -153,7 +144,7 @@ export default function OutletDashboard() {
               locationId={currentUser?.location_id} 
             />
 
-            {/* Menu Kartu Operasional */}
+            {/* Menu Kartu Operasional (5 Menu) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {/* Menu 1: Terima Barang */}
               <button
@@ -174,26 +165,7 @@ export default function OutletDashboard() {
                 </div>
               </button>
 
-              {/* Menu 2: Belanja Kas Kecil */}
-              <button
-                type="button"
-                onClick={() => setActiveForm('expense')}
-                className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-amber-200 hover:shadow-md transition-all text-left flex flex-col justify-between group"
-              >
-                <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-sm mb-3">
-                  <Wallet className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-amber-600 transition-colors">
-                    2. Kas Kecil & Belanja Pasar
-                  </h3>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Catat pengeluaran belanja darurat lokal & nota
-                  </p>
-                </div>
-              </button>
-
-              {/* Menu 3: Request Order Malam */}
+              {/* Menu 2: Request Order Malam */}
               <button
                 type="button"
                 onClick={() => setActiveForm('order')}
@@ -204,7 +176,7 @@ export default function OutletDashboard() {
                 </div>
                 <div>
                   <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-blue-600 transition-colors">
-                    3. Request Order Malam
+                    2. Request Order Malam
                   </h3>
                   <p className="text-[11px] text-slate-400 mt-0.5">
                     Pengadaan besok: Rumah Produksi, Pasar & Vendor
@@ -212,7 +184,7 @@ export default function OutletDashboard() {
                 </div>
               </button>
 
-              {/* Menu 4: Form Tutup Toko */}
+              {/* Menu 3: Form Tutup Toko */}
               <button
                 type="button"
                 onClick={() => setActiveForm('closing')}
@@ -223,7 +195,7 @@ export default function OutletDashboard() {
                 </div>
                 <div>
                   <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-orange-600 transition-colors">
-                    4. Form Tutup Toko (Closing)
+                    3. Form Tutup Toko (Closing)
                   </h3>
                   <p className="text-[11px] text-slate-400 mt-0.5">
                     Opname sisa fisik malam & foto bukti waste
@@ -231,7 +203,7 @@ export default function OutletDashboard() {
                 </div>
               </button>
 
-              {/* Menu 5: Input Kasir & Setoran */}
+              {/* Menu 4: Input Kasir & Setoran */}
               {isLeaderOrCashier && (
                 <button
                   type="button"
@@ -243,7 +215,7 @@ export default function OutletDashboard() {
                   </div>
                   <div>
                     <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-emerald-700 transition-colors">
-                      5. Input Kasir & Setoran Omset
+                      4. Input Kasir & Setoran Omset
                     </h3>
                     <p className="text-[11px] text-slate-400 mt-0.5">
                       Input modal, total omset tunai, QRIS & uang laci
@@ -252,7 +224,7 @@ export default function OutletDashboard() {
                 </button>
               )}
 
-              {/* Menu 6: Monitor Omset Shift (Khusus Leader / Owner) */}
+              {/* Menu 5: Monitor Omset Shift (Khusus Leader / Owner) */}
               {isLeaderOrOwner && (
                 <button
                   type="button"
@@ -264,7 +236,7 @@ export default function OutletDashboard() {
                   </div>
                   <div>
                     <h3 className="font-extrabold text-indigo-950 text-sm group-hover:text-indigo-600 transition-colors flex items-center gap-1.5">
-                      6. Pantau Omset per Shift
+                      5. Pantau Omset per Shift
                       <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 font-black">LEADER</span>
                     </h3>
                     <p className="text-[11px] text-slate-400 mt-0.5">
