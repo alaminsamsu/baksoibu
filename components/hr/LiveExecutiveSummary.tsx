@@ -3,9 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { 
-  Users, 
   ShieldCheck, 
-  AlertTriangle, 
   Clock, 
   MapPin, 
   Activity, 
@@ -52,22 +50,16 @@ export default function LiveExecutiveSummary() {
     return () => clearInterval(interval);
   }, [dateFilters]);
 
-  // Statistik Utama
+  // Statistik Utama (Hanya On-Duty dan Total Masuk)
   const stats = useMemo(() => {
-    const totalPegawai = employees.length;
     const onDuty = attendances.filter((a) => a.clock_in && !a.clock_out);
     const sudahHadir = attendances.filter((a) => a.clock_in);
-    const totalHadirCount = sudahHadir.length;
-    const persentaseHadir = totalPegawai > 0 ? Math.round((totalHadirCount / totalPegawai) * 100) : 0;
 
     return {
-      totalPegawai,
       onDutyCount: onDuty.length,
-      totalHadirCount,
-      persentaseHadir,
-      belumAbsen: Math.max(0, totalPegawai - totalHadirCount)
+      totalHadirCount: sudahHadir.length
     };
-  }, [employees, attendances]);
+  }, [attendances]);
 
   // Kelompokkan per Outlet + Kategori Cabang Bebas/Mobile
   const outletSummaries = useMemo(() => {
@@ -127,51 +119,31 @@ export default function LiveExecutiveSummary() {
         </button>
       </div>
 
-      {/* 4 Kartu Metrik Utama */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="p-4 bg-white rounded-3xl border border-slate-100 shadow-2xs">
-          <div className="flex items-center justify-between text-slate-400 mb-1">
-            <span className="text-[11px] font-bold">Tingkat Kehadiran</span>
-            <Users className="w-4 h-4 text-indigo-500" />
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-black text-slate-900">{stats.persentaseHadir}%</span>
-            <span className="text-[10px] font-bold text-slate-400">
-              ({stats.totalHadirCount}/{stats.totalPegawai})
-            </span>
-          </div>
-        </div>
-
-        <div className="p-4 bg-white rounded-3xl border border-slate-100 shadow-2xs">
-          <div className="flex items-center justify-between text-slate-400 mb-1">
-            <span className="text-[11px] font-bold">Sedang On-Duty</span>
-            <Activity className="w-4 h-4 text-emerald-500" />
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-black text-emerald-600">{stats.onDutyCount}</span>
-            <span className="text-[10px] font-bold text-slate-400">Petugas Aktif</span>
+      {/* 2 Kartu Metrik Utama */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="p-4 bg-white rounded-3xl border border-slate-100 shadow-2xs flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-1.5 text-slate-400 mb-1">
+              <span className="text-[11px] font-bold">Sedang On-Duty</span>
+              <Activity className="w-4 h-4 text-emerald-500" />
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-black text-emerald-600">{stats.onDutyCount}</span>
+              <span className="text-[10px] font-bold text-slate-400">Petugas Aktif di Cabang</span>
+            </div>
           </div>
         </div>
 
-        <div className="p-4 bg-white rounded-3xl border border-slate-100 shadow-2xs">
-          <div className="flex items-center justify-between text-slate-400 mb-1">
-            <span className="text-[11px] font-bold">Total Terdata Masuk</span>
-            <Clock className="w-4 h-4 text-indigo-500" />
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-black text-slate-800">{stats.totalHadirCount}</span>
-            <span className="text-[10px] font-bold text-slate-400">Presensi</span>
-          </div>
-        </div>
-
-        <div className="p-4 bg-white rounded-3xl border border-slate-100 shadow-2xs">
-          <div className="flex items-center justify-between text-slate-400 mb-1">
-            <span className="text-[11px] font-bold">Belum Absen</span>
-            <AlertTriangle className="w-4 h-4 text-rose-500" />
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-black text-rose-600">{stats.belumAbsen}</span>
-            <span className="text-[10px] font-bold text-slate-400">Orang</span>
+        <div className="p-4 bg-white rounded-3xl border border-slate-100 shadow-2xs flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-1.5 text-slate-400 mb-1">
+              <span className="text-[11px] font-bold">Total Terdata Masuk</span>
+              <Clock className="w-4 h-4 text-indigo-500" />
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-black text-slate-800">{stats.totalHadirCount}</span>
+              <span className="text-[10px] font-bold text-slate-400">Presensi Hari Ini</span>
+            </div>
           </div>
         </div>
       </div>
