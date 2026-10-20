@@ -130,7 +130,8 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     setSaving(true);
     setMsg(null);
     try {
-      const payload = {
+      // Baris total_omset dikeluarkan agar dihitung otomatis oleh Postgres (mencegah error non-DEFAULT value)
+      const payload: Record<string, any> = {
         location_id: effectiveLocationId,
         settlement_date: settlementDate,
         shift: shift,
@@ -144,7 +145,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         online_nominal: numGrab + numGofood + numShopee,
         expense_nominal: numExpense,
         expense_notes: expenseNotes.trim() || null,
-        total_omset: totalOmset,
         actual_cash_deposited: numActualCash,
         cash_difference: cashDifference,
         notes: notes.trim() || null,
