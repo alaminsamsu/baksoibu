@@ -11,7 +11,8 @@ import {
   Send, 
   Store, 
   CheckSquare, 
-  Square 
+  Square,
+  PackageCheck
 } from 'lucide-react';
 
 interface Props {
@@ -50,6 +51,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
 
   const [items, setItems] = useState<MasterItem[]>([]);
+  const [currentStocks, setCurrentStocks] = useState<Record<string, number>>({});
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   // State untuk checklist apakah barang sudah dipesan langsung oleh Leader ke vendor
   const [orderedByLeader, setOrderedByLeader] = useState<Record<string, boolean>>({});
@@ -61,19 +63,40 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
-    async function fetchItems() {
-      const { data, error } = await supabase
+    async function fetchData() {
+      // 1. Tarik Data Master Items
+      const { data: itemsData, error: itemsError } = await supabase
         .from('items')
         .select('*')
         .order('name');
-      if (error) {
-        console.error('Gagal mengambil master items:', error);
-      } else if (data) {
-        setItems(data);
+      
+      if (itemsError) {
+        console.error('Gagal mengambil master items:', itemsError);
+      } else if (itemsData) {
+        setItems(itemsData);
+      }
+
+      // 2. Tarik Data Stok Akhir / Berjalan Cabang Saat Ini
+      if (activeLocationId) {
+        const { data: stockData, error: stockError } = await supabase
+          .from('branch_stocks')
+          .select('item_name, remaining_stock')
+          .eq('location_id', activeLocationId);
+
+        if (stockError) {
+          console.error('Gagal mengambil branch stocks:', stockError);
+        } else if (stockData) {
+          const stockMap: Record<string, number> = {};
+          stockData.forEach((s) => {
+            stockMap[s.item_name] = Number(s.remaining_stock || 0);
+          });
+          setCurrentStocks(stockMap);
+        }
       }
     }
-    fetchItems();
-  }, []);
+
+    fetchData();
+  }, [activeLocationId]);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -189,7 +212,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           <div>
             <h2 className="text-lg font-black text-slate-900 tracking-tight">Lembar Permintaan Belanja</h2>
             <p className="text-xs font-medium text-slate-400">
-              Isi kebutuhan bahan & beri tanda centang jika bahan sudah langsung dipesan ke vendor oleh Leader.
+              Periksa stok akhir, isi kebutuhan bahan & beri tanda centang jika bahan sudah langsung dipesan ke vendor oleh Leader.
             </p>
           </div>
         </div>
@@ -274,14 +297,15 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             <thead className="bg-slate-50/90 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-sm">
               <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
                 <th className="py-3 px-4">Nama Bahan & Kategori</th>
-                <th className="py-3 px-4 text-right w-36">Jumlah Pesan</th>
+                <th className="py-3 px-4 text-center w-36">Stok Akhir</th>
+                <th className="py-3 px-4 text-right w-40">Jumlah Pesan</th>
                 <th className="py-3 px-4 text-center w-44">Sudah Diorder Leader?</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {Object.keys(groupedItems).length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="py-12 text-center text-slate-400 font-medium">
+                  <td colSpan={4} className="py-12 text-center text-slate-400 font-medium">
                     Tidak ada barang ditemukan untuk filter ini.
                   </td>
                 </tr>
@@ -289,7 +313,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                 Object.entries(groupedItems).map(([vendorName, groupList]) => (
                   <React.Fragment key={vendorName}>
                     <tr className="bg-slate-100/70 border-y border-slate-200/60">
-                      <td colSpan={3} className="py-2.5 px-4 font-black text-slate-800 uppercase tracking-wider text-[11px] flex items-center justify-between">
+                      <td colSpan={4} className="py-2.5 px-4 font-black text-slate-800 uppercase tracking-wider text-[11px] flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
                           <Store className="w-3.5 h-3.5 text-indigo-600" />
                           {vendorName}
@@ -303,6 +327,8 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                       const val = quantities[item.name] || '';
                       const isSelected = parseFloat(val) > 0;
                       const isOrdered = !!orderedByLeader[item.name];
+                      const stockVal = currentStocks[item.name] ?? 0;
+                      const isLowStock = stockVal <= 2;
 
                       return (
                         <tr
@@ -311,12 +337,26 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                             isSelected ? 'bg-orange-50/40 font-bold' : 'hover:bg-slate-50/60'
                           }`}
                         >
+                          {/* Nama & Kategori */}
                           <td className="py-2.5 px-4">
                             <div className="text-slate-800 font-bold">{item.name}</div>
                             <div className="text-[10px] text-slate-400">{item.category}</div>
                           </td>
 
-                          {/* Input Qty */}
+                          {/* Kolom Stok Akhir Sebelum Jumlah Pesan */}
+                          <td className="py-2 px-4 text-center">
+                            <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100/80 rounded-xl border border-slate-200/60">
+                              <PackageCheck className="w-3 h-3 text-slate-400" />
+                              <span className={`font-black text-xs ${isLowStock ? 'text-rose-600' : 'text-slate-700'}`}>
+                                {stockVal}
+                              </span>
+                              <span className="text-[10px] font-medium text-slate-400">
+                                {item.uom || 'Pcs'}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Input Qty Pesan */}
                           <td className="py-2 px-4 text-right">
                             <div className="inline-flex items-center gap-2">
                               <input
