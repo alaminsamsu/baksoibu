@@ -9,7 +9,6 @@ import {
   Banknote, 
   QrCode, 
   ShoppingBag, 
-  Receipt, 
   UserCheck,
   Wallet
 } from 'lucide-react';
@@ -100,7 +99,7 @@ export default function LeaderSettlementMonitor({ user, locationId: propLocId }:
               Rekap Omset Kasir & Shift Cabang
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Pantau laporan setoran kasir, pengeluaran kas kecil, dan uang laci fisik.
+              Pantau laporan setoran kasir, pengeluaran, dan uang laci fisik.
             </p>
           </div>
         </div>
@@ -126,7 +125,7 @@ export default function LeaderSettlementMonitor({ user, locationId: propLocId }:
         </div>
       </div>
 
-      {/* Ringkasan Akumulasi Harian (5 Metrik: Omset, Tunai, Non-Tunai, Pengeluaran Kas Kecil, Selisih) */}
+      {/* Ringkasan Akumulasi Harian */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
           <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Omset</span>
@@ -152,9 +151,9 @@ export default function LeaderSettlementMonitor({ user, locationId: propLocId }:
           <span className="text-[10px] text-slate-400 font-medium">QRIS & Ojol</span>
         </div>
 
-        {/* METRIK PENGELUARAN KAS KECIL */}
+        {/* METRIK PENGELUARAN */}
         <div className="p-3.5 rounded-2xl bg-rose-50/50 border border-rose-100">
-          <span className="text-[10px] font-bold text-rose-500 uppercase block">Kas Kecil Terpakai</span>
+          <span className="text-[10px] font-bold text-rose-500 uppercase block">Pengeluaran</span>
           <span className="text-base font-black text-rose-600 mt-1 block">
             Rp {dailyTotal.expense.toLocaleString('id-ID')}
           </span>
@@ -196,7 +195,6 @@ export default function LeaderSettlementMonitor({ user, locationId: propLocId }:
 
               return (
                 <div key={s.id} className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
-                  {/* Header Shift Card */}
                   <div className="flex justify-between items-start pb-3 border-b border-slate-100">
                     <div>
                       <span className="inline-block px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-100 mb-1">
@@ -215,7 +213,6 @@ export default function LeaderSettlementMonitor({ user, locationId: propLocId }:
                     </div>
                   </div>
 
-                  {/* Detail Komposisi Pembayaran & Pengeluaran Kas Kecil */}
                   <div className="space-y-2 text-xs">
                     <div className="flex justify-between text-slate-600">
                       <span className="flex items-center gap-1.5">
@@ -240,11 +237,11 @@ export default function LeaderSettlementMonitor({ user, locationId: propLocId }:
                       </span>
                     </div>
 
-                    {/* SECTION PENGELUARAN KAS KECIL KHUSUS SHIFT INI */}
+                    {/* SECTION PENGELUARAN SHIFT */}
                     <div className="pt-2 border-t border-slate-100 space-y-1">
                       <div className="flex justify-between items-center text-rose-600">
                         <span className="flex items-center gap-1.5 font-bold">
-                          <Wallet className="w-3.5 h-3.5" /> Pengeluaran Kasir:
+                          <Wallet className="w-3.5 h-3.5" /> Pengeluaran:
                         </span>
                         <span className="font-black">
                           {expenseAmount > 0 ? `-Rp ${expenseAmount.toLocaleString('id-ID')}` : 'Rp 0'}

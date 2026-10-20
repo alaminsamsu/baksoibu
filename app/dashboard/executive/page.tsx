@@ -252,7 +252,6 @@ export default function ExecutiveOwnerDashboard() {
     return Object.values(compMap);
   }, [settlements, closings]);
 
-  // Daftar rincian pengeluaran kas kecil dari laporan kasir
   const expenseLogs = useMemo(() => {
     return settlements
       .filter((s) => Number(s.expense_nominal || 0) > 0)
@@ -274,7 +273,7 @@ export default function ExecutiveOwnerDashboard() {
         alert('Tidak ada data pada periode ini untuk diunduh.');
         return;
       }
-      const headers = ['Tanggal', 'Outlet', 'Shift', 'Pelapor', 'Modal Kas', 'Tunai', 'QRIS', 'Grab', 'GoFood', 'Shopee', 'Pengeluaran Kas Kecil', 'Catatan Pengeluaran', 'Total Omset', 'Total Bill', 'Fisik Laci', 'Selisih'];
+      const headers = ['Tanggal', 'Outlet', 'Shift', 'Pelapor', 'Modal Kas', 'Tunai', 'QRIS', 'Grab', 'GoFood', 'Shopee', 'Pengeluaran', 'Catatan Pengeluaran', 'Total Omset', 'Total Bill', 'Fisik Laci', 'Selisih'];
       const rows = settlements.map((s) => [
         `"${s.settlement_date}"`,
         `"${s.locations?.name || 'Outlet'}"`,
@@ -477,7 +476,7 @@ export default function ExecutiveOwnerDashboard() {
               </div>
             </div>
 
-            {/* KPI UTAMA (Termasuk Total Pengeluaran Kasir) */}
+            {/* KPI UTAMA */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
                 <span className="text-[10px] font-bold text-slate-400 block uppercase">Total Omset</span>
@@ -493,9 +492,9 @@ export default function ExecutiveOwnerDashboard() {
                 <span className="text-[10px] text-slate-400 font-medium">Struk terbit</span>
               </div>
 
-              {/* METRIK PENGELUARAN KAS KECIL */}
+              {/* METRIK PENGELUARAN */}
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
-                <span className="text-[10px] font-bold text-rose-500 block uppercase">Kas Kecil Keluar</span>
+                <span className="text-[10px] font-bold text-rose-500 block uppercase">Pengeluaran</span>
                 <p className="text-lg font-black text-rose-600 mt-1">Rp {kpi.totalExpense.toLocaleString('id-ID')}</p>
                 <span className="text-[10px] text-rose-400 font-medium">Belanja operasional</span>
               </div>
@@ -617,7 +616,7 @@ export default function ExecutiveOwnerDashboard() {
               </div>
             </div>
 
-            {/* TABEL RINCIAN PENGELUARAN KAS KECIL & NOTA KASIR UNTUK OWNER */}
+            {/* TABEL RINCIAN PENGELUARAN UNTUK OWNER */}
             {expenseLogs.length > 0 && (
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
