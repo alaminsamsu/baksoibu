@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { Store, CheckCircle2, AlertCircle, Save, RefreshCw, ArrowLeft, CheckSquare, Search } from 'lucide-react';
+import { Store, CheckCircle2, AlertCircle, Save, RefreshCw, ArrowLeft, CheckSquare, Search, Calendar } from 'lucide-react';
 
 interface Props {
   user?: any;
@@ -34,6 +34,21 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
   const effectiveLocationId = propLocId || user?.location_id || user?.id || '';
   const effectiveStaffName = propStaff || user?.active_staff_name || user?.username || 'Kru Outlet';
 
+  // LOGIKA BISNIS: Cut-off jam 05:00 pagi WITA. 
+  // Jika kru input jam 00:00 - 04:59 dini hari, otomatis tanggal closing adalah kemarin (H-1).
+  const getEffectiveClosingDate = () => {
+    const now = new Date();
+    const witaHour = parseInt(
+      new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: 'numeric', hour12: false }).format(now)
+    );
+    const d = new Date();
+    if (witaHour < 5) {
+      d.setDate(d.getDate() - 1);
+    }
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(d);
+  };
+
+  const [closingDate, setClosingDate] = useState<string>(getEffectiveClosingDate());
   const [items, setItems] = useState<ClosingItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Semua');
@@ -46,11 +61,13 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
     setLoading(true);
     setMsg(null);
     try {
-      const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
+      const activeDate = closingDate;
 
-      const yDate = new Date();
-      yDate.setDate(yDate.getDate() - 1);
-      const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(yDate);
+      // Tanggal modal kemarin (H-1 dari activeDate)
+      const curDateObj = new Date(activeDate + 'T00:00:00');
+      const prevDateObj = new Date(curDateObj);
+      prevDateObj.setDate(prevDateObj.getDate() - 1);
+      const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(prevDateObj);
 
       // 1. Ambil 71 master items resmi
       const { data: masterItems } = await supabase
@@ -58,41 +75,41 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         .select('name, category, uom')
         .order('name');
 
-      // 2. Ambil stok closing kemarin sebagai modal awal
+      // 2. Ambil stok closing hari sebelumnya sebagai modal awal
       const { data: yesterdayClosings } = await supabase
         .from('daily_closings')
         .select('item_name, remaining_stock')
         .eq('location_id', effectiveLocationId)
         .eq('closing_date', yesterdayStr);
 
-      // 3. Ambil data penerimaan/stok masuk hari ini
+      // 3. Ambil data penerimaan/stok masuk pada tanggal aktif
       const { data: moveData } = await supabase
         .from('stock_movements')
         .select('item_name, quantity, created_at, movement_type')
         .eq('location_id', effectiveLocationId);
 
-      const todayMoves = (moveData || []).filter((m) => {
+      const dateMoves = (moveData || []).filter((m) => {
         if (!m.created_at) return false;
         const isMasuk = m.movement_type === 'MASUK' || m.movement_type === 'IN';
         if (!isMasuk) return false;
         const dStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date(m.created_at));
-        return dStr === todayStr;
+        return dStr === activeDate;
       });
 
-      // 4. Ambil data closing hari ini yang sudah tersimpan
-      const { data: todayClosings } = await supabase
+      // 4. Ambil data closing yang sudah tersimpan untuk tanggal aktif
+      const { data: savedClosings } = await supabase
         .from('daily_closings')
         .select('*')
         .eq('location_id', effectiveLocationId)
-        .eq('closing_date', todayStr);
+        .eq('closing_date', activeDate);
 
       const rows: ClosingItem[] = (masterItems || []).map((m) => {
         const clean = m.name.trim().toUpperCase();
         const prev = yesterdayClosings?.find((y) => y.item_name.trim().toUpperCase() === clean);
-        const inc = todayMoves
+        const inc = dateMoves
           .filter((i) => i.item_name.trim().toUpperCase() === clean)
           .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0);
-        const saved = todayClosings?.find((t) => t.item_name.trim().toUpperCase() === clean);
+        const saved = savedClosings?.find((t) => t.item_name.trim().toUpperCase() === clean);
 
         return {
           item_name: m.name,
@@ -115,7 +132,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
 
   useEffect(() => {
     loadData();
-  }, [effectiveLocationId]);
+  }, [effectiveLocationId, closingDate]);
 
   const handleInputChange = (itemName: string, field: 'sisa_fisik' | 'waste', val: string) => {
     if (val !== '' && Number(val) < 0) return;
@@ -163,10 +180,9 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
     setSaving(true);
     setMsg(null);
     try {
-      const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
-
-      // HANYA simpan barang yang sedang aktif di tab/filter saat ini agar tidak menimpa bagian kru lain
+      const activeDate = closingDate;
       const targetItemsToSave = selectedCategory === 'Semua' ? items : filteredItems;
+      const nowIso = new Date().toISOString();
 
       const payloads = targetItemsToSave.map((row) => {
         const fisik = row.sisa_fisik === '' ? 0 : Number(row.sisa_fisik);
@@ -176,7 +192,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
 
         return {
           location_id: effectiveLocationId,
-          closing_date: todayStr,
+          closing_date: activeDate,
           item_name: row.item_name,
           category: row.category,
           stok_awal: Number(row.stok_awal || 0),
@@ -187,7 +203,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
           unit: row.unit,
           reported_by: effectiveStaffName,
           is_locked: false,
-          created_at: new Date().toISOString(),
+          created_at: nowIso,
         };
       });
 
@@ -198,13 +214,15 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
 
       if (closingError) throw closingError;
 
-      // 2. Simpan ke branch_stocks
+      // 2. Simpan stok fisik terbaru ke branch_stocks
       const branchPayloads = payloads.map((p) => ({
         location_id: p.location_id,
         item_name: p.item_name,
         remaining_stock: p.remaining_stock,
         unit: p.unit,
         category: p.category,
+        last_updated: nowIso,
+        last_updated_by: effectiveStaffName,
       }));
 
       const { error: stockError } = await supabase
@@ -216,7 +234,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
       }
 
       setMsg({
-        text: `Berhasil disimpan oleh ${effectiveStaffName}! (${payloads.length} item kategori ${selectedCategory} terupdate)`,
+        text: `Berhasil disimpan oleh ${effectiveStaffName} untuk closing tanggal ${activeDate}! (${payloads.length} item diperbarui)`,
         type: 'success',
       });
 
@@ -263,7 +281,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
   }, [filteredItems]);
 
   return (
-    <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4 max-w-4xl mx-auto">
+    <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4 max-w-4xl mx-auto font-sans">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
         <div className="flex items-center gap-2">
@@ -283,12 +301,24 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
               Form Tutup Toko (Sisa Fisik & Waste)
             </h3>
             <p className="text-[10px] text-slate-400">
-              Input sisa fisik dan waste. Data dapat disimpan berkali-kali oleh tiap crew tanpa terkunci.
+              Input sisa fisik dan waste. Bebas disimpan bertahap oleh setiap crew.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+          {/* Pilihan Tanggal Operasional */}
+          <div className="relative flex items-center">
+            <Calendar className="absolute left-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+            <input
+              type="date"
+              value={closingDate}
+              onChange={(e) => setClosingDate(e.target.value)}
+              className="pl-8 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+              title="Tanggal Operasional Closing"
+            />
+          </div>
+
           <button
             type="button"
             onClick={handleSetCurrentTabZero}
@@ -296,7 +326,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
             title="Set item pada tab aktif menjadi 0"
           >
             <CheckSquare className="w-3.5 h-3.5" />
-            <span>Set Kategori Ini = 0</span>
+            <span>Set Tab Ini = 0</span>
           </button>
 
           <button
@@ -369,7 +399,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
                   <React.Fragment key={category}>
                     <tr className="bg-slate-50/80 border-y border-slate-100">
                       <td colSpan={4} className="py-2 px-3 font-black text-slate-700 uppercase tracking-wider text-[11px]">
-                        {category} <span className="text-slate-400 font-normal lowercase">({list.length} item)</span>
+                        • {category} <span className="text-slate-400 font-normal lowercase">({list.length} item)</span>
                       </td>
                     </tr>
                     {list.map((row) => (
@@ -418,8 +448,8 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
               {saving
                 ? 'Menyimpan Data...'
                 : selectedCategory === 'Semua'
-                ? 'Simpan Semua Data Tutup Toko'
-                : `Simpan Data Kategori "${selectedCategory}"`}
+                ? `Simpan Semua Data Closing (${closingDate})`
+                : `Simpan Kategori "${selectedCategory}" (${closingDate})`}
             </span>
           </button>
         </form>
