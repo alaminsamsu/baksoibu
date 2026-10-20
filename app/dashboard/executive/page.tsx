@@ -19,10 +19,12 @@ import {
   Store,
   Receipt,
   Users,
-  Wallet
+  Wallet,
+  BarChart3
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
+import StockUsageAnalytics from '@/components/outlet/components/shared/StockUsageAnalytics';
 
 interface SettlementRecord {
   id: string;
@@ -87,9 +89,10 @@ interface StockItem {
 
 export default function ExecutiveOwnerDashboard() {
   const router = useRouter();
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [locations, setLocations] = useState<any[]>([]);
   
-  const [activeTab, setActiveTab] = useState<'overview' | 'hr' | 'stok'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'konsumsi' | 'hr' | 'stok'>('overview');
   
   const [filterMode, setFilterMode] = useState<'today' | 'weekly' | 'monthly' | 'custom'>('today');
   const [customDate, setCustomDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -105,10 +108,15 @@ export default function ExecutiveOwnerDashboard() {
   useEffect(() => {
     const sessionStr = localStorage.getItem('baksoibu_active_staff');
     if (sessionStr) {
-      const session = JSON.parse(sessionStr);
-      if ((session.role || '').toUpperCase() === 'HR') {
-        router.push('/dashboard/hr');
-        return;
+      try {
+        const session = JSON.parse(sessionStr);
+        setCurrentUser(session);
+        if ((session.role || '').toUpperCase() === 'HR') {
+          router.push('/dashboard/hr');
+          return;
+        }
+      } catch (e) {
+        console.error(e);
       }
     }
     fetchAllExecutiveData();
@@ -291,7 +299,7 @@ export default function ExecutiveOwnerDashboard() {
         Number(s.total_bills || 0),
         Number(s.actual_cash_deposited || 0),
         Number(s.cash_difference || 0)
-      ].join(';'));
+      ].join(';');
 
       const csvContent = [headers.join(';'), ...rows].join('\r\n');
       const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -337,6 +345,15 @@ export default function ExecutiveOwnerDashboard() {
               Executive KPI
             </button>
             <button
+              onClick={() => setActiveTab('konsumsi')}
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'konsumsi' ? 'bg-[#ff6f3c] text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              Pola Konsumsi
+            </button>
+            <button
               onClick={() => setActiveTab('hr')}
               className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'hr' ? 'bg-[#ff6f3c] text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
@@ -368,6 +385,13 @@ export default function ExecutiveOwnerDashboard() {
 
       {/* Main Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
+        {/* TAB KHUSUS POLA KONSUMSI BAHAN (WEEKDAYS VS WEEKEND) */}
+        {activeTab === 'konsumsi' && (
+          <div>
+            <StockUsageAnalytics user={currentUser} />
+          </div>
+        )}
+
         {/* TAB KHUSUS MONITOR STOK */}
         {activeTab === 'stok' && (
           <div>
@@ -492,7 +516,6 @@ export default function ExecutiveOwnerDashboard() {
                 <span className="text-[10px] text-slate-400 font-medium">Struk terbit</span>
               </div>
 
-              {/* METRIK PENGELUARAN */}
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
                 <span className="text-[10px] font-bold text-rose-500 block uppercase">Pengeluaran</span>
                 <p className="text-lg font-black text-rose-600 mt-1">Rp {kpi.totalExpense.toLocaleString('id-ID')}</p>

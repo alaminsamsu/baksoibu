@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
+import StockUsageAnalytics from '@/components/outlet/components/shared/StockUsageAnalytics';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -119,7 +120,6 @@ export default function AdminDashboardPage() {
           .filter((c) => c.location_id === s.location_id && c.item_name === s.item_name)
           .reduce((sum, curr) => sum + Number(curr.waste_qty || 0), 0);
 
-        // Ambil closing paling mutakhir
         const latestClosing = (closingData || [])
           .filter((c) => c.location_id === s.location_id && c.item_name === s.item_name)
           .sort((a, b) => b.closing_date.localeCompare(a.closing_date))[0];
@@ -127,7 +127,6 @@ export default function AdminDashboardPage() {
         const initialStock = Number(s.initial_stock || 0);
         const closingStock = latestClosing ? Number(latestClosing.remaining_stock || 0) : Number(s.remaining_stock || 0);
         
-        // Pemakaian = (Stok Awal + Masuk) - Sisa Fisik Terakhir - Waste
         const usage = Math.max(0, (initialStock + itemIn) - closingStock - itemWaste);
 
         reportRows.push({
@@ -163,7 +162,6 @@ export default function AdminDashboardPage() {
         )
       ].join('\r\n');
 
-      // 6. Trigger Unduhan File di Browser
       const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -280,98 +278,103 @@ export default function AdminDashboardPage() {
           <LiveExecutiveSummary />
         )}
 
-        {/* TAB KHUSUS DOWNLOAD REKAP PEMAKAIAN */}
+        {/* TAB KHUSUS DOWNLOAD REKAP PEMAKAIAN & ANALISIS POLA KONSUMSI */}
         {activeTab === 'rekap' && (
-          <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-sm shadow-slate-200/50 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-100 gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
-                  <FileSpreadsheet className="w-6 h-6" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-black text-slate-900 tracking-tight">
-                    Download Rekap Pemakaian Bahan Baku
-                  </h2>
-                  <p className="text-xs font-medium text-slate-400">
-                    Ekspor data pemakaian, barang masuk, dan waste ke format Excel / CSV.
-                  </p>
-                </div>
-              </div>
-            </div>
+          <div className="space-y-6">
+            {/* Widget Analisis Rata-rata Konsumsi Harian & Weekdays vs Weekend */}
+            <StockUsageAnalytics user={user} />
 
-            {/* Panel Pengaturan Ekspor */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Pilihan Periode */}
-              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-3">
-                <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                  1. Pilih Rentang Waktu Rekap
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setPeriodType('weekly')}
-                    className={`py-3 px-4 rounded-xl text-xs font-extrabold border transition-all ${
-                      periodType === 'weekly'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    📅 7 Hari (Mingguan)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPeriodType('monthly')}
-                    className={`py-3 px-4 rounded-xl text-xs font-extrabold border transition-all ${
-                      periodType === 'monthly'
-                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    🗓️ 30 Hari (Bulanan)
-                  </button>
+            <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-sm shadow-slate-200/50 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-100 gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
+                    <FileSpreadsheet className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-black text-slate-900 tracking-tight">
+                      Download Rekap Pemakaian Bahan Baku
+                    </h2>
+                    <p className="text-xs font-medium text-slate-400">
+                      Ekspor data pemakaian, barang masuk, dan waste ke format Excel / CSV.
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              {/* Pilihan Cabang */}
-              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-3">
-                <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                  2. Pilih Cabang Outlet
-                </label>
-                <div className="relative">
-                  <MapPin className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
-                  <select
-                    value={selectedLoc}
-                    onChange={(e) => setSelectedLoc(e.target.value)}
-                    className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                  >
-                    <option value="all">Semua Cabang (Laporan Gabungan)</option>
-                    {locations.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        Outlet {l.name}
-                      </option>
-                    ))}
-                  </select>
+              {/* Panel Pengaturan Ekspor */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Pilihan Periode */}
+                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-3">
+                  <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                    1. Pilih Rentang Waktu Rekap
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPeriodType('weekly')}
+                      className={`py-3 px-4 rounded-xl text-xs font-extrabold border transition-all ${
+                        periodType === 'weekly'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      📅 7 Hari (Mingguan)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPeriodType('monthly')}
+                      className={`py-3 px-4 rounded-xl text-xs font-extrabold border transition-all ${
+                        periodType === 'monthly'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/20'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      🗓️ 30 Hari (Bulanan)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Pilihan Cabang */}
+                <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 space-y-3">
+                  <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                    2. Pilih Cabang Outlet
+                  </label>
+                  <div className="relative">
+                    <MapPin className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
+                    <select
+                      value={selectedLoc}
+                      onChange={(e) => setSelectedLoc(e.target.value)}
+                      className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    >
+                      <option value="all">Semua Cabang (Laporan Gabungan)</option>
+                      {locations.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          Outlet {l.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Tombol Ekspor */}
-            <div className="pt-2">
-              <button
-                onClick={handleDownloadReport}
-                disabled={downloading}
-                className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-2xl shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                <Download className="w-4 h-4" />
-                <span>
-                  {downloading
-                    ? 'Sedang Menyiapkan & Mengunduh File...'
-                    : `Unduh Rekap ${periodType === 'weekly' ? 'Mingguan' : 'Bulanan'} (.CSV / Excel)`}
-                </span>
-              </button>
-              <p className="text-center text-[11px] text-slate-400 font-medium mt-3">
-                File .csv dapat langsung dibuka di Microsoft Excel, Apple Numbers, atau diimpor ke Google Sheets.
-              </p>
+              {/* Tombol Ekspor */}
+              <div className="pt-2">
+                <button
+                  onClick={handleDownloadReport}
+                  disabled={downloading}
+                  className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black rounded-2xl shadow-lg shadow-emerald-600/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>
+                    {downloading
+                      ? 'Sedang Menyiapkan & Mengunduh File...'
+                      : `Unduh Rekap ${periodType === 'weekly' ? 'Mingguan' : 'Bulanan'} (.CSV / Excel)`}
+                  </span>
+                </button>
+                <p className="text-center text-[11px] text-slate-400 font-medium mt-3">
+                  File .csv dapat langsung dibuka di Microsoft Excel, Apple Numbers, atau diimpor ke Google Sheets.
+                </p>
+              </div>
             </div>
           </div>
         )}

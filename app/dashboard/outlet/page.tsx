@@ -19,6 +19,7 @@ import CashSettlementForm from '@/components/outlet/CashSettlementForm';
 import LeaderSettlementMonitor from '@/components/outlet/LeaderSettlementMonitor';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 import StaffAttendanceWidget from '@/components/hr/StaffAttendanceWidget';
+import StockUsageAnalytics from '@/components/outlet/components/shared/StockUsageAnalytics';
 
 export default function OutletDashboard() {
   const router = useRouter();
@@ -96,7 +97,7 @@ export default function OutletDashboard() {
           />
         )}
 
-        {/* Menu 2: Permintaan Belanja (Form Kru Asli) */}
+        {/* Menu 2: Permintaan Belanja (Form Kru Asli Tetap Aman) */}
         {activeForm === 'order' && (
           <OrderRequestForm 
             user={currentUser} 
@@ -206,7 +207,7 @@ export default function OutletDashboard() {
               )}
             </div>
 
-            {/* DASHBOARD OMSET SHIFT */}
+            {/* DASHBOARD OMSET SHIFT (LEADER / ADMIN / OWNER) */}
             {isLeaderOrOwner && (
               <div className="pt-1">
                 <LeaderSettlementMonitor 
@@ -220,6 +221,17 @@ export default function OutletDashboard() {
             <div className="pt-1">
               <BranchStockMonitor />
             </div>
+
+            {/* ANALISIS POLA KONSUMSI HARIAN CABANG (KHUSUS LEADER / OWNER) */}
+            {isLeaderOrOwner && (
+              <div className="pt-2">
+                <StockUsageAnalytics 
+                  user={currentUser} 
+                  defaultLocationId={currentUser?.location_id}
+                  hideLocationFilter={true} 
+                />
+              </div>
+            )}
           </div>
         )}
       </main>
