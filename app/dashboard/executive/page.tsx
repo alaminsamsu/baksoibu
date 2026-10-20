@@ -281,7 +281,25 @@ export default function ExecutiveOwnerDashboard() {
         alert('Tidak ada data pada periode ini untuk diunduh.');
         return;
       }
-      const headers = ['Tanggal', 'Outlet', 'Shift', 'Pelapor', 'Modal Kas', 'Tunai', 'QRIS', 'Grab', 'GoFood', 'Shopee', 'Pengeluaran', 'Catatan Pengeluaran', 'Total Omset', 'Total Bill', 'Fisik Laci', 'Selisih'];
+      const headers = [
+        'Tanggal',
+        'Outlet',
+        'Shift',
+        'Pelapor',
+        'Modal Kas',
+        'Tunai',
+        'QRIS',
+        'Grab',
+        'GoFood',
+        'Shopee',
+        'Pengeluaran',
+        'Catatan Pengeluaran',
+        'Total Omset',
+        'Total Bill',
+        'Fisik Laci',
+        'Selisih'
+      ];
+
       const rows = settlements.map((s) => [
         `"${s.settlement_date}"`,
         `"${s.locations?.name || 'Outlet'}"`,
@@ -299,7 +317,7 @@ export default function ExecutiveOwnerDashboard() {
         Number(s.total_bills || 0),
         Number(s.actual_cash_deposited || 0),
         Number(s.cash_difference || 0)
-      ].join(';');
+      ].join(';'));
 
       const csvContent = [headers.join(';'), ...rows].join('\r\n');
       const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -690,7 +708,6 @@ export default function ExecutiveOwnerDashboard() {
                 </div>
               </div>
             )}
-
           </div>
         )}
       </main>
