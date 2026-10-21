@@ -13,7 +13,9 @@ import {
   AlertCircle,
   Clock,
   Calendar,
-  Building2
+  Building2,
+  Plus,
+  Trash2
 } from 'lucide-react';
 
 interface Props {
@@ -21,6 +23,13 @@ interface Props {
   onBack?: () => void;
   locationId?: string;
   staffName?: string;
+}
+
+interface NonCashItem {
+  id: string;
+  category: string;
+  nominal: number | string;
+  notes: string;
 }
 
 export default function CashSettlementForm({ user, onBack, locationId: propLocId, staffName: propStaff }: Props) {
@@ -47,10 +56,10 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const [expenseNominal, setExpenseNominal] = useState<number | string>('');
   const [expenseNotes, setExpenseNotes] = useState<string>('');
 
-  // 2. Pengeluaran Non-Kasir (Rumah Produksi / Vendor / Tagihan Pusat - TIDAK memotong laci)
-  const [nonCashExpenseNominal, setNonCashExpenseNominal] = useState<number | string>('');
-  const [nonCashExpenseCategory, setNonCashExpenseCategory] = useState<string>('RUMAH_PRODUKSI');
-  const [nonCashExpenseNotes, setNonCashExpenseNotes] = useState<string>('');
+  // 2. Daftar Pengeluaran Non-Kasir Dinamis (Bisa Tambah Banyak Beban)
+  const [nonCashList, setNonCashList] = useState<NonCashItem[]>([
+    { id: '1', category: 'RUMAH_PRODUKSI', nominal: '', notes: '' }
+  ]);
 
   // Uang Laci Fisik
   const [actualCashDeposited, setActualCashDeposited] = useState<number | string>('');
@@ -68,7 +77,10 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const numGofood = Number(gofoodNominal) || 0;
   const numShopee = Number(shopeeNominal) || 0;
   const numExpense = Number(expenseNominal) || 0;
-  const numNonCashExpense = Number(nonCashExpenseNominal) || 0;
+
+  // Akumulasi Total Beban Non-Kasir
+  const totalNonCashExpense = nonCashList.reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
+  
   const numActualCash = Number(actualCashDeposited) || 0;
 
   const totalOmset = numCash + numQris + numGrab + numGofood + numShopee;
@@ -105,9 +117,31 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         setShopeeNominal(data.shopee_nominal ?? '');
         setExpenseNominal(data.expense_nominal ?? '');
         setExpenseNotes(data.expense_notes ?? '');
-        setNonCashExpenseNominal(data.non_cash_expense_nominal ?? '');
-        setNonCashExpenseCategory(data.non_cash_expense_category ?? 'RUMAH_PRODUKSI');
-        setNonCashExpenseNotes(data.non_cash_expense_notes ?? '');
+
+        // Parse jika tersimpan list JSON
+        if (data.non_cash_expense_notes && data.non_cash_expense_notes.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(data.non_cash_expense_notes);
+            setNonCashList(parsed);
+          } catch {
+            setNonCashList([{
+              id: '1',
+              category: data.non_cash_expense_category || 'RUMAH_PRODUKSI',
+              nominal: data.non_cash_expense_nominal || '',
+              notes: data.non_cash_expense_notes || ''
+            }]);
+          }
+        } else if (data.non_cash_expense_nominal > 0) {
+          setNonCashList([{
+            id: '1',
+            category: data.non_cash_expense_category || 'RUMAH_PRODUKSI',
+            nominal: data.non_cash_expense_nominal,
+            notes: data.non_cash_expense_notes || ''
+          }]);
+        } else {
+          setNonCashList([{ id: '1', category: 'RUMAH_PRODUKSI', nominal: '', notes: '' }]);
+        }
+
         setActualCashDeposited(data.actual_cash_deposited ?? '');
         setNotes(data.notes ?? '');
       } else {
@@ -120,9 +154,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         setShopeeNominal('');
         setExpenseNominal('');
         setExpenseNotes('');
-        setNonCashExpenseNominal('');
-        setNonCashExpenseCategory('RUMAH_PRODUKSI');
-        setNonCashExpenseNotes('');
+        setNonCashList([{ id: '1', category: 'RUMAH_PRODUKSI', nominal: '', notes: '' }]);
         setActualCashDeposited('');
         setNotes('');
       }
@@ -131,6 +163,30 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     } finally {
       setLoading(false);
     }
+  };
+
+  // Handler Tambah Baris Pengeluaran Non-Kasir
+  const handleAddNonCashRow = () => {
+    setNonCashList((prev) => [
+      ...prev,
+      { id: Date.now().toString(), category: 'RUMAH_PRODUKSI', nominal: '', notes: '' }
+    ]);
+  };
+
+  // Handler Hapus Baris
+  const handleRemoveNonCashRow = (id: string) => {
+    if (nonCashList.length === 1) {
+      setNonCashList([{ id: Date.now().toString(), category: 'RUMAH_PRODUKSI', nominal: '', notes: '' }]);
+      return;
+    }
+    setNonCashList((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  // Handler Perubahan Data Tiap Baris
+  const handleUpdateNonCashRow = (id: string, field: keyof NonCashItem, value: any) => {
+    setNonCashList((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item))
+    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -143,6 +199,10 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     setSaving(true);
     setMsg(null);
     try {
+      // Filter hanya baris yang ada nominalnya
+      const validNonCashItems = nonCashList.filter((item) => Number(item.nominal) > 0);
+      const totalNonCash = validNonCashItems.reduce((acc, curr) => acc + Number(curr.nominal || 0), 0);
+
       const payload: Record<string, any> = {
         location_id: effectiveLocationId,
         settlement_date: settlementDate,
@@ -157,9 +217,9 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         online_nominal: numGrab + numGofood + numShopee,
         expense_nominal: numExpense,
         expense_notes: expenseNotes.trim() || null,
-        non_cash_expense_nominal: numNonCashExpense,
-        non_cash_expense_category: numNonCashExpense > 0 ? nonCashExpenseCategory : null,
-        non_cash_expense_notes: numNonCashExpense > 0 ? (nonCashExpenseNotes.trim() || null) : null,
+        non_cash_expense_nominal: totalNonCash,
+        non_cash_expense_category: validNonCashItems.length > 0 ? validNonCashItems.map(i => i.category).join(', ') : null,
+        non_cash_expense_notes: validNonCashItems.length > 0 ? JSON.stringify(validNonCashItems) : null,
         actual_cash_deposited: numActualCash,
         cash_difference: cashDifference,
         notes: notes.trim() || null,
@@ -419,68 +479,102 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                 type="text"
                 value={expenseNotes}
                 onChange={(e) => setExpenseNotes(e.target.value)}
-                placeholder="Misal: Beli es batu darurat, sabun cuci"
+                placeholder="Misal: Gas 3 kg : 3 buah, es batu kristal"
                 className="w-full px-3 py-2 bg-white border border-rose-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
               />
             </div>
           </div>
         </div>
 
-        {/* 2. PENGELUARAN NON-KASIR (RUMAH PRODUKSI & VENDOR - TIDAK MEMOTONG LACI) */}
+        {/* 2. PENGELUARAN NON-KASIR MULTI-BARIS (TIDAK MEMOTONG UANG LACI) */}
         <div className="p-4 bg-indigo-50/40 rounded-2xl border border-indigo-100 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase text-indigo-700 block tracking-wider flex items-center gap-1.5">
-              <Building2 className="w-3.5 h-3.5" /> 2. Pengeluaran Rumah Produksi / Vendor
-            </span>
-            <span className="text-[9px] font-bold text-indigo-600 bg-indigo-100/60 px-2 py-0.5 rounded-md">
-              TIDAK Memotong Uang Laci
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase text-indigo-700 block tracking-wider flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5" /> 2. Pengeluaran Rumah Produksi & Vendor
+              </span>
+              <span className="text-[9px] font-bold text-indigo-600 bg-indigo-100/60 px-2 py-0.5 rounded-md">
+                TIDAK Memotong Laci
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddNonCashRow}
+              className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all"
+            >
+              <Plus className="w-3 h-3" />
+              <span>Tambah Beban</span>
+            </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-[11px] font-bold text-indigo-950 mb-1">
-                Kategori Beban
-              </label>
-              <select
-                value={nonCashExpenseCategory}
-                onChange={(e) => setNonCashExpenseCategory(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-xs font-bold text-indigo-900 focus:outline-none"
-              >
-                <option value="RUMAH_PRODUKSI">Rumah Produksi</option>
-                <option value="VENDOR_PASAR">Vendor Pasar</option>
-                <option value="VENDOR_SUPPLIER">Vendor Supplier</option>
-                <option value="LAINNYA">Tagihan Lainnya</option>
-              </select>
-            </div>
+          <div className="space-y-2.5">
+            {nonCashList.map((item, index) => (
+              <div key={item.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 bg-white p-2.5 rounded-xl border border-indigo-100 items-center">
+                {/* Kategori (Span 4) */}
+                <div className="sm:col-span-4">
+                  <select
+                    value={item.category}
+                    onChange={(e) => handleUpdateNonCashRow(item.id, 'category', e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-indigo-900 focus:outline-none"
+                  >
+                    <option value="RUMAH_PRODUKSI">Rumah Produksi</option>
+                    <option value="VENDOR_PASAR">Vendor Pasar</option>
+                    <option value="VENDOR_HAMDALAH">Vendor Hamdalah</option>
+                    <option value="KARYA_HARAPAN">Karya Harapan</option>
+                    <option value="SATU_SAMA">Satu Sama</option>
+                    <option value="SUMBER_PLASTIK">Sumber Plastik</option>
+                    <option value="VENDOR_GAS">Vendor Gas</option>
+                    <option value="VENDOR_ES">Vendor Es Batu</option>
+                    <option value="VENDOR_SUPPLIER">Vendor Supplier Lainnya</option>
+                    <option value="LAINNYA">Tagihan Lainnya</option>
+                  </select>
+                </div>
 
-            <div>
-              <label className="block text-[11px] font-bold text-indigo-950 mb-1">
-                Nominal Tagihan (Rp)
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={nonCashExpenseNominal}
-                onChange={(e) => setNonCashExpenseNominal(e.target.value)}
-                placeholder="0"
-                className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-xs font-black text-indigo-700 focus:outline-none"
-              />
-            </div>
+                {/* Nominal (Span 3) */}
+                <div className="sm:col-span-3">
+                  <input
+                    type="number"
+                    min="0"
+                    value={item.nominal}
+                    onChange={(e) => handleUpdateNonCashRow(item.id, 'nominal', e.target.value)}
+                    placeholder="Rp Nominal"
+                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-black text-indigo-700 focus:outline-none"
+                  />
+                </div>
 
-            <div>
-              <label className="block text-[11px] font-bold text-indigo-950 mb-1">
-                Catatan / Keperluan
-              </label>
-              <input
-                type="text"
-                value={nonCashExpenseNotes}
-                onChange={(e) => setNonCashExpenseNotes(e.target.value)}
-                placeholder="Misal: Tagihan bakso beku 15kg, bumbu dapur"
-                className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
-              />
-            </div>
+                {/* Catatan (Span 4) */}
+                <div className="sm:col-span-4">
+                  <input
+                    type="text"
+                    value={item.notes}
+                    onChange={(e) => handleUpdateNonCashRow(item.id, 'notes', e.target.value)}
+                    placeholder="Keperluan / Catatan"
+                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none"
+                  />
+                </div>
+
+                {/* Tombol Hapus Baris (Span 1) */}
+                <div className="sm:col-span-1 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveNonCashRow(item.id)}
+                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                    title="Hapus baris ini"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
+
+          {totalNonCashExpense > 0 && (
+            <div className="flex justify-between items-center pt-2 border-t border-indigo-100 text-xs">
+              <span className="font-bold text-indigo-900">Total Beban Non-Kasir:</span>
+              <span className="font-black text-indigo-700">Rp {totalNonCashExpense.toLocaleString('id-ID')}</span>
+            </div>
+          )}
         </div>
 
         {/* UANG FISIK LACI & CEK SELISIH */}
