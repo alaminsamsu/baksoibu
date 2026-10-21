@@ -20,6 +20,7 @@ import {
   Receipt,
   Users,
   Wallet,
+  Building2,
   BarChart3
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
@@ -41,6 +42,9 @@ interface SettlementRecord {
   shopee_nominal?: number;
   expense_nominal?: number;
   expense_notes?: string;
+  non_cash_expense_nominal?: number;
+  non_cash_expense_category?: string;
+  non_cash_expense_notes?: string;
   total_omset: number;
   actual_cash_deposited: number;
   cash_difference: number;
@@ -65,28 +69,6 @@ interface ClosingRecord {
   locations?: { name: string };
 }
 
-interface OrderRequestRecord {
-  id: string;
-  location_id: string;
-  item_name: string;
-  quantity: number;
-  unit: string;
-  source_type?: string;
-  target_type?: string;
-  requested_by?: string;
-  created_at: string;
-  locations?: { name: string };
-}
-
-interface StockItem {
-  id: string;
-  location_id: string;
-  item_name: string;
-  remaining_stock: number;
-  unit: string;
-  locations?: { name: string };
-}
-
 export default function ExecutiveOwnerDashboard() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -100,8 +82,6 @@ export default function ExecutiveOwnerDashboard() {
   
   const [settlements, setSettlements] = useState<SettlementRecord[]>([]);
   const [closings, setClosings] = useState<ClosingRecord[]>([]);
-  const [orders, setOrders] = useState<OrderRequestRecord[]>([]);
-  const [currentStocks, setCurrentStocks] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [downloading, setDownloading] = useState<boolean>(false);
 
@@ -170,27 +150,6 @@ export default function ExecutiveOwnerDashboard() {
       const { data: cData } = await cQuery;
       if (cData) setClosings(cData);
 
-      let oQuery = supabase
-        .from('order_requests')
-        .select('*, locations(name)')
-        .gte('created_at', `${startDateStr}T00:00:00Z`)
-        .order('created_at', { ascending: false });
-
-      if (selectedLocation !== 'all') {
-        oQuery = oQuery.eq('location_id', selectedLocation);
-      }
-      const { data: oData } = await oQuery;
-      if (oData) setOrders(oData);
-
-      let stQuery = supabase
-        .from('branch_stocks')
-        .select('*, locations(name)');
-      if (selectedLocation !== 'all') {
-        stQuery = stQuery.eq('location_id', selectedLocation);
-      }
-      const { data: stData } = await stQuery;
-      if (stData) setCurrentStocks(stData);
-
     } catch (err) {
       console.error('Gagal mengambil data Owner Dashboard:', err);
     } finally {
@@ -210,6 +169,7 @@ export default function ExecutiveOwnerDashboard() {
     
     const totalCashIn = settlements.reduce((acc, curr) => acc + Number(curr.cash_nominal || 0), 0);
     const totalExpense = settlements.reduce((acc, curr) => acc + Number(curr.expense_nominal || 0), 0);
+    const totalNonCashExpense = settlements.reduce((acc, curr) => acc + Number(curr.non_cash_expense_nominal || 0), 0);
     const netCashFlow = totalCashIn - totalExpense;
 
     const totalCashDiff = settlements.reduce((acc, curr) => acc + Number(curr.cash_difference || 0), 0);
@@ -221,6 +181,8 @@ export default function ExecutiveOwnerDashboard() {
       aov,
       totalCashIn,
       totalExpense,
+      totalNonCashExpense,
+      totalCombinedExpense: totalExpense + totalNonCashExpense,
       netCashFlow,
       totalCashDiff,
       totalWasteUnits
@@ -237,17 +199,34 @@ export default function ExecutiveOwnerDashboard() {
   }, [settlements]);
 
   const outletComparison = useMemo(() => {
-    const compMap: Record<string, { name: string; omset: number; bills: number; cashDiff: number; wasteCount: number; expense: number }> = {};
+    const compMap: Record<string, { 
+      name: string; 
+      omset: number; 
+      bills: number; 
+      cashDiff: number; 
+      wasteCount: number; 
+      cashExpense: number;
+      nonCashExpense: number;
+    }> = {};
     
     settlements.forEach((s) => {
       const locName = s.locations?.name || 'Cabang';
       if (!compMap[locName]) {
-        compMap[locName] = { name: locName, omset: 0, bills: 0, cashDiff: 0, wasteCount: 0, expense: 0 };
+        compMap[locName] = { 
+          name: locName, 
+          omset: 0, 
+          bills: 0, 
+          cashDiff: 0, 
+          wasteCount: 0, 
+          cashExpense: 0,
+          nonCashExpense: 0 
+        };
       }
       compMap[locName].omset += Number(s.total_omset || 0);
       compMap[locName].bills += Number(s.total_bills || 0);
       compMap[locName].cashDiff += Number(s.cash_difference || 0);
-      compMap[locName].expense += Number(s.expense_nominal || 0);
+      compMap[locName].cashExpense += Number(s.expense_nominal || 0);
+      compMap[locName].nonCashExpense += Number(s.non_cash_expense_nominal || 0);
     });
 
     closings.forEach((c) => {
@@ -260,6 +239,7 @@ export default function ExecutiveOwnerDashboard() {
     return Object.values(compMap);
   }, [settlements, closings]);
 
+  // Log Pengeluaran Kasir
   const expenseLogs = useMemo(() => {
     return settlements
       .filter((s) => Number(s.expense_nominal || 0) > 0)
@@ -274,6 +254,55 @@ export default function ExecutiveOwnerDashboard() {
       }));
   }, [settlements]);
 
+  // Log Pengeluaran Non-Kasir (Rumah Produksi & Vendor)
+  const nonCashExpenseLogs = useMemo(() => {
+    const list: any[] = [];
+    settlements.forEach((s) => {
+      if (Number(s.non_cash_expense_nominal || 0) > 0) {
+        if (s.non_cash_expense_notes && s.non_cash_expense_notes.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(s.non_cash_expense_notes);
+            parsed.forEach((item: any, idx: number) => {
+              list.push({
+                id: `${s.id}-${idx}`,
+                date: s.settlement_date,
+                outlet: s.locations?.name || 'Cabang',
+                shift: s.shift === 'SHIFT_2' ? 'Shift 2' : 'Shift 1',
+                cashier: s.reported_by || 'Kasir',
+                category: item.category || 'RUMAH_PRODUKSI',
+                nominal: Number(item.nominal || 0),
+                notes: item.notes || '-'
+              });
+            });
+          } catch {
+            list.push({
+              id: s.id,
+              date: s.settlement_date,
+              outlet: s.locations?.name || 'Cabang',
+              shift: s.shift === 'SHIFT_2' ? 'Shift 2' : 'Shift 1',
+              cashier: s.reported_by || 'Kasir',
+              category: s.non_cash_expense_category || 'RUMAH_PRODUKSI',
+              nominal: Number(s.non_cash_expense_nominal || 0),
+              notes: s.non_cash_expense_notes || '-'
+            });
+          }
+        } else {
+          list.push({
+            id: s.id,
+            date: s.settlement_date,
+            outlet: s.locations?.name || 'Cabang',
+            shift: s.shift === 'SHIFT_2' ? 'Shift 2' : 'Shift 1',
+            cashier: s.reported_by || 'Kasir',
+            category: s.non_cash_expense_category || 'RUMAH_PRODUKSI',
+            nominal: Number(s.non_cash_expense_nominal || 0),
+            notes: s.non_cash_expense_notes || '-'
+          });
+        }
+      }
+    });
+    return list;
+  }, [settlements]);
+
   const handleDownloadReport = () => {
     setDownloading(true);
     try {
@@ -282,24 +311,25 @@ export default function ExecutiveOwnerDashboard() {
         return;
       }
       const headers = [
-        'Tanggal',
-        'Outlet',
-        'Shift',
-        'Pelapor',
-        'Modal Kas',
-        'Tunai',
-        'QRIS',
-        'Grab',
-        'GoFood',
-        'Shopee',
-        'Pengeluaran',
-        'Catatan Pengeluaran',
-        'Total Omset',
-        'Total Bill',
-        'Fisik Laci',
+        'Tanggal', 
+        'Outlet', 
+        'Shift', 
+        'Pelapor', 
+        'Modal Kas', 
+        'Tunai', 
+        'QRIS', 
+        'Grab', 
+        'GoFood', 
+        'Shopee', 
+        'Pengeluaran Kasir', 
+        'Catatan Kasir', 
+        'Beban Non-Kasir',
+        'Total Omset', 
+        'Total Bill', 
+        'Fisik Laci', 
         'Selisih'
       ];
-
+      
       const rows = settlements.map((s) => [
         `"${s.settlement_date}"`,
         `"${s.locations?.name || 'Outlet'}"`,
@@ -313,6 +343,7 @@ export default function ExecutiveOwnerDashboard() {
         Number(s.shopee_nominal || 0),
         Number(s.expense_nominal || 0),
         `"${(s.expense_notes || '').replace(/"/g, '""')}"`,
+        Number(s.non_cash_expense_nominal || 0),
         Number(s.total_omset || 0),
         Number(s.total_bills || 0),
         Number(s.actual_cash_deposited || 0),
@@ -403,21 +434,18 @@ export default function ExecutiveOwnerDashboard() {
 
       {/* Main Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
-        {/* TAB KHUSUS POLA KONSUMSI BAHAN (WEEKDAYS VS WEEKEND) */}
         {activeTab === 'konsumsi' && (
           <div>
             <StockUsageAnalytics user={currentUser} />
           </div>
         )}
 
-        {/* TAB KHUSUS MONITOR STOK */}
         {activeTab === 'stok' && (
           <div>
             <BranchStockMonitor />
           </div>
         )}
 
-        {/* TAB KHUSUS LIVE PRESENSI TIM */}
         {activeTab === 'hr' && (
           <div className="space-y-6">
             <LiveExecutiveSummary />
@@ -518,8 +546,8 @@ export default function ExecutiveOwnerDashboard() {
               </div>
             </div>
 
-            {/* KPI UTAMA */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {/* KPI UTAMA DENGAN PEMISAHAN PENGELUARAN */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
                 <span className="text-[10px] font-bold text-slate-400 block uppercase">Total Omset</span>
                 <p className="text-lg font-black text-slate-900 mt-1">Rp {kpi.totalOmset.toLocaleString('id-ID')}</p>
@@ -534,16 +562,24 @@ export default function ExecutiveOwnerDashboard() {
                 <span className="text-[10px] text-slate-400 font-medium">Struk terbit</span>
               </div>
 
+              {/* 1. Pengeluaran Laci Kasir */}
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
-                <span className="text-[10px] font-bold text-rose-500 block uppercase">Pengeluaran</span>
+                <span className="text-[10px] font-bold text-rose-500 block uppercase">Pengeluaran Laci</span>
                 <p className="text-lg font-black text-rose-600 mt-1">Rp {kpi.totalExpense.toLocaleString('id-ID')}</p>
-                <span className="text-[10px] text-rose-400 font-medium">Belanja operasional</span>
+                <span className="text-[10px] text-rose-400 font-medium">Kas kecil kasir</span>
+              </div>
+
+              {/* 2. Beban Non-Kasir (Rumah Produksi & Vendor) */}
+              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
+                <span className="text-[10px] font-bold text-indigo-600 block uppercase">Beban Non-Kasir</span>
+                <p className="text-lg font-black text-indigo-700 mt-1">Rp {kpi.totalNonCashExpense.toLocaleString('id-ID')}</p>
+                <span className="text-[10px] text-indigo-400 font-medium">RP & Vendor</span>
               </div>
 
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
                 <span className="text-[10px] font-bold text-slate-400 block uppercase">Kas Bersih (Net)</span>
                 <p className="text-lg font-black text-emerald-700 mt-1">Rp {kpi.netCashFlow.toLocaleString('id-ID')}</p>
-                <span className="text-[10px] text-slate-400 font-medium">Tunai - kas kecil</span>
+                <span className="text-[10px] text-slate-400 font-medium">Tunai - kas laci</span>
               </div>
 
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
@@ -551,7 +587,7 @@ export default function ExecutiveOwnerDashboard() {
                 <p className={`text-lg font-black mt-1 ${kpi.totalCashDiff < 0 ? 'text-red-600' : 'text-slate-800'}`}>
                   {kpi.totalCashDiff < 0 ? `-Rp ${Math.abs(kpi.totalCashDiff).toLocaleString('id-ID')}` : `Rp ${kpi.totalCashDiff.toLocaleString('id-ID')}`}
                 </p>
-                <span className="text-[10px] text-slate-400 font-medium">{kpi.totalCashDiff === 0 ? 'Klop' : 'Perlu cek kasir'}</span>
+                <span className="text-[10px] text-slate-400 font-medium">{kpi.totalCashDiff === 0 ? 'Klop' : 'Perlu cek'}</span>
               </div>
 
               <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
@@ -582,14 +618,18 @@ export default function ExecutiveOwnerDashboard() {
                           <span className="font-extrabold text-sm text-slate-900">{out.name}</span>
                           <span className="font-black text-sm text-[#ff6f3c]">Rp {out.omset.toLocaleString('id-ID')}</span>
                         </div>
-                        <div className="grid grid-cols-3 gap-2 text-[11px] pt-1 border-t border-slate-200/60">
+                        <div className="grid grid-cols-4 gap-2 text-[11px] pt-1 border-t border-slate-200/60">
                           <div>
-                            <span className="text-slate-400 block">Total Struk:</span>
-                            <span className="font-bold text-slate-700">{out.bills} Struk</span>
+                            <span className="text-slate-400 block">Struk:</span>
+                            <span className="font-bold text-slate-700">{out.bills} Bill</span>
                           </div>
                           <div>
-                            <span className="text-slate-400 block">Pengeluaran:</span>
-                            <span className="font-bold text-rose-600">Rp {out.expense.toLocaleString('id-ID')}</span>
+                            <span className="text-slate-400 block">Keluar Laci:</span>
+                            <span className="font-bold text-rose-600">Rp {out.cashExpense.toLocaleString('id-ID')}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">Beban Non-Kasir:</span>
+                            <span className="font-bold text-indigo-700">Rp {out.nonCashExpense.toLocaleString('id-ID')}</span>
                           </div>
                           <div>
                             <span className="text-slate-400 block">Selisih Kas:</span>
@@ -657,18 +697,18 @@ export default function ExecutiveOwnerDashboard() {
               </div>
             </div>
 
-            {/* TABEL RINCIAN PENGELUARAN UNTUK OWNER */}
+            {/* TABEL 1: PENGELUARAN KASIR (MEMOTONG LACI) */}
             {expenseLogs.length > 0 && (
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <div className="flex items-center gap-2">
                     <Wallet className="w-4 h-4 text-rose-600" />
                     <h3 className="text-xs font-black uppercase text-slate-800">
-                      Rincian Pengeluaran Kasir & Nota ({expenseLogs.length} Transaksi)
+                      Rincian Pengeluaran Kasir / Kas Laci ({expenseLogs.length} Transaksi)
                     </h3>
                   </div>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700">
-                    Kas Keluar Cabang
+                    Memotong Kas Fisik
                   </span>
                 </div>
 
@@ -708,6 +748,65 @@ export default function ExecutiveOwnerDashboard() {
                 </div>
               </div>
             )}
+
+            {/* TABEL 2: BEBAN NON-KASIR (RUMAH PRODUKSI & VENDOR) */}
+            {nonCashExpenseLogs.length > 0 && (
+              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-indigo-600" />
+                    <h3 className="text-xs font-black uppercase text-slate-800">
+                      Rincian Beban Non-Kasir: Rumah Produksi & Vendor ({nonCashExpenseLogs.length} Beban)
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+                    TIDAK Memotong Kasir
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px] border-b border-slate-100">
+                        <th className="py-2.5 px-3">Tanggal & Cabang</th>
+                        <th className="py-2.5 px-3">Kategori Beban</th>
+                        <th className="py-2.5 px-3">Shift & Pelapor</th>
+                        <th className="py-2.5 px-3 text-right">Nominal Tagihan</th>
+                        <th className="py-2.5 px-3">Keterangan / Rincian</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {nonCashExpenseLogs.map((log) => (
+                        <tr key={log.id} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="py-2.5 px-3">
+                            <div className="font-bold text-slate-800">{log.outlet}</div>
+                            <div className="text-[10px] text-slate-400">{log.date}</div>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className="px-2 py-0.5 bg-indigo-50 text-indigo-800 rounded-md text-[10px] font-black uppercase">
+                              {log.category}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className="font-bold text-slate-700">{log.shift}</span>
+                            <div className="text-[10px] text-slate-400">{log.cashier}</div>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-black text-indigo-700">
+                            Rp {log.nominal.toLocaleString('id-ID')}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600">
+                            <span className="bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100 text-[11px] block sm:inline-block">
+                              "{log.notes}"
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
           </div>
         )}
       </main>
