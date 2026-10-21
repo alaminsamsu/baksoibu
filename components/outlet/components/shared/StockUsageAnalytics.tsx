@@ -1,22 +1,19 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { 
   BarChart3, 
   Download, 
-  Calendar, 
   MapPin, 
-  TrendingUp, 
-  RefreshCw,
-  Layers,
-  ArrowUpRight
+  ArrowUpRight,
+  RefreshCw
 } from 'lucide-react';
 
 interface Props {
   user?: any;
   defaultLocationId?: string;
-  hideLocationFilter?: boolean; // True jika dibuka oleh Leader cabang tertentu saja
+  hideLocationFilter?: boolean;
 }
 
 export default function StockUsageAnalytics({ user, defaultLocationId, hideLocationFilter = false }: Props) {
@@ -27,7 +24,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
   const [downloading, setDownloading] = useState(false);
   const [analyticsData, setAnalyticsData] = useState<any[]>([]);
 
-  // 1. Ambil Data Lokasi
   useEffect(() => {
     async function fetchLocations() {
       const { data } = await supabase.from('locations').select('*');
@@ -36,7 +32,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     fetchLocations();
   }, []);
 
-  // 2. Kalkulasi Data Pemakaian
   const calculateAnalytics = async () => {
     setLoading(true);
     try {
@@ -58,34 +53,34 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       const startStr = startDate.toISOString().split('T')[0];
       const endStr = endDate.toISOString().split('T')[0];
 
-      // Ambil Master Items
+      // 1. Ambil Master Items
       const { data: items } = await supabase.from('items').select('name, category, uom');
 
-      // Ambil Data Penerimaan (Inflow)
-      let recQuery = supabase
-        .from('receptions')
-        .select('item_name, quantity, location_id, created_at')
-        .gte('created_at', `${startStr}T00:00:00Z`)
-        .lte('created_at', `${endStr}T23:59:59Z`);
-      if (selectedLoc !== 'all') recQuery = recQuery.eq('location_id', selectedLoc);
-      const { data: recData } = await recQuery;
-
-      // Ambil Data Closing & Waste Harian
-      let closingQuery = supabase
-        .from('daily_closings')
-        .select('item_name, remaining_stock, waste_qty, location_id, closing_date')
-        .gte('closing_date', startStr)
-        .lte('closing_date', endStr);
-      if (selectedLoc !== 'all') closingQuery = closingQuery.eq('location_id', selectedLoc);
-      const { data: closingData } = await closingQuery;
-
-      // Ambil Stok Awal Cabang
+      // 2. Ambil Stok Berjalan / Master Cabang
       let stockQuery = supabase.from('branch_stocks').select('*, locations(name)');
       if (selectedLoc !== 'all') stockQuery = stockQuery.eq('location_id', selectedLoc);
       const { data: stocks } = await stockQuery;
 
-      // Kelompokkan Tanggal ke Weekdays vs Weekend
-      // Weekdays: Senin(1) - Kamis(4) | Weekend: Jumat(5) - Minggu(0)
+      // 3. Ambil Penerimaan Barang (Masuk)
+      let recQuery = supabase
+        .from('receptions')
+        .select('item_name, quantity, location_id, created_at')
+        .gte('created_at', `${startStr}T00:00:00+08:00`)
+        .lte('created_at', `${endStr}T23:59:59+08:00`);
+      if (selectedLoc !== 'all') recQuery = recQuery.eq('location_id', selectedLoc);
+      const { data: recData } = await recQuery;
+
+      // 4. Ambil Closing Harian
+      let closingQuery = supabase
+        .from('daily_closings')
+        .select('item_name, remaining_stock, waste_qty, location_id, closing_date')
+        .gte('closing_date', startStr)
+        .lte('closing_date', endStr)
+        .order('closing_date', { ascending: true });
+      if (selectedLoc !== 'all') closingQuery = closingQuery.eq('location_id', selectedLoc);
+      const { data: closingData } = await closingQuery;
+
+      // Hitung Jumlah Hari Kalender
       const dateSet = new Set<string>();
       let cur = new Date(startDate);
       while (cur <= endDate) {
@@ -100,55 +95,84 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
         if (day === 0 || day === 5 || day === 6) weekendCount++;
         else weekdaysCount++;
       });
-
       const totalDays = weekdaysCount + weekendCount || 1;
 
-      // Rekapitulasi per bahan
-      const rows: any[] = [];
-      const distinctItems = Array.from(new Set([
-        ...(stocks || []).map((s: any) => s.item_name),
-        ...(closingData || []).map((c: any) => c.item_name)
-      ]));
+      // Normalisasi nama unik bahan baku (Case-Insensitive)
+      const itemMap = new Map<string, string>(); // UPPERCASE -> Original Display Name
 
-      distinctItems.forEach((itemName) => {
-        const itemMeta = items?.find((i) => i.name === itemName);
-        const itemCategory = itemMeta?.category || 'Lain-lain';
+      (items || []).forEach((i) => {
+        itemMap.set(i.name.trim().toUpperCase(), i.name.trim());
+      });
+      (stocks || []).forEach((s: any) => {
+        if (!itemMap.has(s.item_name.trim().toUpperCase())) {
+          itemMap.set(s.item_name.trim().toUpperCase(), s.item_name.trim());
+        }
+      });
+      (closingData || []).forEach((c: any) => {
+        if (!itemMap.has(c.item_name.trim().toUpperCase())) {
+          itemMap.set(c.item_name.trim().toUpperCase(), c.item_name.trim());
+        }
+      });
+
+      const rows: any[] = [];
+
+      itemMap.forEach((displayItemName, upperKey) => {
+        const itemMeta = items?.find((i) => i.name.trim().toUpperCase() === upperKey);
+        const itemCategory = itemMeta?.category || 'Bahan Pokok';
         const uom = itemMeta?.uom || 'Pcs';
 
-        // Filter record item ini
-        const relevantClosings = (closingData || []).filter((c: any) => c.item_name === itemName);
-        const relevantRecs = (recData || []).filter((r: any) => r.item_name === itemName);
+        // Filter data masuk & closing dengan Case-Insensitive
+        const itemRecs = (recData || []).filter((r: any) => r.item_name.trim().toUpperCase() === upperKey);
+        const itemClosings = (closingData || []).filter((c: any) => c.item_name.trim().toUpperCase() === upperKey);
+        const stockRecord = (stocks || []).find((s: any) => s.item_name.trim().toUpperCase() === upperKey);
 
-        let totalUsage = 0;
+        const totalIn = itemRecs.reduce((sum: number, r: any) => sum + Number(r.quantity || 0), 0);
+        const totalWaste = itemClosings.reduce((sum: number, c: any) => sum + Number(c.waste_qty || 0), 0);
+
+        // Ambil stok awal periode & sisa fisik closing terbaru
+        const initialStock = Number(stockRecord?.initial_stock || 0);
+        const latestClosing = itemClosings.length > 0 ? itemClosings[itemClosings.length - 1] : null;
+        const latestRemaining = latestClosing ? Number(latestClosing.remaining_stock || 0) : Number(stockRecord?.remaining_stock || 0);
+
+        // Rumus Pemakaian Akuntansi Riil:
+        // (Stok Awal + Total Masuk) - Sisa Fisik Akhir - Waste
+        let totalUsage = (initialStock + totalIn) - latestRemaining - totalWaste;
+        if (totalUsage < 0) totalUsage = 0;
+
+        // Distribusi Pemakaian per Hari Berdasarkan Tanggal Closing
         let weekdayUsage = 0;
         let weekendUsage = 0;
 
-        // Hitung pemakaian harian berdasar closing
-        relevantClosings.forEach((c: any) => {
-          const cDate = new Date(c.closing_date);
-          const day = cDate.getDay();
-          const isWeekend = day === 0 || day === 5 || day === 6;
+        if (itemClosings.length > 1) {
+          for (let i = 1; i < itemClosings.length; i++) {
+            const prevClosing = Number(itemClosings[i - 1].remaining_stock || 0);
+            const currClosing = Number(itemClosings[i].remaining_stock || 0);
+            const currWaste = Number(itemClosings[i].waste_qty || 0);
+            const closingDateStr = itemClosings[i].closing_date;
 
-          // Estimasi pemakaian hari tersebut: barang masuk hari itu + waste
-          const inToday = relevantRecs
-            .filter((r: any) => r.created_at.startsWith(c.closing_date))
-            .reduce((sum: number, cur: any) => sum + Number(cur.quantity || 0), 0);
+            // Masuk pada tanggal tersebut (WITA check)
+            const inOnDate = itemRecs
+              .filter((r: any) => {
+                const recDateWita = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date(r.created_at));
+                return recDateWita === closingDateStr;
+              })
+              .reduce((sum: number, r: any) => sum + Number(r.quantity || 0), 0);
 
-          const estimatedDailyUse = Math.max(0, inToday - Number(c.waste_qty || 0));
+            const dailyUse = Math.max(0, (prevClosing + inOnDate) - currClosing - currWaste);
+            const dayOfWeek = new Date(closingDateStr).getDay();
 
-          totalUsage += estimatedDailyUse;
-          if (isWeekend) weekendUsage += estimatedDailyUse;
-          else weekdayUsage += estimatedDailyUse;
-        });
+            if (dayOfWeek === 0 || dayOfWeek === 5 || dayOfWeek === 6) {
+              weekendUsage += dailyUse;
+            } else {
+              weekdayUsage += dailyUse;
+            }
+          }
+        }
 
-        // Jika data harian belum spesifik, hitung dari rumus agregat
-        if (totalUsage === 0) {
-          const totalIn = relevantRecs.reduce((sum: number, cur: any) => sum + Number(cur.quantity || 0), 0);
-          const totalWaste = relevantClosings.reduce((sum: number, cur: any) => sum + Number(cur.waste_qty || 0), 0);
-          totalUsage = Math.max(0, totalIn - totalWaste);
-          
-          // Estimasi proporsi umum F&B: 40% weekdays, 60% weekend
-          weekdayUsage = totalUsage * (weekdaysCount / (weekdaysCount + weekendCount * 1.5 || 1));
+        // Jika closing baru ada 1 hari atau belum berturut-turut, bagi secara proporsional hari
+        if (weekdayUsage === 0 && weekendUsage === 0 && totalUsage > 0) {
+          const weekdayRatio = weekdaysCount / totalDays;
+          weekdayUsage = totalUsage * weekdayRatio;
           weekendUsage = totalUsage - weekdayUsage;
         }
 
@@ -161,7 +185,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
           : '0';
 
         rows.push({
-          itemName,
+          itemName: displayItemName,
           category: itemCategory,
           uom,
           totalUsage: totalUsage.toFixed(1),
@@ -172,11 +196,11 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
         });
       });
 
-      // Urutkan dari pemakaian terbesar
+      // Urutkan dari bahan dengan pemakaian terbesar
       rows.sort((a, b) => Number(b.totalUsage) - Number(a.totalUsage));
       setAnalyticsData(rows);
     } catch (e: any) {
-      console.error(e);
+      console.error('Error calculateAnalytics:', e);
     } finally {
       setLoading(false);
     }
@@ -186,7 +210,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     calculateAnalytics();
   }, [selectedLoc, periodRange]);
 
-  // Export File CSV / Excel
   const handleDownloadCSV = () => {
     if (analyticsData.length === 0) return alert('Tidak ada data analisis untuk diunduh.');
     setDownloading(true);
@@ -252,20 +275,28 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
           </div>
         </div>
 
-        {/* Tombol Aksi Unduh */}
-        <button
-          onClick={handleDownloadCSV}
-          disabled={downloading || loading || analyticsData.length === 0}
-          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 transition-all shrink-0"
-        >
-          <Download className="w-4 h-4" />
-          <span>{downloading ? 'Menyiapkan File...' : 'Download Rekap Pola Konsumsi (.CSV)'}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={calculateAnalytics}
+            className="p-2.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-2xl border border-slate-200 transition-all"
+            title="Segarkan Data"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+
+          <button
+            onClick={handleDownloadCSV}
+            disabled={downloading || loading || analyticsData.length === 0}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 transition-all shrink-0"
+          >
+            <Download className="w-4 h-4" />
+            <span>{downloading ? 'Menyiapkan...' : 'Download Rekap (.CSV)'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter Kontrol */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {/* Pilihan Periode Waktu */}
         <div>
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
             Pilihan Periode Analisis
@@ -292,7 +323,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
           </div>
         </div>
 
-        {/* Filter Bulan Kalender */}
         <div>
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
             Bulan Kalender
@@ -319,7 +349,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
           </div>
         </div>
 
-        {/* Filter Cabang Outlet (Bisa disembunyikan untuk Leader) */}
         {!hideLocationFilter && (
           <div>
             <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1.5">
