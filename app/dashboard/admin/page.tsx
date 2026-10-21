@@ -33,7 +33,7 @@ export default function AdminDashboardPage() {
   const [selectedLoc, setSelectedLoc] = useState('all');
   const [loading, setLoading] = useState(true);
 
-  // Tanggal default operasional (WITA)
+  // Tanggal default WITA
   const todayWita = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
   const [orderFilterDate, setOrderFilterDate] = useState<string>(todayWita);
 
@@ -51,7 +51,7 @@ export default function AdminDashboardPage() {
       }
     }
     fetchOrdersAndLocations();
-  }, [orderFilterDate]);
+  }, [orderFilterDate, selectedLoc]);
 
   const fetchOrdersAndLocations = async () => {
     setLoading(true);
@@ -59,17 +59,26 @@ export default function AdminDashboardPage() {
       const { data: locs } = await supabase.from('locations').select('*');
       if (locs) setLocations(locs);
 
+      // Konversi rentang waktu WITA (UTC+8) ke UTC ISO
+      const startWita = new Date(`${orderFilterDate}T00:00:00+08:00`).toISOString();
+      const endWita = new Date(`${orderFilterDate}T23:59:59+08:00`).toISOString();
+
       let query = supabase
         .from('order_requests')
         .select('*, locations(name)')
-        .gte('created_at', `${orderFilterDate}T00:00:00Z`)
-        .lte('created_at', `${orderFilterDate}T23:59:59Z`)
+        .gte('created_at', startWita)
+        .lte('created_at', endWita)
         .order('created_at', { ascending: false });
 
-      const { data: orders } = await query;
-      if (orders) setOrderRequests(orders);
-    } catch (err) {
-      console.error(err);
+      if (selectedLoc !== 'all') {
+        query = query.eq('location_id', selectedLoc);
+      }
+
+      const { data: orders, error } = await query;
+      if (error) throw error;
+      setOrderRequests(orders || []);
+    } catch (err: any) {
+      console.error('Error load orders:', err.message);
     } finally {
       setLoading(false);
     }
@@ -80,11 +89,7 @@ export default function AdminDashboardPage() {
     router.push('/login');
   };
 
-  // Filter Order sesuai Cabang
-  const filteredOrders = useMemo(() => {
-    if (selectedLoc === 'all') return orderRequests;
-    return orderRequests.filter((o) => o.location_id === selectedLoc);
-  }, [orderRequests, selectedLoc]);
+  const filteredOrders = orderRequests;
 
   // Kelompokkan per Vendor
   const groupedOrdersByVendor = useMemo(() => {
@@ -109,7 +114,7 @@ export default function AdminDashboardPage() {
     };
   }, [filteredOrders]);
 
-  // 1. Download CSV Lembar Belanja
+  // Download CSV
   const handleDownloadOrderCSV = () => {
     if (filteredOrders.length === 0) {
       alert('Tidak ada permintaan belanja pada tanggal yang dipilih.');
@@ -160,7 +165,6 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // 2. Cetak / Simpan PDF Lembar Belanja
   const handlePrintWorksheet = () => {
     if (filteredOrders.length === 0) {
       alert('Tidak ada lembar belanja untuk dicetak.');
@@ -169,7 +173,6 @@ export default function AdminDashboardPage() {
     window.print();
   };
 
-  // 3. Download Rekap Pemakaian Berkala
   const handleDownloadReport = async () => {
     setDownloadingUsage(true);
     try {
@@ -367,10 +370,9 @@ export default function AdminDashboardPage() {
       {/* Main Content */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
         
-        {/* TAB 1: LEMBAR PERMINTAAN BELANJA (SIAP DOWNLOAD & CETAK) */}
+        {/* TAB 1: LEMBAR PERMINTAAN BELANJA */}
         {activeTab === 'orders' && (
           <div className="space-y-5">
-            {/* Header Aksi & Filter */}
             <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm shadow-slate-200/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 print:hidden">
               <div>
                 <h2 className="text-base font-black text-slate-900 tracking-tight flex items-center gap-2">
@@ -418,7 +420,6 @@ export default function AdminDashboardPage() {
                   <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                 </button>
 
-                {/* Tombol Cetak PDF */}
                 <button
                   onClick={handlePrintWorksheet}
                   disabled={filteredOrders.length === 0}
@@ -429,7 +430,6 @@ export default function AdminDashboardPage() {
                   <span>Cetak / PDF</span>
                 </button>
 
-                {/* Tombol Langsung Download CSV */}
                 <button
                   onClick={handleDownloadOrderCSV}
                   disabled={downloadingOrders || filteredOrders.length === 0}
@@ -472,7 +472,7 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
-            {/* Lembar Kerja Cetak */}
+            {/* Lembar Cetak */}
             <div className="hidden print:block pb-4 mb-4 border-b border-slate-300">
               <h1 className="text-lg font-black uppercase text-slate-900">
                 LEMBAR KERJA PENGADAAN & BELANJA BAKSO IBU
@@ -484,7 +484,7 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
-            {/* Rincian per Vendor */}
+            {/* Tabel per Vendor */}
             {loading ? (
               <div className="bg-white p-12 text-center rounded-3xl border border-slate-100 text-xs text-slate-400 font-bold">
                 Memuat lembar permintaan belanja...
@@ -492,7 +492,7 @@ export default function AdminDashboardPage() {
             ) : filteredOrders.length === 0 ? (
               <div className="bg-white p-12 text-center rounded-3xl border border-dashed border-slate-200 space-y-1">
                 <p className="text-xs font-bold text-slate-700">Belum ada permintaan belanja pada tanggal {orderFilterDate}.</p>
-                <p className="text-[11px] text-slate-400">Kru outlet belum mengirim rekap kebutuhan bahan untuk tanggal ini.</p>
+                <p className="text-[11px] text-slate-400">Pastikan filter tanggal dan outlet sudah sesuai atau kru sudah menekan tombol kirim order.</p>
               </div>
             ) : (
               <div className="space-y-4">
