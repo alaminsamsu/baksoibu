@@ -12,7 +12,8 @@ import {
   CheckCircle2, 
   AlertCircle,
   Clock,
-  Calendar
+  Calendar,
+  Building2
 } from 'lucide-react';
 
 interface Props {
@@ -26,7 +27,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const effectiveLocationId = propLocId || user?.location_id || user?.id || '';
   const effectiveStaffName = propStaff || user?.active_staff_name || user?.username || 'Kasir Outlet';
 
-  // Tanggal default otomatis (Makassar / WITA)
   const getTodayWita = () => {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
   };
@@ -34,7 +34,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const [settlementDate, setSettlementDate] = useState<string>(getTodayWita());
   const [shift, setShift] = useState<'SHIFT_1' | 'SHIFT_2'>('SHIFT_1');
 
-  // Input Fields
+  // Input Fields Omset
   const [openingCash, setOpeningCash] = useState<number | string>(0);
   const [totalBills, setTotalBills] = useState<number | string>('');
   const [cashNominal, setCashNominal] = useState<number | string>('');
@@ -43,9 +43,14 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const [gofoodNominal, setGofoodNominal] = useState<number | string>('');
   const [shopeeNominal, setShopeeNominal] = useState<number | string>('');
   
-  // Pengeluaran
+  // 1. Pengeluaran Kasir (Memotong Uang Laci)
   const [expenseNominal, setExpenseNominal] = useState<number | string>('');
   const [expenseNotes, setExpenseNotes] = useState<string>('');
+
+  // 2. Pengeluaran Non-Kasir (Rumah Produksi / Vendor / Tagihan Pusat - TIDAK memotong laci)
+  const [nonCashExpenseNominal, setNonCashExpenseNominal] = useState<number | string>('');
+  const [nonCashExpenseCategory, setNonCashExpenseCategory] = useState<string>('RUMAH_PRODUKSI');
+  const [nonCashExpenseNotes, setNonCashExpenseNotes] = useState<string>('');
 
   // Uang Laci Fisik
   const [actualCashDeposited, setActualCashDeposited] = useState<number | string>('');
@@ -55,7 +60,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // Kalkulasi Otomatis
+  // Kalkulasi Angka
   const numOpeningCash = Number(openingCash) || 0;
   const numCash = Number(cashNominal) || 0;
   const numQris = Number(qrisNominal) || 0;
@@ -63,9 +68,11 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const numGofood = Number(gofoodNominal) || 0;
   const numShopee = Number(shopeeNominal) || 0;
   const numExpense = Number(expenseNominal) || 0;
+  const numNonCashExpense = Number(nonCashExpenseNominal) || 0;
   const numActualCash = Number(actualCashDeposited) || 0;
 
   const totalOmset = numCash + numQris + numGrab + numGofood + numShopee;
+  // Uang di laci HANYA dipotong oleh pengeluaran kasir tunai (numExpense)
   const expectedCashInDrawer = numOpeningCash + numCash - numExpense;
   const cashDifference = actualCashDeposited === '' ? 0 : numActualCash - expectedCashInDrawer;
 
@@ -98,6 +105,9 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         setShopeeNominal(data.shopee_nominal ?? '');
         setExpenseNominal(data.expense_nominal ?? '');
         setExpenseNotes(data.expense_notes ?? '');
+        setNonCashExpenseNominal(data.non_cash_expense_nominal ?? '');
+        setNonCashExpenseCategory(data.non_cash_expense_category ?? 'RUMAH_PRODUKSI');
+        setNonCashExpenseNotes(data.non_cash_expense_notes ?? '');
         setActualCashDeposited(data.actual_cash_deposited ?? '');
         setNotes(data.notes ?? '');
       } else {
@@ -110,6 +120,9 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         setShopeeNominal('');
         setExpenseNominal('');
         setExpenseNotes('');
+        setNonCashExpenseNominal('');
+        setNonCashExpenseCategory('RUMAH_PRODUKSI');
+        setNonCashExpenseNotes('');
         setActualCashDeposited('');
         setNotes('');
       }
@@ -130,7 +143,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     setSaving(true);
     setMsg(null);
     try {
-      // Baris total_omset dikeluarkan agar dihitung otomatis oleh Postgres (mencegah error non-DEFAULT value)
       const payload: Record<string, any> = {
         location_id: effectiveLocationId,
         settlement_date: settlementDate,
@@ -145,6 +157,9 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         online_nominal: numGrab + numGofood + numShopee,
         expense_nominal: numExpense,
         expense_notes: expenseNotes.trim() || null,
+        non_cash_expense_nominal: numNonCashExpense,
+        non_cash_expense_category: numNonCashExpense > 0 ? nonCashExpenseCategory : null,
+        non_cash_expense_notes: numNonCashExpense > 0 ? (nonCashExpenseNotes.trim() || null) : null,
         actual_cash_deposited: numActualCash,
         cash_difference: cashDifference,
         notes: notes.trim() || null,
@@ -190,7 +205,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               Rekap Omset & Kas Kasir
             </h3>
             <p className="text-[10px] text-slate-400">
-              Input rincian omset shift, pengeluaran, dan uang fisik laci kasir.
+              Input rincian omset shift, pengeluaran kasir & beban non-kasir.
             </p>
           </div>
         </div>
@@ -370,11 +385,16 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           </div>
         </div>
 
-        {/* SECTION: PENGELUARAN */}
+        {/* 1. PENGELUARAN KASIR (MEMOTONG FISIK LACI KASIR) */}
         <div className="p-4 bg-rose-50/50 rounded-2xl border border-rose-100 space-y-3">
-          <span className="text-[10px] font-black uppercase text-rose-500 block tracking-wider flex items-center gap-1.5">
-            <Wallet className="w-3.5 h-3.5" /> Pengeluaran
-          </span>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase text-rose-500 block tracking-wider flex items-center gap-1.5">
+              <Wallet className="w-3.5 h-3.5" /> 1. Pengeluaran Kasir (Uang Laci)
+            </span>
+            <span className="text-[9px] font-bold text-rose-400 bg-rose-100/60 px-2 py-0.5 rounded-md">
+              Memotong Fisik Kasir
+            </span>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
@@ -399,8 +419,65 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                 type="text"
                 value={expenseNotes}
                 onChange={(e) => setExpenseNotes(e.target.value)}
-                placeholder="Contoh: Beli es batu kristal 2 kantong, gas elpiji"
+                placeholder="Misal: Beli es batu darurat, sabun cuci"
                 className="w-full px-3 py-2 bg-white border border-rose-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* 2. PENGELUARAN NON-KASIR (RUMAH PRODUKSI & VENDOR - TIDAK MEMOTONG LACI) */}
+        <div className="p-4 bg-indigo-50/40 rounded-2xl border border-indigo-100 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase text-indigo-700 block tracking-wider flex items-center gap-1.5">
+              <Building2 className="w-3.5 h-3.5" /> 2. Pengeluaran Rumah Produksi / Vendor
+            </span>
+            <span className="text-[9px] font-bold text-indigo-600 bg-indigo-100/60 px-2 py-0.5 rounded-md">
+              TIDAK Memotong Uang Laci
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-[11px] font-bold text-indigo-950 mb-1">
+                Kategori Beban
+              </label>
+              <select
+                value={nonCashExpenseCategory}
+                onChange={(e) => setNonCashExpenseCategory(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-xs font-bold text-indigo-900 focus:outline-none"
+              >
+                <option value="RUMAH_PRODUKSI">Rumah Produksi</option>
+                <option value="VENDOR_PASAR">Vendor Pasar</option>
+                <option value="VENDOR_SUPPLIER">Vendor Supplier</option>
+                <option value="LAINNYA">Tagihan Lainnya</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-indigo-950 mb-1">
+                Nominal Tagihan (Rp)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={nonCashExpenseNominal}
+                onChange={(e) => setNonCashExpenseNominal(e.target.value)}
+                placeholder="0"
+                className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-xs font-black text-indigo-700 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-indigo-950 mb-1">
+                Catatan / Keperluan
+              </label>
+              <input
+                type="text"
+                value={nonCashExpenseNotes}
+                onChange={(e) => setNonCashExpenseNotes(e.target.value)}
+                placeholder="Misal: Tagihan bakso beku 15kg, bumbu dapur"
+                className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none"
               />
             </div>
           </div>
@@ -411,7 +488,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           <div className="flex justify-between items-center">
             <div>
               <span className="text-[10px] font-bold text-slate-400 block uppercase">
-                Uang Seharusnya di Laci (Modal + Tunai - Pengeluaran)
+                Uang Seharusnya di Laci (Modal + Tunai - Pengeluaran Kasir)
               </span>
               <span className="text-lg font-black text-white">
                 Rp {expectedCashInDrawer.toLocaleString('id-ID')}
