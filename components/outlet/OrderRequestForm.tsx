@@ -50,10 +50,23 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   const activeLocationId = locationId || user?.location_id;
   const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
 
+  // LOGIKA BISNIS: Cut-off jam 06:00 pagi WITA. 
+  // Jika kru order jam 00:00 - 05:59 dini hari, otomatis tanggal belanja adalah kemarin (H-1).
+  const getEffectiveOrderDate = () => {
+    const now = new Date();
+    const witaHour = parseInt(
+      new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: 'numeric', hour12: false }).format(now)
+    );
+    const d = new Date();
+    if (witaHour < 6) {
+      d.setDate(d.getDate() - 1);
+    }
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(d);
+  };
+
   const [items, setItems] = useState<MasterItem[]>([]);
   const [currentStocks, setCurrentStocks] = useState<Record<string, number>>({});
   const [quantities, setQuantities] = useState<Record<string, string>>({});
-  // State untuk checklist apakah barang sudah dipesan langsung oleh Leader ke vendor
   const [orderedByLeader, setOrderedByLeader] = useState<Record<string, boolean>>({});
   
   const [activeSupplier, setActiveSupplier] = useState<string>('Semua Supplier');
@@ -150,22 +163,26 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     setMessage(null);
 
     try {
+      const orderDate = getEffectiveOrderDate();
       const orderPayload = Object.entries(quantities)
         .filter(([_, qty]) => parseFloat(qty) > 0)
         .map(([itemName, qty]) => {
           const itemMeta = items.find((i) => i.name === itemName);
           const isDirect = !!orderedByLeader[itemName];
+          const supName = itemMeta?.supplier || 'RUMAH PRODUKSI';
           return {
             location_id: activeLocationId,
             item_name: itemName,
             quantity: parseFloat(qty),
             unit: itemMeta?.uom || 'Pcs',
-            source_type: itemMeta?.supplier === 'RUMAH PRODUKSI' ? 'PRODUCTION' : 'VENDOR',
-            target_type: itemMeta?.supplier || 'RUMAH PRODUKSI',
+            source_type: supName === 'RUMAH PRODUKSI' ? 'PRODUCTION' : 'VENDOR',
+            target_type: supName,
+            supplier: supName,
             notes: notes.trim() || null,
             requested_by: activeStaffName,
             status: isDirect ? 'ORDERED_BY_LEADER' : 'pending',
-            is_ordered_by_leader: isDirect, // Flag checklist
+            is_ordered_by_leader: isDirect,
+            created_at: new Date().toISOString()
           };
         });
 
@@ -177,7 +194,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
       if (error) throw error;
 
       setMessage({
-        text: `Berhasil mengirim ${orderPayload.length} permintaan belanja! (${totalDirectOrdered} item ditandai sudah diorder oleh Leader).`,
+        text: `Berhasil mengirim ${orderPayload.length} permintaan belanja untuk tanggal ${orderDate}! (${totalDirectOrdered} item ditandai sudah diorder oleh Leader).`,
         type: 'success',
       });
       setQuantities({});
@@ -212,7 +229,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           <div>
             <h2 className="text-lg font-black text-slate-900 tracking-tight">Lembar Permintaan Belanja</h2>
             <p className="text-xs font-medium text-slate-400">
-              Periksa stok akhir, isi kebutuhan bahan & beri tanda centang jika bahan sudah langsung dipesan ke vendor oleh Leader.
+              Periksa stok akhir, isi kebutuhan bahan & beri tanda jika bahan sudah langsung dipesan ke vendor oleh Leader.
             </p>
           </div>
         </div>
@@ -337,13 +354,11 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                             isSelected ? 'bg-orange-50/40 font-bold' : 'hover:bg-slate-50/60'
                           }`}
                         >
-                          {/* Nama & Kategori */}
                           <td className="py-2.5 px-4">
                             <div className="text-slate-800 font-bold">{item.name}</div>
                             <div className="text-[10px] text-slate-400">{item.category}</div>
                           </td>
 
-                          {/* Kolom Stok Akhir Sebelum Jumlah Pesan */}
                           <td className="py-2 px-4 text-center">
                             <div className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100/80 rounded-xl border border-slate-200/60">
                               <PackageCheck className="w-3 h-3 text-slate-400" />
@@ -356,7 +371,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                             </div>
                           </td>
 
-                          {/* Input Qty Pesan */}
                           <td className="py-2 px-4 text-right">
                             <div className="inline-flex items-center gap-2">
                               <input
@@ -378,7 +392,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                             </div>
                           </td>
 
-                          {/* Checklist: Sudah Diorder Leader ke Vendor? */}
                           <td className="py-2 px-4 text-center">
                             <button
                               type="button"

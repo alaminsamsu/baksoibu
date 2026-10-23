@@ -18,7 +18,8 @@ import {
   Printer,
   Store,
   CheckCircle2,
-  Clock
+  Clock,
+  Trash2
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
@@ -32,11 +33,22 @@ export default function AdminDashboardPage() {
   const [locations, setLocations] = useState<any[]>([]);
   const [selectedLoc, setSelectedLoc] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // Tanggal default WITA
-  const todayWita = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
-  const [orderFilterDate, setOrderFilterDate] = useState<string>(todayWita);
+  // Tanggal default operasional WITA (Cutoff jam 06:00 WITA)
+  const getOperationalDate = () => {
+    const now = new Date();
+    const witaHour = parseInt(
+      new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: 'numeric', hour12: false }).format(now)
+    );
+    const d = new Date();
+    if (witaHour < 6) {
+      d.setDate(d.getDate() - 1);
+    }
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(d);
+  };
 
+  const [orderFilterDate, setOrderFilterDate] = useState<string>(getOperationalDate());
   const [periodType, setPeriodType] = useState<'weekly' | 'monthly'>('weekly');
   const [downloadingUsage, setDownloadingUsage] = useState(false);
   const [downloadingOrders, setDownloadingOrders] = useState(false);
@@ -89,13 +101,34 @@ export default function AdminDashboardPage() {
     router.push('/login');
   };
 
+  // Hapus Baris Belanja Khusus Admin
+  const handleDeleteOrder = async (id: string, itemName: string) => {
+    const isConfirm = window.confirm(`Apakah Anda yakin ingin menghapus "${itemName}" dari daftar belanja?`);
+    if (!isConfirm) return;
+
+    setDeletingId(id);
+    try {
+      const { error } = await supabase
+        .from('order_requests')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      setOrderRequests((prev) => prev.filter((item) => item.id !== id));
+    } catch (err: any) {
+      alert(`Gagal menghapus item: ${err.message}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const filteredOrders = orderRequests;
 
   // Kelompokkan per Vendor
   const groupedOrdersByVendor = useMemo(() => {
     const groups: Record<string, any[]> = {};
     filteredOrders.forEach((o) => {
-      const vendor = o.target_type || o.source_type || 'RUMAH PRODUKSI';
+      const vendor = (o.target_type || o.source_type || 'RUMAH PRODUKSI').toUpperCase();
       if (!groups[vendor]) groups[vendor] = [];
       groups[vendor].push(o);
     });
@@ -278,6 +311,28 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#f8f9fd] text-slate-800 flex flex-col font-sans">
+      {/* CSS Khusus Mode Cetak / PDF */}
+      <style jsx global>{`
+        @media print {
+          body {
+            background: #ffffff !important;
+            color: #000000 !important;
+            margin: 0 !important;
+            padding: 10mm !important;
+          }
+          header, nav, .no-print {
+            display: none !important;
+          }
+          table {
+            page-break-inside: auto;
+          }
+          tr {
+            page-break-inside: avoid;
+            page-break-after: auto;
+          }
+        }
+      `}</style>
+
       {/* Header Bar */}
       <header className="max-w-6xl w-full mx-auto px-4 sm:px-6 pt-5 pb-3 flex items-center justify-between print:hidden">
         <div className="flex items-center gap-3">
@@ -472,15 +527,15 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
-            {/* Lembar Cetak */}
-            <div className="hidden print:block pb-4 mb-4 border-b border-slate-300">
+            {/* Lembar Cetak / PDF Formal */}
+            <div className="hidden print:block pb-4 mb-4 border-b-2 border-slate-900">
               <h1 className="text-lg font-black uppercase text-slate-900">
                 LEMBAR KERJA PENGADAAN & BELANJA BAKSO IBU
               </h1>
-              <div className="text-xs text-slate-600 flex justify-between mt-1">
-                <span>Tanggal Belanja: <strong>{orderFilterDate}</strong></span>
-                <span>Outlet: <strong>{selectedLoc === 'all' ? 'Seluruh Cabang' : locations.find(l => l.id === selectedLoc)?.name}</strong></span>
-                <span>Dicetak pada: {new Date().toLocaleString('id-ID')}</span>
+              <div className="text-xs font-bold text-slate-600 flex justify-between mt-1">
+                <span>Tanggal Belanja: {orderFilterDate}</span>
+                <span>Outlet: {selectedLoc === 'all' ? 'Seluruh Cabang' : locations.find(l => l.id === selectedLoc)?.name}</span>
+                <span>Dicetak: {new Date().toLocaleString('id-ID')}</span>
               </div>
             </div>
 
@@ -498,9 +553,9 @@ export default function AdminDashboardPage() {
               <div className="space-y-4">
                 {Object.entries(groupedOrdersByVendor).map(([vendorName, items]) => (
                   <div key={vendorName} className="bg-white rounded-3xl border border-slate-100 shadow-2xs overflow-hidden print:border-slate-300 print:shadow-none">
-                    <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                    <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between print:bg-slate-100">
                       <div className="flex items-center gap-2">
-                        <Store className="w-4 h-4 text-indigo-600" />
+                        <Store className="w-4 h-4 text-indigo-600 print:text-black" />
                         <span className="font-black text-xs uppercase text-slate-800 tracking-wider">
                           {vendorName}
                         </span>
@@ -514,12 +569,12 @@ export default function AdminDashboardPage() {
                       <table className="w-full text-left border-collapse text-xs">
                         <thead>
                           <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400">
-                            <th className="py-2.5 px-4 print:w-10">Cek</th>
                             <th className="py-2.5 px-4">Nama Barang</th>
                             <th className="py-2.5 px-4">Cabang</th>
                             <th className="py-2.5 px-4 text-right">Jumlah (Qty)</th>
                             <th className="py-2.5 px-4 text-center">Status Pemesanan</th>
                             <th className="py-2.5 px-4">Catatan Outlet</th>
+                            <th className="py-2.5 px-4 text-center no-print">Aksi</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 font-medium">
@@ -527,12 +582,7 @@ export default function AdminDashboardPage() {
                             const isLeader = item.is_ordered_by_leader || item.status === 'ORDERED_BY_LEADER';
                             return (
                               <tr key={item.id} className="hover:bg-slate-50/50">
-                                <td className="py-2.5 px-4">
-                                  <div className="w-4 h-4 rounded border border-slate-300 flex items-center justify-center text-[10px] text-slate-400 font-bold">
-                                    {isLeader ? '✓' : ''}
-                                  </div>
-                                </td>
-                                <td className="py-2.5 px-4 font-bold text-slate-900">
+                                <td className="py-2.5 px-4 font-bold text-slate-900 uppercase">
                                   {item.item_name}
                                 </td>
                                 <td className="py-2.5 px-4 text-slate-600">
@@ -547,11 +597,23 @@ export default function AdminDashboardPage() {
                                       ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
                                       : 'bg-orange-50 text-orange-600 border border-orange-200'
                                   }`}>
-                                    {isLeader ? '✓ Sudah Diorder Leader' : 'Belum (Admin Beli)'}
+                                    {isLeader ? '✓ Sudah Diorder Leader' : 'Perlu Dibeli Admin'}
                                   </span>
                                 </td>
                                 <td className="py-2.5 px-4 text-slate-500 text-[11px]">
                                   {item.notes ? `"${item.notes}"` : '-'}
+                                </td>
+                                {/* Tombol Hapus Khusus Admin */}
+                                <td className="py-2.5 px-4 text-center no-print">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteOrder(item.id, item.item_name)}
+                                    disabled={deletingId === item.id}
+                                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50"
+                                    title="Hapus baris belanja ini"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
                                 </td>
                               </tr>
                             );
