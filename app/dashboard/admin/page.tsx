@@ -24,6 +24,7 @@ import {
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
 import StockUsageAnalytics from '@/components/outlet/components/shared/StockUsageAnalytics';
+import StaffAttendanceExport from '@/components/hr/StaffAttendanceExport';
 
 export default function AdminDashboardPage() {
   const router = useRouter();
@@ -71,7 +72,6 @@ export default function AdminDashboardPage() {
       const { data: locs } = await supabase.from('locations').select('*');
       if (locs) setLocations(locs);
 
-      // Konversi rentang waktu WITA (UTC+8) ke UTC ISO
       const startWita = new Date(`${orderFilterDate}T00:00:00+08:00`).toISOString();
       const endWita = new Date(`${orderFilterDate}T23:59:59+08:00`).toISOString();
 
@@ -147,7 +147,7 @@ export default function AdminDashboardPage() {
     };
   }, [filteredOrders]);
 
-  // Download CSV
+  // Download CSV Belanja
   const handleDownloadOrderCSV = () => {
     if (filteredOrders.length === 0) {
       alert('Tidak ada permintaan belanja pada tanggal yang dipilih.');
@@ -603,7 +603,6 @@ export default function AdminDashboardPage() {
                                 <td className="py-2.5 px-4 text-slate-500 text-[11px]">
                                   {item.notes ? `"${item.notes}"` : '-'}
                                 </td>
-                                {/* Tombol Hapus Khusus Admin */}
                                 <td className="py-2.5 px-4 text-center no-print">
                                   <button
                                     type="button"
@@ -643,9 +642,12 @@ export default function AdminDashboardPage() {
           </div>
         )}
 
-        {/* TAB 4: LIVE PRESENSI STAF */}
+        {/* TAB 4: LIVE PRESENSI STAF & DOWNLOAD HISTORI BULANAN */}
         {activeTab === 'live_hr' && (
-          <LiveExecutiveSummary />
+          <div className="space-y-6">
+            <LiveExecutiveSummary />
+            <StaffAttendanceExport user={user} />
+          </div>
         )}
 
         {/* TAB 5: DOWNLOAD REKAP PEMAKAIAN */}
