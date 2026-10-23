@@ -34,15 +34,15 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
   const effectiveLocationId = propLocId || user?.location_id || user?.id || '';
   const effectiveStaffName = propStaff || user?.active_staff_name || user?.username || 'Kru Outlet';
 
-  // LOGIKA BISNIS: Cut-off jam 05:00 pagi WITA. 
-  // Jika kru input jam 00:00 - 04:59 dini hari, otomatis tanggal closing adalah kemarin (H-1).
+  // LOGIKA BISNIS: Cut-off jam 06:00 pagi WITA. 
+  // Jika kru input jam 00:00 - 05:59 dini hari, otomatis tanggal closing adalah kemarin (H-1).
   const getEffectiveClosingDate = () => {
     const now = new Date();
     const witaHour = parseInt(
       new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: 'numeric', hour12: false }).format(now)
     );
     const d = new Date();
-    if (witaHour < 5) {
+    if (witaHour < 6) {
       d.setDate(d.getDate() - 1);
     }
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(d);
@@ -69,7 +69,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
       prevDateObj.setDate(prevDateObj.getDate() - 1);
       const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(prevDateObj);
 
-      // 1. Ambil 71 master items resmi
+      // 1. Ambil master items resmi
       const { data: masterItems } = await supabase
         .from('items')
         .select('name, category, uom')
@@ -399,7 +399,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
                   <React.Fragment key={category}>
                     <tr className="bg-slate-50/80 border-y border-slate-100">
                       <td colSpan={4} className="py-2 px-3 font-black text-slate-700 uppercase tracking-wider text-[11px]">
-                        • {category} <span className="text-slate-400 font-normal lowercase">({list.length} item)</span>
+                        {category} <span className="text-slate-400 font-normal lowercase">({list.length} item)</span>
                       </td>
                     </tr>
                     {list.map((row) => (

@@ -36,12 +36,22 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const effectiveLocationId = propLocId || user?.location_id || user?.id || '';
   const effectiveStaffName = propStaff || user?.active_staff_name || user?.username || 'Kasir Outlet';
 
-  const getTodayWita = () => {
-    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
+  // LOGIKA BISNIS: Cut-off jam 06:00 WITA.
+  // Untuk shift malam (SHIFT_2), jika kasir closing jam 00:00 - 05:59 WITA, otomatis dianggap tanggal kemarin (H-1).
+  const getOperationalDateForShift = (targetShift: 'SHIFT_1' | 'SHIFT_2') => {
+    const now = new Date();
+    const witaHour = parseInt(
+      new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: 'numeric', hour12: false }).format(now)
+    );
+    const d = new Date();
+    if (targetShift === 'SHIFT_2' && witaHour < 6) {
+      d.setDate(d.getDate() - 1);
+    }
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(d);
   };
 
-  const [settlementDate, setSettlementDate] = useState<string>(getTodayWita());
   const [shift, setShift] = useState<'SHIFT_1' | 'SHIFT_2'>('SHIFT_1');
+  const [settlementDate, setSettlementDate] = useState<string>(getOperationalDateForShift('SHIFT_1'));
 
   // Input Fields Omset
   const [openingCash, setOpeningCash] = useState<number | string>(0);
@@ -56,7 +66,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const [expenseNominal, setExpenseNominal] = useState<number | string>('');
   const [expenseNotes, setExpenseNotes] = useState<string>('');
 
-  // 2. Daftar Pengeluaran Non-Kasir Dinamis (Bisa Tambah Banyak Beban)
+  // 2. Daftar Pengeluaran Non-Kasir Dinamis
   const [nonCashList, setNonCashList] = useState<NonCashItem[]>([
     { id: '1', category: 'RUMAH_PRODUKSI', nominal: '', notes: '' }
   ]);
@@ -78,15 +88,18 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const numShopee = Number(shopeeNominal) || 0;
   const numExpense = Number(expenseNominal) || 0;
 
-  // Akumulasi Total Beban Non-Kasir
   const totalNonCashExpense = nonCashList.reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
-  
   const numActualCash = Number(actualCashDeposited) || 0;
 
   const totalOmset = numCash + numQris + numGrab + numGofood + numShopee;
-  // Uang di laci HANYA dipotong oleh pengeluaran kasir tunai (numExpense)
   const expectedCashInDrawer = numOpeningCash + numCash - numExpense;
   const cashDifference = actualCashDeposited === '' ? 0 : numActualCash - expectedCashInDrawer;
+
+  // Tangani perpindahan shift secara cerdas
+  const handleShiftChange = (newShift: 'SHIFT_1' | 'SHIFT_2') => {
+    setShift(newShift);
+    setSettlementDate(getOperationalDateForShift(newShift));
+  };
 
   useEffect(() => {
     loadExistingSettlement();
@@ -118,7 +131,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         setExpenseNominal(data.expense_nominal ?? '');
         setExpenseNotes(data.expense_notes ?? '');
 
-        // Parse jika tersimpan list JSON
         if (data.non_cash_expense_notes && data.non_cash_expense_notes.startsWith('[')) {
           try {
             const parsed = JSON.parse(data.non_cash_expense_notes);
@@ -165,7 +177,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     }
   };
 
-  // Handler Tambah Baris Pengeluaran Non-Kasir
   const handleAddNonCashRow = () => {
     setNonCashList((prev) => [
       ...prev,
@@ -173,7 +184,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     ]);
   };
 
-  // Handler Hapus Baris
   const handleRemoveNonCashRow = (id: string) => {
     if (nonCashList.length === 1) {
       setNonCashList([{ id: Date.now().toString(), category: 'RUMAH_PRODUKSI', nominal: '', notes: '' }]);
@@ -182,7 +192,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     setNonCashList((prev) => prev.filter((item) => item.id !== id));
   };
 
-  // Handler Perubahan Data Tiap Baris
   const handleUpdateNonCashRow = (id: string, field: keyof NonCashItem, value: any) => {
     setNonCashList((prev) =>
       prev.map((item) => (item.id === id ? { ...item, [field]: value } : item))
@@ -199,7 +208,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     setSaving(true);
     setMsg(null);
     try {
-      // Filter hanya baris yang ada nominalnya
       const validNonCashItems = nonCashList.filter((item) => Number(item.nominal) > 0);
       const totalNonCash = validNonCashItems.reduce((acc, curr) => acc + Number(curr.nominal || 0), 0);
 
@@ -233,8 +241,42 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
       if (error) throw error;
 
+      // Ambil nama cabang untuk template pesan WA
+      const { data: locData } = await supabase
+        .from('locations')
+        .select('name')
+        .eq('id', effectiveLocationId)
+        .maybeSingle();
+
+      const outletName = locData?.name || 'Outlet Bakso Ibu';
+
+      // Kirim Notifikasi WhatsApp Otomatis
+      try {
+        await fetch('/api/send-wa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            outletName,
+            settlementDate,
+            shift,
+            reportedBy: effectiveStaffName,
+            totalOmset,
+            cashNominal: numCash,
+            qrisNominal: numQris,
+            onlineNominal: numGrab + numGofood + numShopee,
+            expenseNominal: numExpense,
+            expenseNotes: expenseNotes.trim(),
+            nonCashExpenseNominal: totalNonCash,
+            actualCashDeposited: numActualCash,
+            cashDifference,
+          }),
+        });
+      } catch (waErr) {
+        console.warn('Gagal memicu notifikasi WA:', waErr);
+      }
+
       setMsg({
-        text: `Laporan setoran ${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'} berhasil disimpan oleh ${effectiveStaffName}!`,
+        text: `Laporan setoran ${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'} (${settlementDate}) berhasil disimpan oleh ${effectiveStaffName}!`,
         type: 'success'
       });
     } catch (err: any) {
@@ -308,7 +350,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
             <div className="grid grid-cols-2 gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200">
               <button
                 type="button"
-                onClick={() => setShift('SHIFT_1')}
+                onClick={() => handleShiftChange('SHIFT_1')}
                 className={`py-1.5 text-xs font-black rounded-lg transition-all ${
                   shift === 'SHIFT_1' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
@@ -317,7 +359,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               </button>
               <button
                 type="button"
-                onClick={() => setShift('SHIFT_2')}
+                onClick={() => handleShiftChange('SHIFT_2')}
                 className={`py-1.5 text-xs font-black rounded-lg transition-all ${
                   shift === 'SHIFT_2' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
@@ -509,9 +551,8 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           </div>
 
           <div className="space-y-2.5">
-            {nonCashList.map((item, index) => (
+            {nonCashList.map((item) => (
               <div key={item.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 bg-white p-2.5 rounded-xl border border-indigo-100 items-center">
-                {/* Kategori (Span 4) */}
                 <div className="sm:col-span-4">
                   <select
                     value={item.category}
@@ -531,7 +572,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                   </select>
                 </div>
 
-                {/* Nominal (Span 3) */}
                 <div className="sm:col-span-3">
                   <input
                     type="number"
@@ -543,7 +583,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                   />
                 </div>
 
-                {/* Catatan (Span 4) */}
                 <div className="sm:col-span-4">
                   <input
                     type="text"
@@ -554,7 +593,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                   />
                 </div>
 
-                {/* Tombol Hapus Baris (Span 1) */}
                 <div className="sm:col-span-1 flex justify-end">
                   <button
                     type="button"
