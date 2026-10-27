@@ -43,37 +43,39 @@ export default function HRDashboardPage() {
       return;
     }
 
-    const session = JSON.parse(sessionStr);
-    const role = (session.role || '').toUpperCase();
+    try {
+      const session = JSON.parse(sessionStr);
+      const role = (session.role || '').toUpperCase();
 
-    if (role !== 'HR' && role !== 'OWNER' && !role.includes('ADMIN')) {
-      router.push('/login');
-      return;
-    }
-
-    setCurrentUser(session);
-
-    // Ambil data presensi mandiri HR
-    const hrStaffName = session.active_staff_name || session.username || 'HR Officer';
-    const loadHRAttendance = async () => {
-      try {
-        const { data: attData } = await supabase
-          .from('staff_attendances')
-          .select('*')
-          .eq('attendance_date', todayStr)
-          .ilike('staff_name', hrStaffName.trim())
-          .maybeSingle();
-
-        if (attData) setAttendance(attData);
-      } catch (e) {
-        console.error('Error fetching HR attendance:', e);
+      if (role !== 'HR' && role !== 'OWNER' && !role.includes('ADMIN')) {
+        router.push('/login');
+        return;
       }
-    };
 
-    loadHRAttendance();
-  }, [router, todayStr]);
+      setCurrentUser(session);
 
-  // Ambil data cabang & data presensi bulanan untuk modul analisa
+      const hrStaffName = session.active_staff_name || session.username || 'HR Officer';
+      loadHRAttendance(hrStaffName);
+    } catch {
+      router.push('/login');
+    }
+  }, [router]);
+
+  const loadHRAttendance = async (hrStaffName: string) => {
+    try {
+      const { data: attData } = await supabase
+        .from('staff_attendances')
+        .select('*')
+        .eq('attendance_date', todayStr)
+        .ilike('staff_name', hrStaffName.trim())
+        .maybeSingle();
+
+      if (attData) setAttendance(attData);
+    } catch (e) {
+      console.error('Error fetching HR attendance:', e);
+    }
+  };
+
   useEffect(() => {
     async function fetchLocations() {
       const { data } = await supabase.from('locations').select('id, name');
@@ -124,46 +126,60 @@ export default function HRDashboardPage() {
     fetchMonthlyAnalyticsData();
   }, [analyticsMonth, analyticsLoc]);
 
-  // Perhitungan Analisa Kedisiplinan
+  // Parsing waktu aman anti-crash
   const analyzedSessions = useMemo(() => {
+    if (!Array.isArray(monthAttendances)) return [];
+
     return monthAttendances.map((item) => {
       let isLate = false;
       let lateMinutes = 0;
 
       if (item.clock_in) {
-        const timeStr = new Intl.DateTimeFormat('id-ID', {
-          timeZone: 'Asia/Makassar',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false
-        }).format(new Date(item.clock_in));
+        try {
+          const d = new Date(item.clock_in);
+          if (!isNaN(d.getTime())) {
+            const timeStr = new Intl.DateTimeFormat('en-GB', {
+              timeZone: 'Asia/Makassar',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false
+            }).format(d);
 
-        const [h, m] = timeStr.split('.').map(Number);
-        const inMinutes = h * 60 + m;
+            const parts = timeStr.replace('.', ':').split(':');
+            const h = parseInt(parts[0], 10) || 0;
+            const m = parseInt(parts[1], 10) || 0;
+            const inMinutes = h * 60 + m;
 
-        // Shift 1: Jam 08.15 toleransi
-        if (item.shift === 'SHIFT_1' || !item.shift) {
-          if (inMinutes > 8 * 60 + 15) {
-            isLate = true;
-            lateMinutes = inMinutes - (8 * 60);
+            // Shift 1: Jam 08.15 toleransi
+            if (item.shift === 'SHIFT_1' || !item.shift) {
+              if (inMinutes > 8 * 60 + 15) {
+                isLate = true;
+                lateMinutes = inMinutes - (8 * 60);
+              }
+            } 
+            // Shift 2: Jam 15.15 toleransi
+            else if (item.shift === 'SHIFT_2') {
+              if (inMinutes > 15 * 60 + 15) {
+                isLate = true;
+                lateMinutes = inMinutes - (15 * 60);
+              }
+            }
           }
-        } 
-        // Shift 2: Jam 15.15 toleransi
-        else if (item.shift === 'SHIFT_2') {
-          if (inMinutes > 15 * 60 + 15) {
-            isLate = true;
-            lateMinutes = inMinutes - (15 * 60);
-          }
+        } catch {
+          // ignore parsing error
         }
       }
 
-      const isOld = item.attendance_date < todayStr;
+      const isOld = (item.attendance_date || '') < todayStr;
       const isForgotten = !item.clock_out && isOld;
 
       let durationHours = 0;
-      if (item.clock_out) {
-        const diffMs = new Date(item.clock_out).getTime() - new Date(item.clock_in).getTime();
-        if (diffMs > 0) durationHours = diffMs / (1000 * 60 * 60);
+      if (item.clock_in && item.clock_out) {
+        const start = new Date(item.clock_in).getTime();
+        const end = new Date(item.clock_out).getTime();
+        if (!isNaN(start) && !isNaN(end) && end > start) {
+          durationHours = (end - start) / (1000 * 60 * 60);
+        }
       } else if (isForgotten) {
         durationHours = item.shift === 'FULL_DAY' ? 12 : 8;
       }
@@ -203,7 +219,7 @@ export default function HRDashboardPage() {
       }
 
       summary[name].totalDays += 1;
-      summary[name].totalHours += s.durationHours;
+      summary[name].totalHours += Number(s.durationHours || 0);
       if (s.isLate) summary[name].lateCount += 1;
       if (s.isForgotten) summary[name].forgottenCount += 1;
     });
@@ -218,13 +234,11 @@ export default function HRDashboardPage() {
     }).sort((a, b) => b.disciplineScore - a.disciplineScore);
   }, [analyzedSessions]);
 
-  // Statistik Kartu Analisa Utama
   const totalSessions = analyzedSessions.length;
   const totalLates = analyzedSessions.filter((s) => s.isLate).length;
   const totalForgotten = analyzedSessions.filter((s) => s.isForgotten).length;
   const overallOnTimeRate = totalSessions > 0 ? Math.round(((totalSessions - totalLates) / totalSessions) * 100) : 100;
 
-  // GPS Fallback Presensi HR
   const getCoordinates = async (): Promise<{ lat: number; lng: number } | null> => {
     if (typeof window === 'undefined' || !navigator.geolocation) return null;
     return new Promise((resolve) => {
@@ -319,15 +333,16 @@ export default function HRDashboardPage() {
   const formatDisplayTime = (iso?: string) => {
     if (!iso) return '--:--';
     try {
-      return new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '--:--';
+      return new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit' }).format(d);
     } catch {
-      return iso;
+      return '--:--';
     }
   };
 
   return (
     <div className="min-h-screen bg-[#f8f9fd] text-slate-800 font-sans flex flex-col">
-      {/* Header Portal HR */}
       <header className="max-w-7xl w-full mx-auto px-4 sm:px-6 pt-5 pb-4 flex items-center justify-between border-b border-slate-200/60 bg-white sm:rounded-b-3xl shadow-xs">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
@@ -368,10 +383,9 @@ export default function HRDashboardPage() {
         </div>
       </header>
 
-      {/* Konten Utama */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
         
-        {/* 1. PRESENSI MANDIRI PETUGAS HR */}
+        {/* 1. PRESENSI MANDIRI HR */}
         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -443,10 +457,10 @@ export default function HRDashboardPage() {
           </div>
         </div>
 
-        {/* 2. TABEL LOG OPERASIONAL HARIAN & DATABASE PEGAWAI (DENGAN DOWNLOAD EXCEL LENGKAP) */}
+        {/* 2. PUSAT LOG HARIAN & DOWNLOAD CSV LENGKAP */}
         <LiveExecutiveSummary />
 
-        {/* 3. MODUL ANALISA KEDISIPLINAN KRU & RAPOR KEPATUHAN */}
+        {/* 3. MODUL ANALISA KEDISIPLINAN KRU */}
         <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between pb-5 border-b border-slate-100 gap-4">
             <div className="flex items-center gap-3">
@@ -463,7 +477,6 @@ export default function HRDashboardPage() {
               </div>
             </div>
 
-            {/* Filter Periode & Outlet Analisa */}
             <div className="flex flex-wrap items-center gap-2">
               <input
                 type="month"
@@ -495,7 +508,6 @@ export default function HRDashboardPage() {
             </div>
           </div>
 
-          {/* 4 Kartu Metrik Analisa */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
               <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">
@@ -538,7 +550,6 @@ export default function HRDashboardPage() {
             </div>
           </div>
 
-          {/* Tabel Rapor Kedisiplinan Staf */}
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
