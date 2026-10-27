@@ -6,31 +6,24 @@ import {
   Users, 
   LogOut, 
   ShieldCheck, 
-  MapPin, 
-  CalendarCheck,
-  UserCheck,
   Clock,
   CheckCircle2,
   Navigation,
   AlertCircle
 } from 'lucide-react';
-import StaffManagementView from '@/components/hr/StaffManagementView';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function HRDashboardPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [stats, setStats] = useState({
-    totalStaff: 0,
-    presentToday: 0,
-    activeLocations: 0
-  });
 
   // State Presensi Mandiri HR
   const [attendance, setAttendance] = useState<any>(null);
   const [loadingAttendance, setLoadingAttendance] = useState(false);
   const [attendanceMsg, setAttendanceMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
 
   useEffect(() => {
     const sessionStr = localStorage.getItem('baksoibu_active_staff');
@@ -42,57 +35,44 @@ export default function HRDashboardPage() {
     const session = JSON.parse(sessionStr);
     const role = (session.role || '').toUpperCase();
 
-    if (role !== 'HR' && role !== 'OWNER') {
+    if (role !== 'HR' && role !== 'OWNER' && !role.includes('ADMIN')) {
       router.push('/login');
       return;
     }
 
     setCurrentUser(session);
 
-    // Ambil rekap KPI & Presensi HR hari ini
-    const todayStr = new Date().toISOString().split('T')[0];
+    // Ambil data presensi mandiri staf HR hari ini
     const hrStaffName = session.active_staff_name || session.username || 'HR Officer';
 
-    const loadData = async () => {
+    const loadHRAttendance = async () => {
       try {
-        const [{ count: totalStaffCount }, { count: presentCount }, { data: locs }, { data: attData }] = await Promise.all([
-          supabase.from('staff_profiles').select('*', { count: 'exact', head: true }).eq('is_active', true),
-          supabase.from('staff_attendances').select('*', { count: 'exact', head: true }).eq('attendance_date', todayStr),
-          supabase.from('locations').select('id'),
-          supabase.from('staff_attendances').select('*').eq('attendance_date', todayStr).ilike('staff_name', hrStaffName).maybeSingle()
-        ]);
-
-        setStats({
-          totalStaff: totalStaffCount || 0,
-          presentToday: presentCount || 0,
-          activeLocations: locs ? locs.length : 0
-        });
+        const { data: attData } = await supabase
+          .from('staff_attendances')
+          .select('*')
+          .eq('attendance_date', todayStr)
+          .ilike('staff_name', hrStaffName.trim())
+          .maybeSingle();
 
         if (attData) {
           setAttendance(attData);
         }
       } catch (e) {
-        console.error('Error fetching HR data:', e);
+        console.error('Error fetching HR attendance:', e);
       }
     };
 
-    loadData();
-  }, [router]);
+    loadHRAttendance();
+  }, [router, todayStr]);
 
-  // Fungsi GPS Fallback Presensi HR
+  // GPS Fallback Presensi HR
   const getCoordinates = async (): Promise<{ lat: number; lng: number } | null> => {
     if (typeof window === 'undefined' || !navigator.geolocation) return null;
     return new Promise((resolve) => {
       navigator.geolocation.getCurrentPosition(
         (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-            () => resolve(null),
-            { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
-          );
-        },
-        { enableHighAccuracy: true, timeout: 7000, maximumAge: 60000 }
+        () => resolve(null),
+        { enableHighAccuracy: false, timeout: 3500, maximumAge: 60000 }
       );
     });
   };
@@ -101,15 +81,16 @@ export default function HRDashboardPage() {
     setLoadingAttendance(true);
     setAttendanceMsg(null);
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
-      const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+      const nowIso = new Date().toISOString();
       const coords = await getCoordinates();
       const hrStaffName = currentUser?.active_staff_name || currentUser?.username || 'HR Officer';
 
       const payload: any = {
         staff_name: hrStaffName,
+        role: 'HR',
+        shift: 'SHIFT_1',
         attendance_date: todayStr,
-        clock_in: timeStr,
+        clock_in: nowIso,
         location_id: currentUser?.location_id || null,
         status: 'HADIR'
       };
@@ -127,7 +108,8 @@ export default function HRDashboardPage() {
 
       if (error) throw error;
       setAttendance(data);
-      setAttendanceMsg({ text: `Check-in berhasil pukul ${timeStr} WITA`, type: 'success' });
+      const timeDisplay = new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit' }).format(new Date(nowIso));
+      setAttendanceMsg({ text: `Check-in berhasil pukul ${timeDisplay} WITA`, type: 'success' });
     } catch (err: any) {
       setAttendanceMsg({ text: `Gagal Check-in: ${err.message}`, type: 'error' });
     } finally {
@@ -140,11 +122,11 @@ export default function HRDashboardPage() {
     setLoadingAttendance(true);
     setAttendanceMsg(null);
     try {
-      const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+      const nowIso = new Date().toISOString();
       const coords = await getCoordinates();
 
       const payload: any = {
-        clock_out: timeStr
+        clock_out: nowIso
       };
 
       if (coords) {
@@ -161,7 +143,8 @@ export default function HRDashboardPage() {
 
       if (error) throw error;
       setAttendance(data);
-      setAttendanceMsg({ text: `Check-out berhasil pukul ${timeStr} WITA`, type: 'success' });
+      const timeDisplay = new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit' }).format(new Date(nowIso));
+      setAttendanceMsg({ text: `Check-out berhasil pukul ${timeDisplay} WITA`, type: 'success' });
     } catch (err: any) {
       setAttendanceMsg({ text: `Gagal Check-out: ${err.message}`, type: 'error' });
     } finally {
@@ -172,6 +155,15 @@ export default function HRDashboardPage() {
   const handleLogout = () => {
     localStorage.removeItem('baksoibu_active_staff');
     router.push('/login');
+  };
+
+  const formatDisplayTime = (iso?: string) => {
+    if (!iso) return '--:--';
+    try {
+      return new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+    } catch {
+      return iso;
+    }
   };
 
   return (
@@ -249,7 +241,7 @@ export default function HRDashboardPage() {
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Jam Masuk (Check-In)</span>
                 <span className="text-sm font-black text-slate-800">
-                  {attendance?.clock_in || '--:--'}
+                  {formatDisplayTime(attendance?.clock_in)}
                 </span>
                 {attendance?.clock_in_lat && (
                   <span className="text-[10px] text-indigo-600 font-bold block flex items-center gap-1 mt-0.5">
@@ -273,7 +265,7 @@ export default function HRDashboardPage() {
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Jam Pulang (Check-Out)</span>
                 <span className="text-sm font-black text-slate-800">
-                  {attendance?.clock_out || '--:--'}
+                  {formatDisplayTime(attendance?.clock_out)}
                 </span>
                 {attendance?.clock_out_lat && (
                   <span className="text-[10px] text-indigo-600 font-bold block flex items-center gap-1 mt-0.5">
@@ -294,56 +286,8 @@ export default function HRDashboardPage() {
           </div>
         </div>
 
-        {/* 1. LIVE KENDALI OPERASIONAL STAF & OUTLET */}
+        {/* SATU PUSAT KONTROL: LIVE PRESENSI, REKAP STATISTIK & DATABASE STAF */}
         <LiveExecutiveSummary />
-
-        {/* RINGKASAN MONITORING SDM */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs flex items-center justify-between">
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                Total Karyawan Aktif
-              </span>
-              <p className="text-xl font-black text-slate-900 mt-0.5">
-                {stats.totalStaff} <span className="text-xs font-medium text-slate-400">Orang</span>
-              </p>
-            </div>
-            <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-              <UserCheck className="w-5 h-5" />
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs flex items-center justify-between">
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                Hadir Hari Ini
-              </span>
-              <p className="text-xl font-black text-emerald-600 mt-0.5">
-                {stats.presentToday} <span className="text-xs font-medium text-slate-400">Presensi</span>
-              </p>
-            </div>
-            <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <CalendarCheck className="w-5 h-5" />
-            </div>
-          </div>
-
-          <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs flex items-center justify-between">
-            <div>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                Cakupan Outlet
-              </span>
-              <p className="text-xl font-black text-slate-800 mt-0.5">
-                {stats.activeLocations} <span className="text-xs font-medium text-slate-400">Lokasi</span>
-              </p>
-            </div>
-            <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
-              <MapPin className="w-5 h-5" />
-            </div>
-          </div>
-        </div>
-
-        {/* ADMINISTRASI & REKAP SELURUH KARYAWAN */}
-        <StaffManagementView />
       </main>
     </div>
   );

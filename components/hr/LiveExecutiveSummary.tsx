@@ -11,13 +11,16 @@ import {
   Download,
   Building2,
   ShieldCheck,
-  AlertCircle
+  AlertCircle,
+  FileSpreadsheet
 } from 'lucide-react';
 
 export default function LiveExecutiveSummary() {
   const todayWita = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
+  const currentMonthWita = todayWita.slice(0, 7); // YYYY-MM
 
   const [selectedDate, setSelectedDate] = useState<string>(todayWita);
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthWita);
   const [selectedLoc, setSelectedLoc] = useState<string>('all');
   const [activeSubTab, setActiveSubTab] = useState<'log' | 'database'>('log');
 
@@ -25,7 +28,8 @@ export default function LiveExecutiveSummary() {
   const [staffProfiles, setStaffProfiles] = useState<any[]>([]);
   const [attendances, setAttendances] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [downloading, setDownloading] = useState(false);
+  const [downloadingDaily, setDownloadingDaily] = useState(false);
+  const [downloadingMonthly, setDownloadingMonthly] = useState(false);
 
   useEffect(() => {
     async function fetchMasterData() {
@@ -94,9 +98,8 @@ export default function LiveExecutiveSummary() {
     }
   };
 
-  // Logika evaluasi status presensi
+  // Logika evaluasi status presensi & lupa check-out (01:00 - 05:59 WITA)
   const evaluateAttendanceStatus = (item: any) => {
-    // 1. Jika staf sudah check-out
     if (item.clock_out) {
       const start = new Date(item.clock_in).getTime();
       const end = new Date(item.clock_out).getTime();
@@ -114,15 +117,11 @@ export default function LiveExecutiveSummary() {
       }
     }
 
-    // 2. Jika staf belum check-out
     const now = new Date();
     const witaHour = parseInt(
       new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: 'numeric', hour12: false }).format(now)
     );
 
-    // Kriteria lupa check-out:
-    // - Tanggal lampau (< hari ini)
-    // - Atau hari ini, tetapi jam sekarang sudah lewat tengah malam (01:00 s.d. 05:59 WITA)
     const isOldDate = item.attendance_date < todayWita;
     const isPast1AMDawn = item.attendance_date === todayWita && (witaHour >= 1 && witaHour < 6);
     const isForgotten = isOldDate || isPast1AMDawn;
@@ -137,7 +136,6 @@ export default function LiveExecutiveSummary() {
       };
     }
 
-    // Staf masih aktif bertugas
     return {
       isForgotten: false,
       checkOutDisplay: '-',
@@ -165,13 +163,14 @@ export default function LiveExecutiveSummary() {
     });
   }, [locations, attendances]);
 
-  const handleDownloadCSV = () => {
+  // 1. Ekspor CSV Harian
+  const handleDownloadDailyCSV = () => {
     if (attendances.length === 0) {
       alert(`Tidak ada rekaman presensi pada tanggal ${selectedDate}.`);
       return;
     }
 
-    setDownloading(true);
+    setDownloadingDaily(true);
     try {
       const locLabel = selectedLoc === 'all' 
         ? 'Semua_Lokasi' 
@@ -187,7 +186,7 @@ export default function LiveExecutiveSummary() {
         'Jam Pulang (Check-Out)',
         'Durasi Kerja',
         'Status Presensi',
-        'Titik GPS'
+        'Titik GPS Terdeteksi'
       ];
 
       const rows = attendances.map((item) => {
@@ -216,12 +215,107 @@ export default function LiveExecutiveSummary() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `Presensi_SDM_${locLabel}_${selectedDate}.csv`;
+      link.download = `Presensi_Harian_${locLabel}_${selectedDate}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     } finally {
-      setDownloading(false);
+      setDownloadingDaily(false);
+    }
+  };
+
+  // 2. Ekspor CSV Bulanan Lengkap (Untuk Payroll HR)
+  const handleDownloadMonthlyCSV = async () => {
+    setDownloadingMonthly(true);
+    try {
+      const [year, month] = selectedMonth.split('-');
+      const lastDay = new Date(Number(year), Number(month), 0).getDate();
+      const startDate = `${selectedMonth}-01`;
+      const endDate = `${selectedMonth}-${String(lastDay).padStart(2, '0')}`;
+
+      let query = supabase
+        .from('staff_attendances')
+        .select(`
+          id,
+          staff_name,
+          role,
+          shift,
+          attendance_date,
+          clock_in,
+          clock_out,
+          clock_in_lat,
+          clock_in_lng,
+          location_id,
+          locations(name)
+        `)
+        .gte('attendance_date', startDate)
+        .lte('attendance_date', endDate)
+        .order('attendance_date', { ascending: true })
+        .order('clock_in', { ascending: true });
+
+      if (selectedLoc !== 'all') {
+        query = query.eq('location_id', selectedLoc);
+      }
+
+      const { data: monthData, error } = await query;
+      if (error) throw error;
+
+      if (!monthData || monthData.length === 0) {
+        alert(`Tidak ada rekaman presensi pada bulan ${selectedMonth}.`);
+        return;
+      }
+
+      const locLabel = selectedLoc === 'all' 
+        ? 'Semua_Lokasi' 
+        : locations.find((l) => l.id === selectedLoc)?.name || 'Cabang';
+
+      const headers = [
+        'Tanggal Presensi',
+        'Nama Pegawai',
+        'Peran / Jabatan',
+        'Lokasi Outlet',
+        'Shift',
+        'Jam Masuk (Check-In)',
+        'Jam Pulang (Check-Out)',
+        'Durasi Kerja',
+        'Status Presensi',
+        'Titik GPS'
+      ];
+
+      const rows = monthData.map((item) => {
+        const evaluated = evaluateAttendanceStatus(item);
+        const checkIn = formatTimeWita(item.clock_in);
+        const shiftLabel = item.shift === 'SHIFT_2' ? 'Shift 2' : item.shift === 'FULL_DAY' ? 'Full Day' : 'Shift 1';
+        const locName = item.locations?.name ? `Outlet ${item.locations.name}` : '-';
+        const gpsStatus = (item.clock_in_lat && item.clock_in_lng) ? 'YA' : 'TIDAK';
+
+        return [
+          `"${item.attendance_date}"`,
+          `"${item.staff_name}"`,
+          `"${item.role || 'CREW'}"`,
+          `"${locName}"`,
+          `"${shiftLabel}"`,
+          `"${checkIn}"`,
+          `"${evaluated.checkOutDisplay}"`,
+          `"${evaluated.durationDisplay}"`,
+          `"${evaluated.statusDisplay}"`,
+          `"${gpsStatus}"`
+        ].join(';');
+      });
+
+      const csvContent = [headers.join(';'), ...rows].join('\r\n');
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Presensi_Bulanan_SDM_${locLabel}_${selectedMonth}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err: any) {
+      alert(`Gagal mengekspor data bulanan: ${err.message}`);
+    } finally {
+      setDownloadingMonthly(false);
     }
   };
 
@@ -338,17 +432,33 @@ export default function LiveExecutiveSummary() {
             </div>
           </div>
 
+          {/* Tombol Opsi Unduh Presensi */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Download Harian */}
             <button
               type="button"
-              onClick={handleDownloadCSV}
-              disabled={downloading || attendances.length === 0}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-xs transition-all"
+              onClick={handleDownloadDailyCSV}
+              disabled={downloadingDaily || attendances.length === 0}
+              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all"
+              title="Unduh data pada tanggal kalender yang dipilih"
             >
-              <Download className="w-4 h-4" />
-              <span>{downloading ? 'Mengekspor...' : 'Download Excel (.CSV)'}</span>
+              <Download className="w-3.5 h-3.5" />
+              <span>{downloadingDaily ? 'Mengekspor...' : 'Unduh Harian'}</span>
             </button>
 
+            {/* Download Bulanan */}
+            <button
+              type="button"
+              onClick={handleDownloadMonthlyCSV}
+              disabled={downloadingMonthly}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-xs transition-all"
+              title="Unduh seluruh rekap kehadiran dalam bulan kalender yang dipilih"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>{downloadingMonthly ? 'Menyiapkan...' : 'Unduh Bulanan (.CSV)'}</span>
+            </button>
+
+            {/* Switch Tab */}
             <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-600">
               <button
                 type="button"
@@ -374,43 +484,65 @@ export default function LiveExecutiveSummary() {
 
         {activeSubTab === 'log' && (
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+            {/* Kontrol Filter: Tanggal Harian, Pilihan Bulan, dan Lokasi */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* Tanggal Tabel */}
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 block mb-1">Tanggal Harian:</span>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Periode Bulan untuk Ekspor Bulanan */}
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 block mb-1">Periode Bulan:</span>
                   <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                    type="month"
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
                   />
                 </div>
 
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                  <select
-                    value={selectedLoc}
-                    onChange={(e) => setSelectedLoc(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
-                  >
-                    <option value="all">Semua Lokasi</option>
-                    {locations.map((loc) => (
-                      <option key={loc.id} value={loc.id}>
-                        Outlet {loc.name}
-                      </option>
-                    ))}
-                  </select>
+                {/* Filter Cabang */}
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 block mb-1">Filter Outlet:</span>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                    <select
+                      value={selectedLoc}
+                      onChange={(e) => setSelectedLoc(e.target.value)}
+                      className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                    >
+                      <option value="all">Semua Lokasi</option>
+                      {locations.map((loc) => (
+                        <option key={loc.id} value={loc.id}>
+                          Outlet {loc.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={fetchAttendanceData}
-                className="p-2 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-100 transition-all"
-                title="Segarkan Data"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              </button>
+              <div className="self-end pb-0.5">
+                <button
+                  type="button"
+                  onClick={fetchAttendanceData}
+                  className="p-2 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-100 transition-all"
+                  title="Segarkan Data"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
             </div>
 
             <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
