@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { 
   Clock, 
-  LogIn, 
   LogOut, 
   CheckCircle2, 
   AlertCircle, 
@@ -24,13 +23,13 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
   const [activeStaffProfile, setActiveStaffProfile] = useState<any | null>(null);
 
   const [activeAttendance, setActiveAttendance] = useState<any | null>(null);
+  const [isSessionExpired, setIsSessionExpired] = useState(false);
   const [shift, setShift] = useState<'SHIFT_1' | 'SHIFT_2' | 'FULL_DAY'>('SHIFT_1');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
 
-  // 1. Ambil daftar staf aktif
   useEffect(() => {
     const fetchStaffProfiles = async () => {
       let query = supabase
@@ -62,15 +61,25 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     fetchStaffProfiles();
   }, [activeLocationId, currentUser]);
 
-  // 2. Cek status presensi hari ini atau presensi aktif yang belum checkout
+  // Cek apakah sudah lewat jam 01:00 WITA
+  const checkIsPast1AM = (attendanceDate: string) => {
+    if (attendanceDate < todayStr) return true;
+    const now = new Date();
+    const witaHour = parseInt(
+      new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: 'numeric', hour12: false }).format(now)
+    );
+    return witaHour >= 1;
+  };
+
   const checkTodayAttendance = async (nickname: string) => {
     if (!nickname) {
       setActiveAttendance(null);
+      setIsSessionExpired(false);
       return;
     }
 
     try {
-      // Prioritas 1: Cari sesi yang BELUM checkout dalam 24 jam terakhir
+      // 1. Cek sesi yang belum check-out
       const { data: openSession } = await supabase
         .from('staff_attendances')
         .select('*')
@@ -80,11 +89,19 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
         .limit(1);
 
       if (openSession && openSession.length > 0) {
-        setActiveAttendance(openSession[0]);
+        const session = openSession[0];
+        // Jika sesi kemarin dan sudah lewat jam 1 malam, anggap expired (lupa checkout)
+        if (checkIsPast1AM(session.attendance_date)) {
+          setActiveAttendance(null);
+          setIsSessionExpired(true);
+          return;
+        }
+        setActiveAttendance(session);
+        setIsSessionExpired(false);
         return;
       }
 
-      // Prioritas 2: Jika sudah checkout semua, ambil presensi tanggal hari ini
+      // 2. Jika sudah checkout semua, cek status presensi hari ini
       const { data: todaySession } = await supabase
         .from('staff_attendances')
         .select('*')
@@ -98,6 +115,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
       } else {
         setActiveAttendance(null);
       }
+      setIsSessionExpired(false);
     } catch (e) {
       console.error('Gagal membaca presensi:', e);
     }
@@ -111,14 +129,12 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     setMessage(null);
   };
 
-  // Koordinat GPS dengan batas waktu (tidak akan pernah macet / hang)
   const getCurrentCoordinates = (): Promise<{ lat: number; lng: number }> => {
     return new Promise((resolve) => {
       if (typeof window === 'undefined' || !navigator.geolocation) {
         return resolve({ lat: 0, lng: 0 });
       }
 
-      // Batas waktu maksimal 2.5 detik agar tombol tidak freeze
       const timeoutId = setTimeout(() => {
         resolve({ lat: 0, lng: 0 });
       }, 2500);
@@ -137,7 +153,6 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     });
   };
 
-  // Check-In
   const handleClockIn = async () => {
     if (!selectedStaffNickname) {
       setMessage({ text: 'Pilih nama panggilan Anda terlebih dahulu!', type: 'error' });
@@ -171,6 +186,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
 
       if (error) throw error;
       setActiveAttendance(data);
+      setIsSessionExpired(false);
 
       const hasGps = coords.lat !== 0;
       setMessage({
@@ -184,7 +200,6 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     }
   };
 
-  // Check-Out (Diperbaiki agar anti-gagal)
   const handleClockOut = async () => {
     if (!activeAttendance?.id) {
       setMessage({ text: 'Data check-in tidak ditemukan. Coba pilih ulang nama Anda.', type: 'error' });
@@ -213,7 +228,6 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
 
       if (error) throw error;
 
-      // Update state lokal langsung tanpa bergantung pada response .single()
       setActiveAttendance((prev: any) => ({
         ...prev,
         ...updatePayload,
@@ -231,7 +245,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-xs space-y-3 max-w-md mx-auto">
+    <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-xs space-y-3 max-w-md mx-auto font-sans">
       <div className="flex items-center justify-between pb-3 border-b border-slate-100">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
@@ -271,6 +285,12 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
         )}
       </div>
 
+      {isSessionExpired && (
+        <div className="p-2.5 rounded-xl text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+          ⚠️ Sesi tugas sebelumnya ditutup otomatis karena lewat jam 01:00 WITA (Lupa Check-Out). Anda bisa langsung Check-In untuk shift baru.
+        </div>
+      )}
+
       {message && (
         <div
           className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
@@ -286,7 +306,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
         </div>
       )}
 
-      {/* DROPDOWN NAMA PANGGILAN */}
+      {/* DROPDOWN NAMA */}
       <div className="bg-slate-50 p-3.5 rounded-2xl space-y-2 border border-slate-100">
         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
           Pilih Nama Panggilan Anda
@@ -299,7 +319,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
           <option value="">-- Pilih Nama Terdaftar --</option>
           {staffOptions.map((s) => (
             <option key={s.id} value={s.nickname}>
-              {s.nickname} ({s.role} - {s.full_name})
+              {s.nickname} ({s.role} • {s.full_name})
             </option>
           ))}
         </select>

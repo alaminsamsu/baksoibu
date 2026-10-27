@@ -10,9 +10,8 @@ import {
   ExternalLink,
   Download,
   Building2,
-  CheckCircle2,
-  Clock,
-  ShieldCheck
+  ShieldCheck,
+  AlertCircle
 } from 'lucide-react';
 
 export default function LiveExecutiveSummary() {
@@ -28,7 +27,6 @@ export default function LiveExecutiveSummary() {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
 
-  // 1. Ambil data master lokasi & profil staf
   useEffect(() => {
     async function fetchMasterData() {
       const { data: locs } = await supabase.from('locations').select('*').order('name');
@@ -43,7 +41,6 @@ export default function LiveExecutiveSummary() {
     fetchMasterData();
   }, []);
 
-  // 2. Ambil data presensi harian
   const fetchAttendanceData = async () => {
     setLoading(true);
     try {
@@ -83,7 +80,7 @@ export default function LiveExecutiveSummary() {
     fetchAttendanceData();
   }, [selectedDate, selectedLoc]);
 
-  // Format jam WITA (HH.mm)
+  // Format Jam WITA (HH.mm)
   const formatTimeWita = (isoString?: string) => {
     if (!isoString) return '-';
     try {
@@ -98,28 +95,61 @@ export default function LiveExecutiveSummary() {
     }
   };
 
-  // Hitung durasi kerja staf
-  const getWorkDuration = (inTime?: string, outTime?: string) => {
-    if (!inTime) return '-';
-    if (!outTime) return 'Sedang Bertugas';
+  // LOGIKA JAM 1 MALAM & CEK LUPA CHECK-OUT
+  const evaluateAttendanceStatus = (item: any) => {
+    if (item.clock_out) {
+      const start = new Date(item.clock_in).getTime();
+      const end = new Date(item.clock_out).getTime();
+      const diffMs = end - start;
+      if (diffMs > 0) {
+        const diffMins = Math.floor(diffMs / (1000 * 60));
+        const hours = Math.floor(diffMins / 60);
+        const mins = diffMins % 60;
+        return {
+          isForgotten: false,
+          checkOutDisplay: formatTimeWita(item.clock_out),
+          durationDisplay: `${hours} Jam ${mins} Menit`,
+          statusDisplay: 'SELESAI'
+        };
+      }
+    }
 
-    const start = new Date(inTime).getTime();
-    const end = new Date(outTime).getTime();
-    const diffMs = end - start;
-    if (diffMs <= 0) return '-';
+    // Jika belum clock_out:
+    const now = new Date();
+    const witaHour = parseInt(
+      new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: 'numeric', hour12: false }).format(now)
+    );
 
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const hours = Math.floor(diffMins / 60);
-    const mins = diffMins % 60;
-    return `${hours} Jam ${mins} Menit`;
+    // Kriteria lupa checkout:
+    // 1. Tanggal presensi sudah lewat (< todayWita)
+    // 2. Tanggal presensi hari ini tapi sekarang sudah jam 01:00 WITA ke atas
+    const isPast1AM = witaHour >= 1;
+    const isOldDate = item.attendance_date < todayWita;
+    const isForgotten = isOldDate || (item.attendance_date === todayWita && isPast1AM);
+
+    if (isForgotten) {
+      // Default flat jam kerja standar per shift
+      const defaultDuration = item.shift === 'FULL_DAY' ? '12 Jam (Standar)' : '8 Jam (Standar)';
+      return {
+        isForgotten: true,
+        checkOutDisplay: 'Lupa Check-Out',
+        durationDisplay: defaultDuration,
+        statusDisplay: 'LUPA CHECK-OUT'
+      };
+    }
+
+    return {
+      isForgotten: false,
+      checkOutDisplay: '-',
+      durationDisplay: 'Sedang Bertugas',
+      statusDisplay: 'SEDANG BERTUGAS'
+    };
   };
 
-  // Statistik Ringkasan Atas
   const totalActiveStaff = staffProfiles.filter((s) => s.is_active !== false).length;
   const totalHadirHariIni = attendances.length;
   const totalOutletCount = locations.length;
 
-  // Grup Presensi per Cabang Outlet untuk Kartu Atas
   const outletAttendanceCards = useMemo(() => {
     return locations.map((loc) => {
       const locAttendances = attendances.filter((a) => a.location_id === loc.id);
@@ -135,9 +165,7 @@ export default function LiveExecutiveSummary() {
     });
   }, [locations, attendances]);
 
-  // =========================================================================
-  // FUNGSI DOWNLOAD EXCEL (.CSV) LENGKAP UNTUK HR
-  // =========================================================================
+  // Download Excel (.CSV)
   const handleDownloadCSV = () => {
     if (attendances.length === 0) {
       alert(`Tidak ada rekaman presensi pada tanggal ${selectedDate}.`);
@@ -159,17 +187,15 @@ export default function LiveExecutiveSummary() {
         'Jam Masuk (Check-In)',
         'Jam Pulang (Check-Out)',
         'Durasi Kerja',
-        'Status Selesai',
-        'Titik GPS Terdeteksi'
+        'Status Presensi',
+        'Titik GPS'
       ];
 
       const rows = attendances.map((item) => {
+        const evaluated = evaluateAttendanceStatus(item);
         const checkIn = formatTimeWita(item.clock_in);
-        const checkOut = formatTimeWita(item.clock_out);
-        const duration = getWorkDuration(item.clock_in, item.clock_out);
         const shiftLabel = item.shift === 'SHIFT_2' ? 'Shift 2' : item.shift === 'FULL_DAY' ? 'Full Day' : 'Shift 1';
         const locName = item.locations?.name ? `Outlet ${item.locations.name}` : '-';
-        const status = item.clock_out ? 'SUDAH PULANG (SELESAI)' : 'SEDANG BERTUGAS';
         const gpsStatus = (item.clock_in_lat && item.clock_in_lng) ? 'YA (TERVERIFIKASI)' : 'TIDAK';
 
         return [
@@ -179,9 +205,9 @@ export default function LiveExecutiveSummary() {
           `"${locName}"`,
           `"${shiftLabel}"`,
           `"${checkIn}"`,
-          `"${checkOut}"`,
-          `"${duration}"`,
-          `"${status}"`,
+          `"${evaluated.checkOutDisplay}"`,
+          `"${evaluated.durationDisplay}"`,
+          `"${evaluated.statusDisplay}"`,
           `"${gpsStatus}"`
         ].join(';');
       });
@@ -203,7 +229,7 @@ export default function LiveExecutiveSummary() {
   return (
     <div className="space-y-6 font-sans">
       
-      {/* 1. KARTU MONITORING LEADER & PETUGAS DI TEMPAT PER OUTLET */}
+      {/* 1. KARTU MONITORING OUTLET */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {outletAttendanceCards.map((card) => (
           <div key={card.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
@@ -252,7 +278,7 @@ export default function LiveExecutiveSummary() {
         ))}
       </div>
 
-      {/* 2. BARIS 3 STATISTIK UTAMA */}
+      {/* 2. STATISTIK UTAMA */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs flex items-center justify-between">
           <div>
@@ -297,10 +323,8 @@ export default function LiveExecutiveSummary() {
         </div>
       </div>
 
-      {/* 3. PANEL UTAMA ADMINISTRASI & PRESENSI SDM */}
+      {/* 3. TABEL LOG ADMINISTRASI PRESENSI */}
       <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-5">
-        
-        {/* Header Panel & Tombol Unduh CSV */}
         <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-slate-100 gap-4">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
@@ -317,19 +341,16 @@ export default function LiveExecutiveSummary() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Tombol Download CSV Excel Baru */}
             <button
               type="button"
               onClick={handleDownloadCSV}
               disabled={downloading || attendances.length === 0}
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-xs transition-all"
-              title="Unduh seluruh histori presensi ke format Excel (.CSV)"
             >
               <Download className="w-4 h-4" />
               <span>{downloading ? 'Mengekspor...' : 'Download Excel (.CSV)'}</span>
             </button>
 
-            {/* Tab Sub-Navigasi */}
             <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-600">
               <button
                 type="button"
@@ -353,10 +374,8 @@ export default function LiveExecutiveSummary() {
           </div>
         </div>
 
-        {/* SUB-TAB 1: LOG PRESENSI HARIAN */}
         {activeSubTab === 'log' && (
           <div className="space-y-4">
-            {/* Baris Filter Tanggal & Lokasi */}
             <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative">
@@ -396,7 +415,6 @@ export default function LiveExecutiveSummary() {
               </button>
             </div>
 
-            {/* Tabel Log Presensi Lengkap */}
             <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
@@ -427,9 +445,8 @@ export default function LiveExecutiveSummary() {
                       </tr>
                     ) : (
                       attendances.map((row) => {
+                        const evaluated = evaluateAttendanceStatus(row);
                         const inTime = formatTimeWita(row.clock_in);
-                        const outTime = formatTimeWita(row.clock_out);
-                        const duration = getWorkDuration(row.clock_in, row.clock_out);
                         const isLeader = (row.role || '').toUpperCase().includes('LEADER');
                         const hasGps = row.clock_in_lat && row.clock_in_lng;
 
@@ -440,9 +457,7 @@ export default function LiveExecutiveSummary() {
                             </td>
                             <td className="py-3 px-3">
                               <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
-                                isLeader 
-                                  ? 'bg-purple-50 text-purple-700' 
-                                  : 'bg-slate-100 text-slate-600'
+                                isLeader ? 'bg-purple-50 text-purple-700' : 'bg-slate-100 text-slate-600'
                               }`}>
                                 {row.role || 'CREW'}
                               </span>
@@ -456,8 +471,17 @@ export default function LiveExecutiveSummary() {
                             <td className="py-3 px-3 font-black text-emerald-600">
                               {inTime}
                             </td>
-                            <td className="py-3 px-3 font-black text-rose-500">
-                              {outTime !== '-' ? outTime : '-'}
+                            <td className="py-3 px-3">
+                              {evaluated.isForgotten ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 text-rose-600 font-black text-[10px] border border-rose-200">
+                                  <AlertCircle className="w-3 h-3" />
+                                  Lupa Check-Out
+                                </span>
+                              ) : (
+                                <span className="font-black text-rose-500">
+                                  {evaluated.checkOutDisplay}
+                                </span>
+                              )}
                             </td>
                             <td className="py-3 px-3 text-center">
                               {hasGps ? (
@@ -466,7 +490,7 @@ export default function LiveExecutiveSummary() {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10px] font-bold transition-colors"
-                                  title="Lihat koordinat GPS check-in di Google Maps"
+                                  title="Lihat GPS Maps"
                                 >
                                   <span>Maps</span>
                                   <ExternalLink className="w-2.5 h-2.5" />
@@ -475,8 +499,10 @@ export default function LiveExecutiveSummary() {
                                 <span className="text-slate-300">-</span>
                               )}
                             </td>
-                            <td className="py-3 px-4 text-right font-black text-slate-800">
-                              {duration}
+                            <td className={`py-3 px-4 text-right font-black ${
+                              evaluated.isForgotten ? 'text-amber-600' : 'text-slate-800'
+                            }`}>
+                              {evaluated.durationDisplay}
                             </td>
                           </tr>
                         );
@@ -489,7 +515,6 @@ export default function LiveExecutiveSummary() {
           </div>
         )}
 
-        {/* SUB-TAB 2: DATABASE PEGAWAI */}
         {activeSubTab === 'database' && (
           <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
             <div className="overflow-x-auto">
