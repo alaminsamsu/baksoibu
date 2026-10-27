@@ -17,7 +17,7 @@ import {
 
 export default function LiveExecutiveSummary() {
   const todayWita = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
-  const currentMonthWita = todayWita.slice(0, 7); // YYYY-MM
+  const currentMonthWita = todayWita.slice(0, 7);
 
   const [selectedDate, setSelectedDate] = useState<string>(todayWita);
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthWita);
@@ -84,7 +84,6 @@ export default function LiveExecutiveSummary() {
     fetchAttendanceData();
   }, [selectedDate, selectedLoc]);
 
-  // Helper membaca nama outlet aman dari tipe object maupun array
   const getLocationName = (item: any) => {
     if (!item?.locations) return '-';
     if (Array.isArray(item.locations)) {
@@ -107,7 +106,6 @@ export default function LiveExecutiveSummary() {
     }
   };
 
-  // Evaluasi status presensi
   const evaluateAttendanceStatus = (item: any) => {
     if (item.clock_out) {
       const start = new Date(item.clock_in).getTime();
@@ -172,7 +170,7 @@ export default function LiveExecutiveSummary() {
     });
   }, [locations, attendances]);
 
-  // Ekspor CSV Harian
+  // Download CSV Harian (Format Excel Rapi)
   const handleDownloadDailyCSV = () => {
     if (attendances.length === 0) {
       alert(`Tidak ada rekaman presensi pada tanggal ${selectedDate}.`);
@@ -219,7 +217,7 @@ export default function LiveExecutiveSummary() {
         ].join(';');
       });
 
-      const csvContent = [headers.join(';'), ...rows].join('\r\n');
+      const csvContent = 'sep=;\r\n' + [headers.join(';'), ...rows].join('\r\n');
       const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -233,7 +231,7 @@ export default function LiveExecutiveSummary() {
     }
   };
 
-  // Ekspor CSV Bulanan
+  // Download CSV Bulanan (Format Excel Rapi untuk Payroll)
   const handleDownloadMonthlyCSV = async () => {
     setDownloadingMonthly(true);
     try {
@@ -312,7 +310,7 @@ export default function LiveExecutiveSummary() {
         ].join(';');
       });
 
-      const csvContent = [headers.join(';'), ...rows].join('\r\n');
+      const csvContent = 'sep=;\r\n' + [headers.join(';'), ...rows].join('\r\n');
       const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -424,7 +422,7 @@ export default function LiveExecutiveSummary() {
         </div>
       </div>
 
-      {/* 3. Panel Administrasi & Presensi SDM */}
+      {/* 3. Panel Administrasi Presensi */}
       <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-5">
         <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-slate-100 gap-4">
           <div className="flex items-center gap-3">

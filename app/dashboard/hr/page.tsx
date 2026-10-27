@@ -42,7 +42,6 @@ export default function HRDashboardPage() {
 
     setCurrentUser(session);
 
-    // Ambil data presensi mandiri staf HR hari ini
     const hrStaffName = session.active_staff_name || session.username || 'HR Officer';
 
     const loadHRAttendance = async () => {
@@ -65,7 +64,6 @@ export default function HRDashboardPage() {
     loadHRAttendance();
   }, [router, todayStr]);
 
-  // GPS Fallback Presensi HR
   const getCoordinates = async (): Promise<{ lat: number; lng: number } | null> => {
     if (typeof window === 'undefined' || !navigator.geolocation) return null;
     return new Promise((resolve) => {
