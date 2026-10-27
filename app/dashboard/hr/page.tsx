@@ -126,13 +126,12 @@ export default function HRDashboardPage() {
     fetchMonthlyAnalyticsData();
   }, [analyticsMonth, analyticsLoc]);
 
-  // Evaluasi Tiap Sesi Presensi
+  // Evaluasi Tiap Sesi Presensi Berdasarkan Aturan Shift & Toleransi
   const analyzedSessions = useMemo(() => {
     if (!Array.isArray(monthAttendances)) return [];
 
     return monthAttendances.map((item) => {
       let isLate = false;
-      let lateMinutes = 0;
       const roleUpper = (item.role || '').toUpperCase();
       const nameUpper = (item.staff_name || '').toUpperCase();
       const isRoleHR = roleUpper === 'HR' || nameUpper === 'HR';
@@ -153,25 +152,22 @@ export default function HRDashboardPage() {
             const m = parseInt(parts[1], 10) || 0;
             const inMinutes = h * 60 + m;
 
-            // Aturan jam masuk khusus HR: 09:00 WITA (toleransi s/d 09:15)
+            // 1. HR: Mulai 09:00, toleransi s/d 09:15 WITA (555 menit)
             if (isRoleHR) {
               if (inMinutes > 9 * 60 + 15) {
                 isLate = true;
-                lateMinutes = inMinutes - (9 * 60);
               }
             }
-            // Shift 1 Kru: 08:00 WITA (toleransi s/d 08:15)
-            else if (item.shift === 'SHIFT_1' || !item.shift) {
-              if (inMinutes > 8 * 60 + 15) {
-                isLate = true;
-                lateMinutes = inMinutes - (8 * 60);
-              }
-            } 
-            // Shift 2 Kru: 15:00 WITA (toleransi s/d 15:15)
+            // 2. Shift 2 Crew: Mulai 15:00, toleransi s/d 15:15 WITA (915 menit)
             else if (item.shift === 'SHIFT_2') {
               if (inMinutes > 15 * 60 + 15) {
                 isLate = true;
-                lateMinutes = inMinutes - (15 * 60);
+              }
+            }
+            // 3. Shift 1 Crew / Default: Mulai 08:00, toleransi s/d 08:15 WITA (495 menit)
+            else {
+              if (inMinutes > 8 * 60 + 15) {
+                isLate = true;
               }
             }
           }
@@ -187,7 +183,6 @@ export default function HRDashboardPage() {
       return {
         ...item,
         isLate,
-        lateMinutes,
         isForgotten
       };
     });
@@ -221,7 +216,7 @@ export default function HRDashboardPage() {
     });
 
     return Object.values(summary).map((st) => {
-      // Sesi benar-benar tertib jika tepat waktu DAN tidak lupa checkout
+      // Sesi tertib jika tepat waktu dan tidak lupa check-out
       const violationCount = st.lateCount + st.forgottenCount;
       const validCompliantSessions = Math.max(0, st.totalDays - violationCount);
       const disciplineScore = st.totalDays > 0 ? Math.round((validCompliantSessions / st.totalDays) * 100) : 100;
@@ -472,7 +467,7 @@ export default function HRDashboardPage() {
                   Analisa Kedisiplinan Kru & Evaluasi Kehadiran
                 </h2>
                 <p className="text-xs font-medium text-slate-400">
-                  Monitoring ketepatan waktu per shift, frekuensi lupa check-out, dan akumulasi hari kerja bulanan.
+                  Shift 1 (08:00 WITA, tol. 15 mnt), Shift 2 (15:00 WITA, tol. 15 mnt), HR (09:00 WITA, tol. 15 mnt).
                 </p>
               </div>
             </div>
@@ -536,7 +531,7 @@ export default function HRDashboardPage() {
               <span className="text-2xl font-black text-amber-700 mt-1 block">
                 {totalLates} <span className="text-xs font-medium text-amber-600">Kejadian</span>
               </span>
-              <span className="text-[10px] text-amber-600 font-medium">Kru &gt; 15 mnt, HR &gt; 09:15 WITA</span>
+              <span className="text-[10px] text-amber-600 font-medium">Lewat dari 15 menit toleransi</span>
             </div>
 
             <div className="p-4 bg-rose-50/60 border border-rose-100 rounded-2xl">
