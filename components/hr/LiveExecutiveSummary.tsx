@@ -80,7 +80,6 @@ export default function LiveExecutiveSummary() {
     fetchAttendanceData();
   }, [selectedDate, selectedLoc]);
 
-  // Format Jam WITA (HH.mm)
   const formatTimeWita = (isoString?: string) => {
     if (!isoString) return '-';
     try {
@@ -95,8 +94,9 @@ export default function LiveExecutiveSummary() {
     }
   };
 
-  // LOGIKA JAM 1 MALAM & CEK LUPA CHECK-OUT
+  // Logika evaluasi status presensi
   const evaluateAttendanceStatus = (item: any) => {
+    // 1. Jika staf sudah check-out
     if (item.clock_out) {
       const start = new Date(item.clock_in).getTime();
       const end = new Date(item.clock_out).getTime();
@@ -114,21 +114,20 @@ export default function LiveExecutiveSummary() {
       }
     }
 
-    // Jika belum clock_out:
+    // 2. Jika staf belum check-out
     const now = new Date();
     const witaHour = parseInt(
       new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: 'numeric', hour12: false }).format(now)
     );
 
-    // Kriteria lupa checkout:
-    // 1. Tanggal presensi sudah lewat (< todayWita)
-    // 2. Tanggal presensi hari ini tapi sekarang sudah jam 01:00 WITA ke atas
-    const isPast1AM = witaHour >= 1;
+    // Kriteria lupa check-out:
+    // - Tanggal lampau (< hari ini)
+    // - Atau hari ini, tetapi jam sekarang sudah lewat tengah malam (01:00 s.d. 05:59 WITA)
     const isOldDate = item.attendance_date < todayWita;
-    const isForgotten = isOldDate || (item.attendance_date === todayWita && isPast1AM);
+    const isPast1AMDawn = item.attendance_date === todayWita && (witaHour >= 1 && witaHour < 6);
+    const isForgotten = isOldDate || isPast1AMDawn;
 
     if (isForgotten) {
-      // Default flat jam kerja standar per shift
       const defaultDuration = item.shift === 'FULL_DAY' ? '12 Jam (Standar)' : '8 Jam (Standar)';
       return {
         isForgotten: true,
@@ -138,6 +137,7 @@ export default function LiveExecutiveSummary() {
       };
     }
 
+    // Staf masih aktif bertugas
     return {
       isForgotten: false,
       checkOutDisplay: '-',
@@ -165,7 +165,6 @@ export default function LiveExecutiveSummary() {
     });
   }, [locations, attendances]);
 
-  // Download Excel (.CSV)
   const handleDownloadCSV = () => {
     if (attendances.length === 0) {
       alert(`Tidak ada rekaman presensi pada tanggal ${selectedDate}.`);
@@ -228,8 +227,7 @@ export default function LiveExecutiveSummary() {
 
   return (
     <div className="space-y-6 font-sans">
-      
-      {/* 1. KARTU MONITORING OUTLET */}
+      {/* 1. Monitoring Outlet */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {outletAttendanceCards.map((card) => (
           <div key={card.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
@@ -278,7 +276,7 @@ export default function LiveExecutiveSummary() {
         ))}
       </div>
 
-      {/* 2. STATISTIK UTAMA */}
+      {/* 2. Statistik Utama */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs flex items-center justify-between">
           <div>
@@ -323,7 +321,7 @@ export default function LiveExecutiveSummary() {
         </div>
       </div>
 
-      {/* 3. TABEL LOG ADMINISTRASI PRESENSI */}
+      {/* 3. Panel Administrasi & Presensi SDM */}
       <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-5">
         <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-slate-100 gap-4">
           <div className="flex items-center gap-3">
@@ -478,7 +476,7 @@ export default function LiveExecutiveSummary() {
                                   Lupa Check-Out
                                 </span>
                               ) : (
-                                <span className="font-black text-rose-500">
+                                <span className="font-black text-slate-700">
                                   {evaluated.checkOutDisplay}
                                 </span>
                               )}
@@ -552,7 +550,6 @@ export default function LiveExecutiveSummary() {
             </div>
           </div>
         )}
-
       </div>
     </div>
   );

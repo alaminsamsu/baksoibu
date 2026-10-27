@@ -61,14 +61,14 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     fetchStaffProfiles();
   }, [activeLocationId, currentUser]);
 
-  // Cek apakah sudah lewat jam 01:00 WITA
+  // Cek apakah sudah lewat jam 01:00 dini hari
   const checkIsPast1AM = (attendanceDate: string) => {
     if (attendanceDate < todayStr) return true;
     const now = new Date();
     const witaHour = parseInt(
       new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: 'numeric', hour12: false }).format(now)
     );
-    return witaHour >= 1;
+    return witaHour >= 1 && witaHour < 6;
   };
 
   const checkTodayAttendance = async (nickname: string) => {
@@ -79,7 +79,6 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     }
 
     try {
-      // 1. Cek sesi yang belum check-out
       const { data: openSession } = await supabase
         .from('staff_attendances')
         .select('*')
@@ -90,7 +89,6 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
 
       if (openSession && openSession.length > 0) {
         const session = openSession[0];
-        // Jika sesi kemarin dan sudah lewat jam 1 malam, anggap expired (lupa checkout)
         if (checkIsPast1AM(session.attendance_date)) {
           setActiveAttendance(null);
           setIsSessionExpired(true);
@@ -101,7 +99,6 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
         return;
       }
 
-      // 2. Jika sudah checkout semua, cek status presensi hari ini
       const { data: todaySession } = await supabase
         .from('staff_attendances')
         .select('*')
