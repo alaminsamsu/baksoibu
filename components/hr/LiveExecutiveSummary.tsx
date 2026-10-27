@@ -12,7 +12,9 @@ import {
   Building2,
   ShieldCheck,
   AlertCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Camera,
+  X
 } from 'lucide-react';
 
 export default function LiveExecutiveSummary() {
@@ -30,6 +32,9 @@ export default function LiveExecutiveSummary() {
   const [loading, setLoading] = useState(true);
   const [downloadingDaily, setDownloadingDaily] = useState(false);
   const [downloadingMonthly, setDownloadingMonthly] = useState(false);
+
+  // State Modal Preview Foto Selfie
+  const [previewPhoto, setPreviewPhoto] = useState<{ url: string; name: string } | null>(null);
 
   useEffect(() => {
     async function fetchMasterData() {
@@ -60,6 +65,7 @@ export default function LiveExecutiveSummary() {
           clock_out,
           clock_in_lat,
           clock_in_lng,
+          photo_url,
           location_id,
           locations(name)
         `)
@@ -170,7 +176,7 @@ export default function LiveExecutiveSummary() {
     });
   }, [locations, attendances]);
 
-  // Download CSV Harian (Format Excel Rapi)
+  // Ekspor CSV Harian
   const handleDownloadDailyCSV = () => {
     if (attendances.length === 0) {
       alert(`Tidak ada rekaman presensi pada tanggal ${selectedDate}.`);
@@ -193,7 +199,8 @@ export default function LiveExecutiveSummary() {
         'Jam Pulang (Check-Out)',
         'Durasi Kerja',
         'Status Presensi',
-        'Titik GPS Terdeteksi'
+        'Titik GPS Terdeteksi',
+        'Link Foto Selfie'
       ];
 
       const rows = attendances.map((item) => {
@@ -202,6 +209,7 @@ export default function LiveExecutiveSummary() {
         const shiftLabel = item.shift === 'SHIFT_2' ? 'Shift 2' : item.shift === 'FULL_DAY' ? 'Full Day' : 'Shift 1';
         const locName = getLocationName(item);
         const gpsStatus = (item.clock_in_lat && item.clock_in_lng) ? 'YA (TERVERIFIKASI)' : 'TIDAK';
+        const photo = item.photo_url || '-';
 
         return [
           `"${item.attendance_date || selectedDate}"`,
@@ -213,7 +221,8 @@ export default function LiveExecutiveSummary() {
           `"${evaluated.checkOutDisplay}"`,
           `"${evaluated.durationDisplay}"`,
           `"${evaluated.statusDisplay}"`,
-          `"${gpsStatus}"`
+          `"${gpsStatus}"`,
+          `"${photo}"`
         ].join(';');
       });
 
@@ -231,7 +240,7 @@ export default function LiveExecutiveSummary() {
     }
   };
 
-  // Download CSV Bulanan (Format Excel Rapi untuk Payroll)
+  // Ekspor CSV Bulanan
   const handleDownloadMonthlyCSV = async () => {
     setDownloadingMonthly(true);
     try {
@@ -252,6 +261,7 @@ export default function LiveExecutiveSummary() {
           clock_out,
           clock_in_lat,
           clock_in_lng,
+          photo_url,
           location_id,
           locations(name)
         `)
@@ -286,7 +296,8 @@ export default function LiveExecutiveSummary() {
         'Jam Pulang (Check-Out)',
         'Durasi Kerja',
         'Status Presensi',
-        'Titik GPS'
+        'Titik GPS',
+        'Link Foto Selfie'
       ];
 
       const rows = monthData.map((item) => {
@@ -295,6 +306,7 @@ export default function LiveExecutiveSummary() {
         const shiftLabel = item.shift === 'SHIFT_2' ? 'Shift 2' : item.shift === 'FULL_DAY' ? 'Full Day' : 'Shift 1';
         const locName = getLocationName(item);
         const gpsStatus = (item.clock_in_lat && item.clock_in_lng) ? 'YA' : 'TIDAK';
+        const photo = item.photo_url || '-';
 
         return [
           `"${item.attendance_date}"`,
@@ -306,7 +318,8 @@ export default function LiveExecutiveSummary() {
           `"${evaluated.checkOutDisplay}"`,
           `"${evaluated.durationDisplay}"`,
           `"${evaluated.statusDisplay}"`,
-          `"${gpsStatus}"`
+          `"${gpsStatus}"`,
+          `"${photo}"`
         ].join(';');
       });
 
@@ -434,7 +447,7 @@ export default function LiveExecutiveSummary() {
                 Administrasi & Presensi SDM
               </h2>
               <p className="text-xs font-medium text-slate-400">
-                Database seluruh pegawai, verifikasi GPS lokasi & log presensi terpadu.
+                Database seluruh pegawai, verifikasi GPS & foto selfie presensi.
               </p>
             </div>
           </div>
@@ -547,6 +560,7 @@ export default function LiveExecutiveSummary() {
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-wider bg-slate-50/60">
+                      <th className="py-3 px-3 text-center">FOTO</th>
                       <th className="py-3 px-4">NAMA PEGAWAI</th>
                       <th className="py-3 px-3">PERAN</th>
                       <th className="py-3 px-3">LOKASI OUTLET</th>
@@ -560,13 +574,13 @@ export default function LiveExecutiveSummary() {
                   <tbody className="divide-y divide-slate-100 font-semibold">
                     {loading ? (
                       <tr>
-                        <td colSpan={8} className="py-12 text-center text-slate-400 font-bold">
+                        <td colSpan={9} className="py-12 text-center text-slate-400 font-bold">
                           Memuat log presensi...
                         </td>
                       </tr>
                     ) : attendances.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-12 text-center text-slate-400 font-bold bg-slate-50/50">
+                        <td colSpan={9} className="py-12 text-center text-slate-400 font-bold bg-slate-50/50">
                           Tidak ada rekaman presensi pada tanggal {selectedDate}.
                         </td>
                       </tr>
@@ -580,6 +594,27 @@ export default function LiveExecutiveSummary() {
 
                         return (
                           <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
+                            {/* THUMBNAIL FOTO SELFIE */}
+                            <td className="py-3 px-3 text-center">
+                              {row.photo_url ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewPhoto({ url: row.photo_url, name: row.staff_name })}
+                                  className="group relative inline-block focus:outline-none"
+                                  title="Klik untuk melihat foto selfie"
+                                >
+                                  <img
+                                    src={row.photo_url}
+                                    alt={row.staff_name}
+                                    className="w-8 h-8 rounded-full object-cover border-2 border-indigo-200 group-hover:scale-110 group-hover:border-indigo-600 transition-all shadow-xs"
+                                  />
+                                </button>
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto" title="Belum ada foto">
+                                  <Camera className="w-3.5 h-3.5" />
+                                </div>
+                              )}
+                            </td>
                             <td className="py-3 px-4 font-extrabold text-slate-900">
                               {row.staff_name}
                             </td>
@@ -681,6 +716,41 @@ export default function LiveExecutiveSummary() {
           </div>
         )}
       </div>
+
+      {/* MODAL POPUP LIHAT FOTO LENGKAP */}
+      {previewPhoto && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div>
+                <h4 className="text-sm font-black text-slate-900">{previewPhoto.name}</h4>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Bukti Foto Masuk Shift</p>
+              </div>
+              <button 
+                onClick={() => setPreviewPhoto(null)} 
+                className="p-1 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="rounded-2xl overflow-hidden aspect-4/3 bg-black">
+              <img
+                src={previewPhoto.url}
+                alt={previewPhoto.name}
+                className="w-full h-full object-cover"
+              />
+            </div>
+
+            <button
+              onClick={() => setPreviewPhoto(null)}
+              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

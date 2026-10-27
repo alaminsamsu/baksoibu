@@ -1,13 +1,16 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { 
   Clock, 
   LogOut, 
   CheckCircle2, 
   AlertCircle, 
-  Navigation 
+  Navigation,
+  Camera,
+  X,
+  RotateCw
 } from 'lucide-react';
 
 interface Props {
@@ -27,6 +30,11 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
   const [shift, setShift] = useState<'SHIFT_1' | 'SHIFT_2' | 'FULL_DAY'>('SHIFT_1');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // State Modal Kamera Selfie
+  const [showCamera, setShowCamera] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
 
@@ -61,7 +69,6 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     fetchStaffProfiles();
   }, [activeLocationId, currentUser]);
 
-  // Cek apakah sudah lewat jam 01:00 dini hari
   const checkIsPast1AM = (attendanceDate: string) => {
     if (attendanceDate < todayStr) return true;
     const now = new Date();
@@ -150,17 +157,83 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     });
   };
 
-  const handleClockIn = async () => {
+  // Buka Akses Kamera Depan
+  const startCamera = async () => {
     if (!selectedStaffNickname) {
       setMessage({ text: 'Pilih nama panggilan Anda terlebih dahulu!', type: 'error' });
       return;
     }
+    setShowCamera(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false
+      });
+      setCameraStream(stream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (err: any) {
+      alert('Izin kamera ditolak atau tidak tersedia. Harap izinkan kamera untuk absensi.');
+      setShowCamera(false);
+    }
+  };
 
+  // Matikan Akses Kamera
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      setCameraStream(null);
+    }
+    setShowCamera(false);
+  };
+
+  // Jepret & Kompresi Foto (Maks 30-50 KB)
+  const captureAndCompressPhoto = (): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      if (!videoRef.current) return reject(new Error('Kamera tidak aktif'));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 480;
+      canvas.height = 360;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('Gagal memproses kanvas foto'));
+
+      ctx.drawImage(videoRef.current, 0, 0, 480, 360);
+      canvas.toBlob(
+        (blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('Gagal mengompresi foto selfie'));
+        },
+        'image/jpeg',
+        0.6 // Kualitas 60% kompresi tinggi
+      );
+    });
+  };
+
+  const handleClockInWithSelfie = async () => {
     setLoading(true);
     setMessage(null);
     try {
       if (!activeLocationId) throw new Error('Lokasi tugas outlet belum terdeteksi.');
 
+      // 1. Tangkap foto selfie & kompres
+      const photoBlob = await captureAndCompressPhoto();
+      stopCamera();
+
+      // 2. Upload foto mikro ke Supabase Storage
+      const fileName = `${todayStr}_${selectedStaffNickname}_${Date.now()}.jpg`;
+      const { data: uploadData, error: uploadErr } = await supabase.storage
+        .from('attendance-photos')
+        .upload(fileName, photoBlob, { contentType: 'image/jpeg' });
+
+      if (uploadErr) throw new Error(`Gagal upload foto selfie: ${uploadErr.message}`);
+
+      const { data: publicUrlData } = supabase.storage
+        .from('attendance-photos')
+        .getPublicUrl(fileName);
+
+      // 3. Ambil GPS & Simpan Record Presensi
       const coords = await getCurrentCoordinates();
 
       const newRecord = {
@@ -173,6 +246,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
         clock_in: new Date().toISOString(),
         clock_in_lat: coords.lat !== 0 ? coords.lat : null,
         clock_in_lng: coords.lng !== 0 ? coords.lng : null,
+        photo_url: publicUrlData.publicUrl
       };
 
       const { data, error } = await supabase
@@ -187,7 +261,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
 
       const hasGps = coords.lat !== 0;
       setMessage({
-        text: `Berhasil Check-In pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA.${hasGps ? ' (GPS Terverifikasi)' : ''}`,
+        text: `Berhasil Check-In pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA.${hasGps ? ' (GPS Terverifikasi)' : ''} Foto selfie tervalidasi.`,
         type: 'success',
       });
     } catch (err: any) {
@@ -242,7 +316,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-xs space-y-3 max-w-md mx-auto font-sans">
+    <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-xs space-y-3 max-w-md mx-auto font-sans relative">
       <div className="flex items-center justify-between pb-3 border-b border-slate-100">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
@@ -341,12 +415,12 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
       {/* TOMBOL AKSI */}
       {!activeAttendance ? (
         <button
-          onClick={handleClockIn}
+          onClick={startCamera}
           disabled={loading || !selectedStaffNickname}
-          className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-black text-xs rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-all"
+          className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-black text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-all"
         >
-          <Navigation className="w-3.5 h-3.5" />
-          <span>{loading ? 'Memverifikasi Presensi...' : 'Check-In Masuk Tugas'}</span>
+          <Camera className="w-4 h-4" />
+          <span>{loading ? 'Menyimpan Presensi...' : 'Check-In Masuk (Selfie)'}</span>
         </button>
       ) : !activeAttendance.clock_out ? (
         <button
@@ -361,6 +435,56 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
         <div className="text-center py-2.5 bg-emerald-50 rounded-xl text-xs font-black text-emerald-700 border border-emerald-100 flex items-center justify-center gap-1.5">
           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           <span>Tugas hari ini telah selesai (Sudah Check-Out).</span>
+        </div>
+      )}
+
+      {/* POPUP KAMERA SELFIE */}
+      {showCamera && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-black text-slate-900 uppercase">Selfie Hadir Tugas</h4>
+                <p className="text-[10px] text-slate-400 font-medium">Pastikan wajah terlihat jelas di kamera</p>
+              </div>
+              <button 
+                onClick={stopCamera} 
+                className="p-1 rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="relative rounded-2xl overflow-hidden bg-black aspect-4/3 border border-slate-200">
+              <video
+                ref={(ref) => {
+                  videoRef.current = ref;
+                  if (ref && cameraStream) ref.srcObject = cameraStream;
+                }}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover scale-x-[-1]"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={stopCamera}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleClockInWithSelfie}
+                disabled={loading}
+                className="flex-2 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-black rounded-xl shadow-xs flex items-center justify-center gap-1.5"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>{loading ? 'Memvalidasi...' : 'Ambil Foto & Check-In'}</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
