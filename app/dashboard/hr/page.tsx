@@ -126,13 +126,16 @@ export default function HRDashboardPage() {
     fetchMonthlyAnalyticsData();
   }, [analyticsMonth, analyticsLoc]);
 
-  // Parsing waktu aman anti-crash
+  // Evaluasi Tiap Sesi Presensi
   const analyzedSessions = useMemo(() => {
     if (!Array.isArray(monthAttendances)) return [];
 
     return monthAttendances.map((item) => {
       let isLate = false;
       let lateMinutes = 0;
+      const roleUpper = (item.role || '').toUpperCase();
+      const nameUpper = (item.staff_name || '').toUpperCase();
+      const isRoleHR = roleUpper === 'HR' || nameUpper === 'HR';
 
       if (item.clock_in) {
         try {
@@ -150,14 +153,21 @@ export default function HRDashboardPage() {
             const m = parseInt(parts[1], 10) || 0;
             const inMinutes = h * 60 + m;
 
-            // Shift 1: Jam 08.15 toleransi
-            if (item.shift === 'SHIFT_1' || !item.shift) {
+            // Aturan jam masuk khusus HR: 09:00 WITA (toleransi s/d 09:15)
+            if (isRoleHR) {
+              if (inMinutes > 9 * 60 + 15) {
+                isLate = true;
+                lateMinutes = inMinutes - (9 * 60);
+              }
+            }
+            // Shift 1 Kru: 08:00 WITA (toleransi s/d 08:15)
+            else if (item.shift === 'SHIFT_1' || !item.shift) {
               if (inMinutes > 8 * 60 + 15) {
                 isLate = true;
                 lateMinutes = inMinutes - (8 * 60);
               }
             } 
-            // Shift 2: Jam 15.15 toleransi
+            // Shift 2 Kru: 15:00 WITA (toleransi s/d 15:15)
             else if (item.shift === 'SHIFT_2') {
               if (inMinutes > 15 * 60 + 15) {
                 isLate = true;
@@ -170,37 +180,25 @@ export default function HRDashboardPage() {
         }
       }
 
+      // Kriteria lupa checkout
       const isOld = (item.attendance_date || '') < todayStr;
       const isForgotten = !item.clock_out && isOld;
-
-      let durationHours = 0;
-      if (item.clock_in && item.clock_out) {
-        const start = new Date(item.clock_in).getTime();
-        const end = new Date(item.clock_out).getTime();
-        if (!isNaN(start) && !isNaN(end) && end > start) {
-          durationHours = (end - start) / (1000 * 60 * 60);
-        }
-      } else if (isForgotten) {
-        durationHours = item.shift === 'FULL_DAY' ? 12 : 8;
-      }
 
       return {
         ...item,
         isLate,
         lateMinutes,
-        isForgotten,
-        durationHours
+        isForgotten
       };
     });
   }, [monthAttendances, todayStr]);
 
-  // Rapor Ranking Disiplin per Staf
+  // Agregasi Per Karyawan (Akumulasi Hari Masuk & Skor Mengurangi Lupa Check-Out)
   const staffDisciplineRanking = useMemo(() => {
     const summary: Record<string, {
       name: string;
       role: string;
       totalDays: number;
-      totalHours: number;
       lateCount: number;
       forgottenCount: number;
     }> = {};
@@ -212,21 +210,22 @@ export default function HRDashboardPage() {
           name,
           role: s.role || 'CREW',
           totalDays: 0,
-          totalHours: 0,
           lateCount: 0,
           forgottenCount: 0
         };
       }
 
       summary[name].totalDays += 1;
-      summary[name].totalHours += Number(s.durationHours || 0);
       if (s.isLate) summary[name].lateCount += 1;
       if (s.isForgotten) summary[name].forgottenCount += 1;
     });
 
     return Object.values(summary).map((st) => {
-      const onTimeSessions = st.totalDays - st.lateCount;
-      const disciplineScore = st.totalDays > 0 ? Math.round((onTimeSessions / st.totalDays) * 100) : 100;
+      // Sesi benar-benar tertib jika tepat waktu DAN tidak lupa checkout
+      const violationCount = st.lateCount + st.forgottenCount;
+      const validCompliantSessions = Math.max(0, st.totalDays - violationCount);
+      const disciplineScore = st.totalDays > 0 ? Math.round((validCompliantSessions / st.totalDays) * 100) : 100;
+
       return {
         ...st,
         disciplineScore
@@ -237,7 +236,8 @@ export default function HRDashboardPage() {
   const totalSessions = analyzedSessions.length;
   const totalLates = analyzedSessions.filter((s) => s.isLate).length;
   const totalForgotten = analyzedSessions.filter((s) => s.isForgotten).length;
-  const overallOnTimeRate = totalSessions > 0 ? Math.round(((totalSessions - totalLates) / totalSessions) * 100) : 100;
+  const totalViolations = totalLates + totalForgotten;
+  const overallOnTimeRate = totalSessions > 0 ? Math.round((Math.max(0, totalSessions - totalViolations) / totalSessions) * 100) : 100;
 
   const getCoordinates = async (): Promise<{ lat: number; lng: number } | null> => {
     if (typeof window === 'undefined' || !navigator.geolocation) return null;
@@ -472,7 +472,7 @@ export default function HRDashboardPage() {
                   Analisa Kedisiplinan Kru & Evaluasi Kehadiran
                 </h2>
                 <p className="text-xs font-medium text-slate-400">
-                  Monitoring ketepatan waktu per shift, frekuensi lupa check-out, dan ranking kepatuhan jam kerja bulanan.
+                  Monitoring ketepatan waktu per shift, frekuensi lupa check-out, dan akumulasi hari kerja bulanan.
                 </p>
               </div>
             </div>
@@ -521,12 +521,12 @@ export default function HRDashboardPage() {
 
             <div className="p-4 bg-emerald-50/60 border border-emerald-100 rounded-2xl">
               <span className="text-[10px] font-black uppercase text-emerald-700 block tracking-wider flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Skor Ketepatan Waktu
+                <CheckCircle2 className="w-3.5 h-3.5" /> Skor Disiplin Rata-rata
               </span>
               <span className="text-2xl font-black text-emerald-700 mt-1 block">
                 {overallOnTimeRate}%
               </span>
-              <span className="text-[10px] text-emerald-600 font-medium">Hadir sebelum batas toleransi</span>
+              <span className="text-[10px] text-emerald-600 font-medium">Tepat waktu & checkout rapi</span>
             </div>
 
             <div className="p-4 bg-amber-50/60 border border-amber-100 rounded-2xl">
@@ -536,7 +536,7 @@ export default function HRDashboardPage() {
               <span className="text-2xl font-black text-amber-700 mt-1 block">
                 {totalLates} <span className="text-xs font-medium text-amber-600">Kejadian</span>
               </span>
-              <span className="text-[10px] text-amber-600 font-medium">Lewat dari 15 menit awal shift</span>
+              <span className="text-[10px] text-amber-600 font-medium">Kru &gt; 15 mnt, HR &gt; 09:15 WITA</span>
             </div>
 
             <div className="p-4 bg-rose-50/60 border border-rose-100 rounded-2xl">
@@ -568,32 +568,27 @@ export default function HRDashboardPage() {
                     <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-wider bg-slate-50/70">
                       <th className="py-3 px-4">Nama Kru</th>
                       <th className="py-3 px-3">Jabatan</th>
-                      <th className="py-3 px-3 text-center">Hari Masuk</th>
+                      <th className="py-3 px-3 text-center text-indigo-700 font-black">Akumulasi Hari Masuk</th>
                       <th className="py-3 px-3 text-center text-amber-700">Terlambat</th>
                       <th className="py-3 px-3 text-center text-rose-600">Lupa Check-Out</th>
-                      <th className="py-3 px-3 text-right">Akumulasi Jam</th>
                       <th className="py-3 px-4 text-center">Skor Disiplin</th>
-                      <th className="py-3 px-4 text-center">Evaluasi HR</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-semibold">
                     {loadingAnalytics ? (
                       <tr>
-                        <td colSpan={8} className="py-12 text-center text-slate-400 font-bold">
+                        <td colSpan={6} className="py-12 text-center text-slate-400 font-bold">
                           Menganalisis data kedisiplinan kru...
                         </td>
                       </tr>
                     ) : staffDisciplineRanking.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-12 text-center text-slate-400 font-bold bg-slate-50/50">
+                        <td colSpan={6} className="py-12 text-center text-slate-400 font-bold bg-slate-50/50">
                           Belum ada rekaman presensi pada bulan {analyticsMonth}.
                         </td>
                       </tr>
                     ) : (
                       staffDisciplineRanking.map((staf, idx) => {
-                        const isPerfect = staf.disciplineScore === 100 && staf.forgottenCount === 0;
-                        const needsAttention = staf.disciplineScore < 75 || staf.forgottenCount >= 3;
-
                         return (
                           <tr key={staf.name} className="hover:bg-slate-50/60 transition-colors">
                             <td className="py-3 px-4">
@@ -609,17 +604,14 @@ export default function HRDashboardPage() {
                                 {staf.role}
                               </span>
                             </td>
-                            <td className="py-3 px-3 text-center font-bold text-slate-800">
-                              {staf.totalDays} hari
+                            <td className="py-3 px-3 text-center font-black text-indigo-700">
+                              {staf.totalDays} Hari
                             </td>
                             <td className="py-3 px-3 text-center font-black text-amber-600">
                               {staf.lateCount > 0 ? `${staf.lateCount}x` : '-'}
                             </td>
                             <td className="py-3 px-3 text-center font-black text-rose-500">
                               {staf.forgottenCount > 0 ? `${staf.forgottenCount}x` : '-'}
-                            </td>
-                            <td className="py-3 px-3 text-right font-black text-indigo-700">
-                              {Math.round(staf.totalHours)} Jam
                             </td>
                             <td className="py-3 px-4 text-center">
                               <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black ${
@@ -631,21 +623,6 @@ export default function HRDashboardPage() {
                               }`}>
                                 {staf.disciplineScore}%
                               </span>
-                            </td>
-                            <td className="py-3 px-4 text-center">
-                              {isPerfect ? (
-                                <span className="text-[10px] font-extrabold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg">
-                                  Sangat Disiplin ⭐
-                                </span>
-                              ) : needsAttention ? (
-                                <span className="text-[10px] font-extrabold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-200">
-                                  Perlu Teguran ⚠️
-                                </span>
-                              ) : (
-                                <span className="text-[10px] font-medium text-slate-400">
-                                  Standar Normal
-                                </span>
-                              )}
                             </td>
                           </tr>
                         );
