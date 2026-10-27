@@ -84,6 +84,15 @@ export default function LiveExecutiveSummary() {
     fetchAttendanceData();
   }, [selectedDate, selectedLoc]);
 
+  // Helper membaca nama outlet aman dari tipe object maupun array
+  const getLocationName = (item: any) => {
+    if (!item?.locations) return '-';
+    if (Array.isArray(item.locations)) {
+      return item.locations[0]?.name || '-';
+    }
+    return (item.locations as any)?.name || '-';
+  };
+
   const formatTimeWita = (isoString?: string) => {
     if (!isoString) return '-';
     try {
@@ -98,7 +107,7 @@ export default function LiveExecutiveSummary() {
     }
   };
 
-  // Logika evaluasi status presensi & lupa check-out (01:00 - 05:59 WITA)
+  // Evaluasi status presensi
   const evaluateAttendanceStatus = (item: any) => {
     if (item.clock_out) {
       const start = new Date(item.clock_in).getTime();
@@ -163,7 +172,7 @@ export default function LiveExecutiveSummary() {
     });
   }, [locations, attendances]);
 
-  // 1. Ekspor CSV Harian
+  // Ekspor CSV Harian
   const handleDownloadDailyCSV = () => {
     if (attendances.length === 0) {
       alert(`Tidak ada rekaman presensi pada tanggal ${selectedDate}.`);
@@ -193,14 +202,14 @@ export default function LiveExecutiveSummary() {
         const evaluated = evaluateAttendanceStatus(item);
         const checkIn = formatTimeWita(item.clock_in);
         const shiftLabel = item.shift === 'SHIFT_2' ? 'Shift 2' : item.shift === 'FULL_DAY' ? 'Full Day' : 'Shift 1';
-        const locName = item.locations?.name ? `Outlet ${item.locations.name}` : '-';
+        const locName = getLocationName(item);
         const gpsStatus = (item.clock_in_lat && item.clock_in_lng) ? 'YA (TERVERIFIKASI)' : 'TIDAK';
 
         return [
           `"${item.attendance_date || selectedDate}"`,
           `"${item.staff_name}"`,
           `"${item.role || 'CREW'}"`,
-          `"${locName}"`,
+          `"${locName !== '-' ? `Outlet ${locName}` : '-'}"`,
           `"${shiftLabel}"`,
           `"${checkIn}"`,
           `"${evaluated.checkOutDisplay}"`,
@@ -224,7 +233,7 @@ export default function LiveExecutiveSummary() {
     }
   };
 
-  // 2. Ekspor CSV Bulanan Lengkap (Untuk Payroll HR)
+  // Ekspor CSV Bulanan
   const handleDownloadMonthlyCSV = async () => {
     setDownloadingMonthly(true);
     try {
@@ -286,14 +295,14 @@ export default function LiveExecutiveSummary() {
         const evaluated = evaluateAttendanceStatus(item);
         const checkIn = formatTimeWita(item.clock_in);
         const shiftLabel = item.shift === 'SHIFT_2' ? 'Shift 2' : item.shift === 'FULL_DAY' ? 'Full Day' : 'Shift 1';
-        const locName = item.locations?.name ? `Outlet ${item.locations.name}` : '-';
+        const locName = getLocationName(item);
         const gpsStatus = (item.clock_in_lat && item.clock_in_lng) ? 'YA' : 'TIDAK';
 
         return [
           `"${item.attendance_date}"`,
           `"${item.staff_name}"`,
           `"${item.role || 'CREW'}"`,
-          `"${locName}"`,
+          `"${locName !== '-' ? `Outlet ${locName}` : '-'}"`,
           `"${shiftLabel}"`,
           `"${checkIn}"`,
           `"${evaluated.checkOutDisplay}"`,
@@ -432,33 +441,27 @@ export default function LiveExecutiveSummary() {
             </div>
           </div>
 
-          {/* Tombol Opsi Unduh Presensi */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Download Harian */}
             <button
               type="button"
               onClick={handleDownloadDailyCSV}
               disabled={downloadingDaily || attendances.length === 0}
               className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all"
-              title="Unduh data pada tanggal kalender yang dipilih"
             >
               <Download className="w-3.5 h-3.5" />
               <span>{downloadingDaily ? 'Mengekspor...' : 'Unduh Harian'}</span>
             </button>
 
-            {/* Download Bulanan */}
             <button
               type="button"
               onClick={handleDownloadMonthlyCSV}
               disabled={downloadingMonthly}
               className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-xs transition-all"
-              title="Unduh seluruh rekap kehadiran dalam bulan kalender yang dipilih"
             >
               <FileSpreadsheet className="w-4 h-4" />
               <span>{downloadingMonthly ? 'Menyiapkan...' : 'Unduh Bulanan (.CSV)'}</span>
             </button>
 
-            {/* Switch Tab */}
             <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-600">
               <button
                 type="button"
@@ -484,10 +487,8 @@ export default function LiveExecutiveSummary() {
 
         {activeSubTab === 'log' && (
           <div className="space-y-4">
-            {/* Kontrol Filter: Tanggal Harian, Pilihan Bulan, dan Lokasi */}
             <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
               <div className="flex flex-wrap items-center gap-2.5">
-                {/* Tanggal Tabel */}
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 block mb-1">Tanggal Harian:</span>
                   <div className="relative">
@@ -501,7 +502,6 @@ export default function LiveExecutiveSummary() {
                   </div>
                 </div>
 
-                {/* Periode Bulan untuk Ekspor Bulanan */}
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 block mb-1">Periode Bulan:</span>
                   <input
@@ -512,7 +512,6 @@ export default function LiveExecutiveSummary() {
                   />
                 </div>
 
-                {/* Filter Cabang */}
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 block mb-1">Filter Outlet:</span>
                   <div className="relative">
@@ -579,6 +578,7 @@ export default function LiveExecutiveSummary() {
                         const inTime = formatTimeWita(row.clock_in);
                         const isLeader = (row.role || '').toUpperCase().includes('LEADER');
                         const hasGps = row.clock_in_lat && row.clock_in_lng;
+                        const locName = getLocationName(row);
 
                         return (
                           <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
@@ -593,7 +593,7 @@ export default function LiveExecutiveSummary() {
                               </span>
                             </td>
                             <td className="py-3 px-3 text-slate-600">
-                              {row.locations?.name ? `Outlet ${row.locations.name}` : '-'}
+                              {locName !== '-' ? `Outlet ${locName}` : '-'}
                             </td>
                             <td className="py-3 px-3 font-bold text-indigo-700">
                               {row.shift || 'SHIFT_1'}
