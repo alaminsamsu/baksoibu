@@ -23,13 +23,14 @@ import {
   Building2,
   BarChart3,
   AlertTriangle,
-  CheckCircle2,
   Clock,
-  ArrowRight
+  ArrowRight,
+  BookOpen
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
 import StockUsageAnalytics from '@/components/outlet/components/shared/StockUsageAnalytics';
+import OperationalKnowledgeBase from '@/components/shared/OperationalKnowledgeBase';
 
 interface SettlementRecord {
   id: string;
@@ -78,7 +79,7 @@ export default function ExecutiveOwnerDashboard() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [locations, setLocations] = useState<any[]>([]);
   
-  const [activeTab, setActiveTab] = useState<'overview' | 'konsumsi' | 'hr' | 'stok'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'konsumsi' | 'hr' | 'stok' | 'panduan'>('overview');
   
   const [filterMode, setFilterMode] = useState<'today' | 'weekly' | 'monthly' | 'custom'>('today');
   const [customDate, setCustomDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -90,7 +91,6 @@ export default function ExecutiveOwnerDashboard() {
   const [loading, setLoading] = useState<boolean>(true);
   const [downloading, setDownloading] = useState<boolean>(false);
 
-  // Target Harian Default (Bisa disesuaikan per cabang)
   const DAILY_TARGET_OMSET = 5000000;
 
   useEffect(() => {
@@ -133,7 +133,6 @@ export default function ExecutiveOwnerDashboard() {
         endDateStr = customDate;
       }
 
-      // 1. Fetch settlements
       let sQuery = supabase
         .from('cash_settlements')
         .select('*, locations(name)')
@@ -147,7 +146,6 @@ export default function ExecutiveOwnerDashboard() {
       const { data: sData } = await sQuery;
       if (sData) setSettlements(sData);
 
-      // 2. Fetch closings
       let cQuery = supabase
         .from('daily_closings')
         .select('*, locations(name)')
@@ -160,7 +158,6 @@ export default function ExecutiveOwnerDashboard() {
       const { data: cData } = await cQuery;
       if (cData) setClosings(cData);
 
-      // 3. Fetch Presensi Hari Ini untuk Pulse Card
       const todayWita = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
       const { data: attData } = await supabase
         .from('staff_attendances')
@@ -181,7 +178,6 @@ export default function ExecutiveOwnerDashboard() {
     router.push('/login');
   };
 
-  // Kalkulasi KPI Finansial Utama
   const kpi = useMemo(() => {
     const totalOmset = settlements.reduce((acc, curr) => acc + Number(curr.total_omset || 0), 0);
     const totalBills = settlements.reduce((acc, curr) => acc + Number(curr.total_bills || 0), 0);
@@ -192,14 +188,12 @@ export default function ExecutiveOwnerDashboard() {
     const totalNonCashExpense = settlements.reduce((acc, curr) => acc + Number(curr.non_cash_expense_nominal || 0), 0);
     const totalAllExpense = totalExpense + totalNonCashExpense;
     
-    // Estimasi Laba Operasional Kas
     const estimatedNetProfit = totalOmset - totalAllExpense;
     const netCashFlow = totalCashIn - totalExpense;
 
     const totalCashDiff = settlements.reduce((acc, curr) => acc + Number(curr.cash_difference || 0), 0);
     const totalWasteUnits = closings.reduce((acc, curr) => acc + Number(curr.waste_qty || 0), 0);
 
-    // Target achievement
     const targetBase = filterMode === 'weekly' ? DAILY_TARGET_OMSET * 7 : filterMode === 'monthly' ? DAILY_TARGET_OMSET * 30 : DAILY_TARGET_OMSET;
     const targetPercent = Math.min(Math.round((totalOmset / targetBase) * 100), 100);
 
@@ -220,7 +214,6 @@ export default function ExecutiveOwnerDashboard() {
     };
   }, [settlements, closings, filterMode]);
 
-  // Breakdown Pembayaran
   const paymentBreakdown = useMemo(() => {
     const cash = settlements.reduce((acc, curr) => acc + Number(curr.cash_nominal || 0), 0);
     const qris = settlements.reduce((acc, curr) => acc + Number(curr.qris_nominal || 0), 0);
@@ -230,7 +223,6 @@ export default function ExecutiveOwnerDashboard() {
     return { cash, qris, grab, gofood, shopee };
   }, [settlements]);
 
-  // Perbandingan Kinerja Cabang
   const outletComparison = useMemo(() => {
     const compMap: Record<string, { 
       name: string; 
@@ -272,7 +264,6 @@ export default function ExecutiveOwnerDashboard() {
     return Object.values(compMap);
   }, [settlements, closings]);
 
-  // Ringkasan Kesiapan Toko (Store Readiness & Pulse)
   const storePulse = useMemo(() => {
     return locations.map((loc) => {
       const staffInLoc = attendancesToday.filter((a) => a.location_id === loc.id);
@@ -289,7 +280,6 @@ export default function ExecutiveOwnerDashboard() {
     });
   }, [locations, attendancesToday]);
 
-  // Log Pengeluaran Kasir
   const expenseLogs = useMemo(() => {
     return settlements
       .filter((s) => Number(s.expense_nominal || 0) > 0)
@@ -304,7 +294,6 @@ export default function ExecutiveOwnerDashboard() {
       }));
   }, [settlements]);
 
-  // Log Pengeluaran Non-Kasir (Rumah Produksi & Vendor)
   const nonCashExpenseLogs = useMemo(() => {
     const list: any[] = [];
     settlements.forEach((s) => {
@@ -457,6 +446,15 @@ export default function ExecutiveOwnerDashboard() {
               <Activity className="w-3.5 h-3.5" />
               Monitor Stok
             </button>
+            <button
+              onClick={() => setActiveTab('panduan')}
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'panduan' ? 'bg-[#ff6f3c] text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              Buku Panduan & SOP
+            </button>
           </div>
 
           <button
@@ -471,25 +469,39 @@ export default function ExecutiveOwnerDashboard() {
 
       {/* Main Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
+        
+        {/* TAB 1: KNOWLEDGE BASE / JOB DESK & SOP */}
+        {activeTab === 'panduan' && (
+          <div>
+            <OperationalKnowledgeBase 
+              userRole={currentUser?.role || 'OWNER'} 
+              userName={currentUser?.active_staff_name || 'Owner'} 
+            />
+          </div>
+        )}
+
+        {/* TAB 2: POLA KONSUMSI */}
         {activeTab === 'konsumsi' && (
           <div>
             <StockUsageAnalytics user={currentUser} />
           </div>
         )}
 
+        {/* TAB 3: MONITOR STOK */}
         {activeTab === 'stok' && (
           <div>
             <BranchStockMonitor />
           </div>
         )}
 
+        {/* TAB 4: LIVE PRESENSI HR */}
         {activeTab === 'hr' && (
           <div className="space-y-6">
             <LiveExecutiveSummary />
           </div>
         )}
 
-        {/* TAB OVERVIEW UTAMA (KOKPIT BISNIS OWNER) */}
+        {/* TAB 5: OVERVIEW UTAMA */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
 
@@ -582,10 +594,8 @@ export default function ExecutiveOwnerDashboard() {
               </div>
             </div>
 
-            {/* 1. BARIS ATAS: SCORECARD PROFITABILITAS & OMSET RIIL */}
+            {/* Scorecard Profit & Omset Riil */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              
-              {/* Card 1: Estimasi Laba Bersih Operasional */}
               <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-5 rounded-3xl shadow-sm relative overflow-hidden">
                 <div className="flex justify-between items-start">
                   <div>
@@ -606,7 +616,6 @@ export default function ExecutiveOwnerDashboard() {
                 </div>
               </div>
 
-              {/* Card 2: Target vs Capaian Omset */}
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
                 <div className="flex justify-between items-start">
                   <div>
@@ -632,7 +641,6 @@ export default function ExecutiveOwnerDashboard() {
                 </span>
               </div>
 
-              {/* Card 3: Rata-Rata Belanja / Struk (AOV) */}
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
                 <div className="flex justify-between items-start">
                   <div>
@@ -652,7 +660,6 @@ export default function ExecutiveOwnerDashboard() {
                 </span>
               </div>
 
-              {/* Card 4: Likuiditas Kas Fisik Laci */}
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
                 <div className="flex justify-between items-start">
                   <div>
@@ -671,13 +678,10 @@ export default function ExecutiveOwnerDashboard() {
                   Wajib disetor/diamankan dari kasir
                 </span>
               </div>
-
             </div>
 
-            {/* 2. BARIS TENGAH: DETEKSI KEBOCORAN & STORE READINESS */}
+            {/* Audit Kebocoran & Store Readiness */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              
-              {/* Kolom Kiri: Deteksi Dini Kebocoran (2 Spans) */}
               <div className="lg:col-span-2 bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
@@ -690,8 +694,6 @@ export default function ExecutiveOwnerDashboard() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  
-                  {/* Status Selisih Kas Laci */}
                   <div className={`p-4 rounded-2xl border ${
                     kpi.totalCashDiff < 0 
                       ? 'bg-rose-50/60 border-rose-200 text-rose-900' 
@@ -710,7 +712,6 @@ export default function ExecutiveOwnerDashboard() {
                     </span>
                   </div>
 
-                  {/* Pengeluaran Kasir Laci */}
                   <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-slate-800">
                     <span className="text-[10px] font-extrabold uppercase tracking-wider block text-slate-400">
                       Pengeluaran Kas Laci
@@ -723,7 +724,6 @@ export default function ExecutiveOwnerDashboard() {
                     </span>
                   </div>
 
-                  {/* Beban Non-Kasir (RP & Vendor) */}
                   <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-slate-800">
                     <span className="text-[10px] font-extrabold uppercase tracking-wider block text-slate-400">
                       Beban Vendor / RP
@@ -735,11 +735,9 @@ export default function ExecutiveOwnerDashboard() {
                       {nonCashExpenseLogs.length} tagihan tercatat
                     </span>
                   </div>
-
                 </div>
               </div>
 
-              {/* Kolom Kanan: Store Readiness & Pulse (Pengganti Presensi Panjang) */}
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4 flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -790,13 +788,10 @@ export default function ExecutiveOwnerDashboard() {
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
-
             </div>
 
-            {/* 3. BARIS BAWAH: PERBANDINGAN OUTLET & CARA BAYAR */}
+            {/* Perbandingan Antar Cabang & Komposisi Bayar */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              
-              {/* Perbandingan Antar Cabang */}
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
@@ -842,7 +837,6 @@ export default function ExecutiveOwnerDashboard() {
                 )}
               </div>
 
-              {/* Komposisi Pembayaran (Arus Kas) */}
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
@@ -896,7 +890,7 @@ export default function ExecutiveOwnerDashboard() {
               </div>
             </div>
 
-            {/* 4. DETAIL RIWAYAT BEBAN & PENGELUARAN */}
+            {/* Riwayat Beban Kas Laci & Non-Kasir */}
             {expenseLogs.length > 0 && (
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">

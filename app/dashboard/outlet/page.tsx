@@ -11,7 +11,8 @@ import {
   User, 
   MapPin,
   ArrowLeft,
-  BarChart3
+  BarChart3,
+  BookOpen
 } from 'lucide-react';
 
 import ReceptionForm from '@/components/outlet/ReceptionForm';
@@ -23,6 +24,7 @@ import BranchStockMonitor from '@/components/outlet/components/shared/BranchStoc
 import StaffAttendanceWidget from '@/components/hr/StaffAttendanceWidget';
 import StockUsageAnalytics from '@/components/outlet/components/shared/StockUsageAnalytics';
 import AdminOrderSummaryView from '@/components/outlet/AdminOrderSummaryView';
+import OperationalKnowledgeBase from '@/components/shared/OperationalKnowledgeBase';
 
 export default function OutletDashboard() {
   const router = useRouter();
@@ -102,7 +104,7 @@ export default function OutletDashboard() {
           />
         )}
 
-        {/* Menu 2: PERMINTAAN BELANJA (Admin melihat rekap & hapus; Kru mengisi form input) */}
+        {/* Menu 2: PERMINTAAN BELANJA */}
         {activeForm === 'order' && (
           isAdminOrOwner ? (
             <AdminOrderSummaryView 
@@ -151,6 +153,23 @@ export default function OutletDashboard() {
           </div>
         )}
 
+        {/* Menu 6: Panduan Operasional & Knowledge Base */}
+        {activeForm === 'panduan' && (
+          <div className="space-y-4">
+            <button
+              onClick={() => setActiveForm(null)}
+              className="px-4 py-2 bg-white rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 shadow-2xs transition-all"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Kembali ke Menu Utama</span>
+            </button>
+            <OperationalKnowledgeBase 
+              userRole={currentUser?.role || 'CREW'} 
+              userName={currentUser?.active_staff_name || 'Kru Outlet'} 
+            />
+          </div>
+        )}
+
         {/* Tampilan Utama Dashboard Outlet */}
         {!activeForm && (
           <div className="space-y-6">
@@ -159,8 +178,10 @@ export default function OutletDashboard() {
               locationId={currentUser?.location_id} 
             />
 
-            {/* Menu Kartu Operasional */}
-            <div className={`grid grid-cols-1 sm:grid-cols-2 ${isLeaderOrOwner ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3.5`}>
+            {/* Menu Kartu Operasional Outlet */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              
+              {/* Kartu 1: Terima Barang */}
               <button
                 type="button"
                 onClick={() => setActiveForm('reception')}
@@ -179,6 +200,7 @@ export default function OutletDashboard() {
                 </div>
               </button>
 
+              {/* Kartu 2: Permintaan Belanja */}
               <button
                 type="button"
                 onClick={() => setActiveForm('order')}
@@ -199,6 +221,7 @@ export default function OutletDashboard() {
                 </div>
               </button>
 
+              {/* Kartu 3: Closing Toko */}
               <button
                 type="button"
                 onClick={() => setActiveForm('closing')}
@@ -217,6 +240,7 @@ export default function OutletDashboard() {
                 </div>
               </button>
 
+              {/* Kartu 4: Rekap Omset Kasir */}
               {isLeaderOrCashier && (
                 <button
                   type="button"
@@ -237,6 +261,7 @@ export default function OutletDashboard() {
                 </button>
               )}
 
+              {/* Kartu 5: Pola Konsumsi */}
               {isLeaderOrOwner && (
                 <button
                   type="button"
@@ -256,6 +281,26 @@ export default function OutletDashboard() {
                   </div>
                 </button>
               )}
+
+              {/* Kartu 6: Buku Panduan & SOP */}
+              <button
+                type="button"
+                onClick={() => setActiveForm('panduan')}
+                className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-amber-200 hover:shadow-md transition-all text-left flex flex-col justify-between group"
+              >
+                <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-sm mb-3">
+                  <BookOpen className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-amber-600 transition-colors">
+                    6. Buku Panduan & SOP
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Product knowledge, job desk harian & aturan HR
+                  </p>
+                </div>
+              </button>
+
             </div>
 
             {/* Rekap Omset Shift */}
