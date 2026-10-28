@@ -13,17 +13,25 @@ import {
 
 interface Props {
   user?: any;
+  defaultLocationId?: string;
+  hideLocationFilter?: boolean;
 }
 
-export default function StockUsageAnalytics({ user }: Props) {
+export default function StockUsageAnalytics({ user, defaultLocationId, hideLocationFilter = false }: Props) {
   const [dateRange, setDateRange] = useState<7 | 14 | 30>(7);
-  const [selectedLoc, setSelectedLoc] = useState<string>('all');
+  const [selectedLoc, setSelectedLoc] = useState<string>(defaultLocationId || 'all');
   const [locations, setLocations] = useState<any[]>([]);
   
   const [branchStocks, setBranchStocks] = useState<any[]>([]);
   const [closingItems, setClosingItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    if (defaultLocationId) {
+      setSelectedLoc(defaultLocationId);
+    }
+  }, [defaultLocationId]);
 
   // Ambil Data Lokasi Cabang
   useEffect(() => {
@@ -347,26 +355,28 @@ export default function StockUsageAnalytics({ user }: Props) {
           </div>
         </div>
 
-        <div>
-          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">
-            PILIH CABANG OUTLET
-          </span>
-          <div className="relative max-w-xs">
-            <MapPin className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-            <select
-              value={selectedLoc}
-              onChange={(e) => setSelectedLoc(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none shadow-2xs"
-            >
-              <option value="all">Semua Cabang (Agregat)</option>
-              {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  Outlet {loc.name}
-                </option>
-              ))}
-            </select>
+        {!hideLocationFilter && (
+          <div>
+            <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">
+              PILIH CABANG OUTLET
+            </span>
+            <div className="relative max-w-xs">
+              <MapPin className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+              <select
+                value={selectedLoc}
+                onChange={(e) => setSelectedLoc(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none shadow-2xs"
+              >
+                <option value="all">Semua Cabang (Agregat)</option>
+                {locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    Outlet {loc.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* TABEL DIKELOMPOKKAN PER KATEGORI */}
