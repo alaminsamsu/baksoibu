@@ -22,12 +22,10 @@ interface ClosingItem {
 }
 
 const CATEGORY_ORDER = [
-  'Bakso & Olahan Frozen',
-  'Bahan Dapur & Bumbu',
-  'Sayur, Mie & Pelengkap',
+  'Bahan Utama & Dapur',
+  'Kondimen & Pelengkap',
   'Minuman & Es',
-  'Kemasan & Operasional',
-  'Lain-lain'
+  'Kemasan & Operasional'
 ];
 
 export default function DailyClosingForm({ user, onBack, locationId: propLocId, staffName: propStaff }: Props) {
@@ -56,6 +54,64 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
+  const cleanName = (name?: string) => {
+    return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  };
+
+  // Normalisasi ke 4 Kategori Baku
+  const normalizeCategory = (rawCat?: string, itemName?: string) => {
+    const cat = (rawCat || '').trim();
+    const name = cleanName(itemName);
+
+    if (
+      cat === 'Bahan Utama & Dapur' || 
+      cat === 'Bahan Dapur & Bumbu' ||
+      cat === 'Sayur, Mie & Pelengkap' ||
+      cat === 'Bakso & Olahan Frozen' ||
+      name.includes('AYAM') ||
+      name.includes('BUMBU') ||
+      name.includes('MASAKO') ||
+      name.includes('GARAM') ||
+      name.includes('LADAKU') ||
+      name.includes('VITSIN') ||
+      name.includes('MSG') ||
+      name.includes('MINYAK') ||
+      name.includes('TELUR') ||
+      name.includes('BAKSO') ||
+      name.includes('BIHUN') ||
+      name.includes('BAWANG') ||
+      name.includes('BURAS') ||
+      name.includes('CUKA') ||
+      name.includes('TAHU')
+    ) {
+      return 'Bahan Utama & Dapur';
+    }
+
+    if (cat === 'Kondimen & Pelengkap' || name.includes('KECAP') || name.includes('SAOS') || name.includes('SAUS') || name.includes('SAMBAL')) {
+      return 'Kondimen & Pelengkap';
+    }
+
+    if (cat === 'Minuman & Es' || name.includes('TEH') || name.includes('AIR MINERAL') || name.includes('SIRUP')) {
+      return 'Minuman & Es';
+    }
+
+    if (
+      cat === 'Kemasan & Operasional' || 
+      name.includes('SEDOTAN') || 
+      name.includes('PIPET') || 
+      name.includes('TISU') || 
+      name.includes('TISSUE') || 
+      name.includes('PLASTIK') || 
+      name.includes('CUP') || 
+      name.includes('KERTAS') || 
+      name.includes('TALI')
+    ) {
+      return 'Kemasan & Operasional';
+    }
+
+    return 'Bahan Utama & Dapur';
+  };
+
   const loadData = async () => {
     if (!effectiveLocationId) return;
     setLoading(true);
@@ -80,13 +136,15 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         .from('daily_closings')
         .select('item_name, remaining_stock')
         .eq('location_id', effectiveLocationId)
-        .eq('closing_date', yesterdayStr);
+        .eq('closing_date', yesterdayStr)
+        .limit(2000);
 
       // 3. Ambil data penerimaan/stok masuk pada tanggal aktif
       const { data: moveData } = await supabase
         .from('stock_movements')
         .select('item_name, quantity, created_at, movement_type')
-        .eq('location_id', effectiveLocationId);
+        .eq('location_id', effectiveLocationId)
+        .limit(3000);
 
       const dateMoves = (moveData || []).filter((m) => {
         if (!m.created_at) return false;
@@ -101,20 +159,23 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         .from('daily_closings')
         .select('*')
         .eq('location_id', effectiveLocationId)
-        .eq('closing_date', activeDate);
+        .eq('closing_date', activeDate)
+        .limit(2000);
 
       const rows: ClosingItem[] = (masterItems || []).map((m) => {
-        const clean = m.name.trim().toUpperCase();
-        const prev = yesterdayClosings?.find((y) => y.item_name.trim().toUpperCase() === clean);
+        const clean = cleanName(m.name);
+        const normalizedCat = normalizeCategory(m.category, m.name);
+
+        const prev = yesterdayClosings?.find((y) => cleanName(y.item_name) === clean);
         const inc = dateMoves
-          .filter((i) => i.item_name.trim().toUpperCase() === clean)
+          .filter((i) => cleanName(i.item_name) === clean)
           .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0);
-        const saved = savedClosings?.find((t) => t.item_name.trim().toUpperCase() === clean);
+        const saved = savedClosings?.find((t) => cleanName(t.item_name) === clean);
 
         return {
-          item_name: m.name,
-          category: m.category || 'Lain-lain',
-          unit: m.uom || 'porsi',
+          item_name: clean,
+          category: normalizedCat,
+          unit: m.uom || 'Pcs',
           stok_awal: prev ? Number(prev.remaining_stock || 0) : 0,
           stok_masuk: inc,
           sisa_fisik: saved !== undefined ? String(saved.remaining_stock) : '0',
@@ -256,23 +317,23 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
   }, [items, searchTerm, selectedCategory]);
 
   const groupedItems = useMemo(() => {
-    const groups: Record<string, ClosingItem[]> = {};
+    const groups: Record<string, ClosingItem[]> = {
+      'Bahan Utama & Dapur': [],
+      'Kondimen & Pelengkap': [],
+      'Minuman & Es': [],
+      'Kemasan & Operasional': [],
+    };
+
     filteredItems.forEach((item) => {
-      const cat = item.category || 'Lain-lain';
-      if (!groups[cat]) groups[cat] = [];
+      const cat = groups[item.category] ? item.category : 'Bahan Utama & Dapur';
       groups[cat].push(item);
     });
 
     const ordered: { category: string; list: ClosingItem[] }[] = [];
     CATEGORY_ORDER.forEach((cat) => {
       if (groups[cat] && groups[cat].length > 0) {
-        ordered.push({ category: cat, list: groups[cat] });
-        delete groups[cat];
-      }
-    });
-
-    Object.keys(groups).forEach((cat) => {
-      if (groups[cat].length > 0) {
+        // Urutkan A-Z di setiap kategori
+        groups[cat].sort((a, b) => a.item_name.localeCompare(b.item_name));
         ordered.push({ category: cat, list: groups[cat] });
       }
     });
@@ -384,27 +445,36 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         <div className="text-center py-8 text-xs text-slate-400 font-bold">Memuat daftar bahan cabang...</div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="overflow-x-auto max-h-[30rem] overflow-y-auto">
+          <div className="overflow-x-auto max-h-[30rem] overflow-y-auto border border-slate-100 rounded-2xl">
             <table className="w-full text-left text-xs font-medium border-collapse">
-              <thead className="sticky top-0 bg-white z-10">
-                <tr className="border-b border-slate-100 text-[10px] uppercase text-slate-400 font-black">
-                  <th className="py-2.5 px-3">Nama Bahan / Menu</th>
-                  <th className="py-2.5 px-3 text-center">Satuan</th>
-                  <th className="py-2.5 px-3 text-center bg-indigo-50/60 text-indigo-900 rounded-l-xl">Sisa Fisik Nyata</th>
-                  <th className="py-2.5 px-3 text-center bg-amber-50/60 text-amber-900 rounded-r-xl">Waste (Basi/Rusak)</th>
+              <thead className="sticky top-0 bg-white z-10 border-b border-slate-100 shadow-2xs">
+                <tr className="text-[10px] uppercase text-slate-400 font-black">
+                  <th className="py-2.5 px-3 min-w-[200px]">Nama Bahan / Menu</th>
+                  <th className="py-2.5 px-3 text-center min-w-[70px]">Satuan</th>
+                  <th className="py-2.5 px-3 text-center bg-indigo-50/60 text-indigo-900 min-w-[110px]">Sisa Fisik Nyata</th>
+                  <th className="py-2.5 px-3 text-center bg-amber-50/60 text-amber-900 min-w-[110px]">Waste (Basi/Rusak)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 font-bold">
                 {groupedItems.map(({ category, list }) => (
                   <React.Fragment key={category}>
-                    <tr className="bg-slate-50/80 border-y border-slate-100">
-                      <td colSpan={4} className="py-2 px-3 font-black text-slate-700 uppercase tracking-wider text-[11px]">
-                        {category} <span className="text-slate-400 font-normal lowercase">({list.length} item)</span>
+                    {/* SEKAT HEADER KATEGORI */}
+                    <tr className="bg-indigo-50/60 border-y border-indigo-100/90">
+                      <td colSpan={4} className="py-2 px-3 font-black text-indigo-900 uppercase tracking-wider text-[11px]">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block"></span>
+                            <span>{category}</span>
+                          </div>
+                          <span className="text-[10px] font-bold text-indigo-500 normal-case tracking-normal">
+                            {list.length} Bahan Baku
+                          </span>
+                        </div>
                       </td>
                     </tr>
                     {list.map((row) => (
-                      <tr key={row.item_name} className="hover:bg-slate-50/60">
-                        <td className="py-2.5 px-3 text-slate-800 uppercase">{row.item_name}</td>
+                      <tr key={row.item_name} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-2.5 px-3 text-slate-800 uppercase font-extrabold">{row.item_name}</td>
                         <td className="py-2.5 px-3 text-center text-slate-400 font-normal">{row.unit}</td>
                         <td className="py-2.5 px-3 text-center bg-indigo-50/20">
                           <input
