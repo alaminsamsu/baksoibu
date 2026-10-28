@@ -21,7 +21,11 @@ import {
   Users,
   Wallet,
   Building2,
-  BarChart3
+  BarChart3,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  ArrowRight
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
@@ -82,8 +86,12 @@ export default function ExecutiveOwnerDashboard() {
   
   const [settlements, setSettlements] = useState<SettlementRecord[]>([]);
   const [closings, setClosings] = useState<ClosingRecord[]>([]);
+  const [attendancesToday, setAttendancesToday] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [downloading, setDownloading] = useState<boolean>(false);
+
+  // Target Harian Default (Bisa disesuaikan per cabang)
+  const DAILY_TARGET_OMSET = 5000000;
 
   useEffect(() => {
     const sessionStr = localStorage.getItem('baksoibu_active_staff');
@@ -125,6 +133,7 @@ export default function ExecutiveOwnerDashboard() {
         endDateStr = customDate;
       }
 
+      // 1. Fetch settlements
       let sQuery = supabase
         .from('cash_settlements')
         .select('*, locations(name)')
@@ -138,6 +147,7 @@ export default function ExecutiveOwnerDashboard() {
       const { data: sData } = await sQuery;
       if (sData) setSettlements(sData);
 
+      // 2. Fetch closings
       let cQuery = supabase
         .from('daily_closings')
         .select('*, locations(name)')
@@ -149,6 +159,15 @@ export default function ExecutiveOwnerDashboard() {
       }
       const { data: cData } = await cQuery;
       if (cData) setClosings(cData);
+
+      // 3. Fetch Presensi Hari Ini untuk Pulse Card
+      const todayWita = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
+      const { data: attData } = await supabase
+        .from('staff_attendances')
+        .select('id, staff_name, location_id, role, check_in_time, status')
+        .eq('attendance_date', todayWita);
+
+      if (attData) setAttendancesToday(attData);
 
     } catch (err) {
       console.error('Gagal mengambil data Owner Dashboard:', err);
@@ -162,6 +181,7 @@ export default function ExecutiveOwnerDashboard() {
     router.push('/login');
   };
 
+  // Kalkulasi KPI Finansial Utama
   const kpi = useMemo(() => {
     const totalOmset = settlements.reduce((acc, curr) => acc + Number(curr.total_omset || 0), 0);
     const totalBills = settlements.reduce((acc, curr) => acc + Number(curr.total_bills || 0), 0);
@@ -170,10 +190,18 @@ export default function ExecutiveOwnerDashboard() {
     const totalCashIn = settlements.reduce((acc, curr) => acc + Number(curr.cash_nominal || 0), 0);
     const totalExpense = settlements.reduce((acc, curr) => acc + Number(curr.expense_nominal || 0), 0);
     const totalNonCashExpense = settlements.reduce((acc, curr) => acc + Number(curr.non_cash_expense_nominal || 0), 0);
+    const totalAllExpense = totalExpense + totalNonCashExpense;
+    
+    // Estimasi Laba Operasional Kas
+    const estimatedNetProfit = totalOmset - totalAllExpense;
     const netCashFlow = totalCashIn - totalExpense;
 
     const totalCashDiff = settlements.reduce((acc, curr) => acc + Number(curr.cash_difference || 0), 0);
     const totalWasteUnits = closings.reduce((acc, curr) => acc + Number(curr.waste_qty || 0), 0);
+
+    // Target achievement
+    const targetBase = filterMode === 'weekly' ? DAILY_TARGET_OMSET * 7 : filterMode === 'monthly' ? DAILY_TARGET_OMSET * 30 : DAILY_TARGET_OMSET;
+    const targetPercent = Math.min(Math.round((totalOmset / targetBase) * 100), 100);
 
     return {
       totalOmset,
@@ -182,13 +210,17 @@ export default function ExecutiveOwnerDashboard() {
       totalCashIn,
       totalExpense,
       totalNonCashExpense,
-      totalCombinedExpense: totalExpense + totalNonCashExpense,
+      totalAllExpense,
+      estimatedNetProfit,
       netCashFlow,
       totalCashDiff,
-      totalWasteUnits
+      totalWasteUnits,
+      targetPercent,
+      targetBase
     };
-  }, [settlements, closings]);
+  }, [settlements, closings, filterMode]);
 
+  // Breakdown Pembayaran
   const paymentBreakdown = useMemo(() => {
     const cash = settlements.reduce((acc, curr) => acc + Number(curr.cash_nominal || 0), 0);
     const qris = settlements.reduce((acc, curr) => acc + Number(curr.qris_nominal || 0), 0);
@@ -198,6 +230,7 @@ export default function ExecutiveOwnerDashboard() {
     return { cash, qris, grab, gofood, shopee };
   }, [settlements]);
 
+  // Perbandingan Kinerja Cabang
   const outletComparison = useMemo(() => {
     const compMap: Record<string, { 
       name: string; 
@@ -238,6 +271,23 @@ export default function ExecutiveOwnerDashboard() {
 
     return Object.values(compMap);
   }, [settlements, closings]);
+
+  // Ringkasan Kesiapan Toko (Store Readiness & Pulse)
+  const storePulse = useMemo(() => {
+    return locations.map((loc) => {
+      const staffInLoc = attendancesToday.filter((a) => a.location_id === loc.id);
+      const leader = staffInLoc.find((a) => (a.role || '').toUpperCase().includes('LEADER'));
+      const isOpen = staffInLoc.length > 0;
+      return {
+        id: loc.id,
+        name: loc.name,
+        isOpen,
+        staffCount: staffInLoc.length,
+        leaderName: leader ? leader.staff_name : (isOpen ? 'Kru Bertugas' : 'Belum Check-In'),
+        earliestCheckIn: staffInLoc.length > 0 ? staffInLoc[0].check_in_time : null
+      };
+    });
+  }, [locations, attendancesToday]);
 
   // Log Pengeluaran Kasir
   const expenseLogs = useMemo(() => {
@@ -311,23 +361,10 @@ export default function ExecutiveOwnerDashboard() {
         return;
       }
       const headers = [
-        'Tanggal', 
-        'Outlet', 
-        'Shift', 
-        'Pelapor', 
-        'Modal Kas', 
-        'Tunai', 
-        'QRIS', 
-        'Grab', 
-        'GoFood', 
-        'Shopee', 
-        'Pengeluaran Kasir', 
-        'Catatan Kasir', 
-        'Beban Non-Kasir',
-        'Total Omset', 
-        'Total Bill', 
-        'Fisik Laci', 
-        'Selisih'
+        'Tanggal', 'Outlet', 'Shift', 'Pelapor', 'Modal Kas', 
+        'Tunai', 'QRIS', 'Grab', 'GoFood', 'Shopee', 
+        'Pengeluaran Kasir', 'Catatan Kasir', 'Beban Non-Kasir',
+        'Total Omset', 'Total Bill', 'Fisik Laci', 'Selisih'
       ];
       
       const rows = settlements.map((s) => [
@@ -452,12 +489,11 @@ export default function ExecutiveOwnerDashboard() {
           </div>
         )}
 
-        {/* TAB OVERVIEW UTAMA */}
+        {/* TAB OVERVIEW UTAMA (KOKPIT BISNIS OWNER) */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            <LiveExecutiveSummary />
 
-            {/* Filter Bar Finansial & Omset */}
+            {/* Filter Bar Finansial */}
             <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-100 shadow-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
               <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 p-1 rounded-2xl border border-slate-100 text-xs font-bold">
                 <button
@@ -546,59 +582,221 @@ export default function ExecutiveOwnerDashboard() {
               </div>
             </div>
 
-            {/* KPI UTAMA DENGAN PEMISAHAN PENGELUARAN */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Total Omset</span>
-                <p className="text-lg font-black text-slate-900 mt-1">Rp {kpi.totalOmset.toLocaleString('id-ID')}</p>
-                <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5 mt-0.5">
-                  <TrendingUp className="w-3 h-3" /> Penjualan
+            {/* 1. BARIS ATAS: SCORECARD PROFITABILITAS & OMSET RIIL */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              
+              {/* Card 1: Estimasi Laba Bersih Operasional */}
+              <div className="bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-5 rounded-3xl shadow-sm relative overflow-hidden">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-indigo-300 block">
+                      Estimasi Laba Bersih Kas
+                    </span>
+                    <h3 className="text-2xl font-black mt-1">
+                      Rp {kpi.estimatedNetProfit.toLocaleString('id-ID')}
+                    </h3>
+                  </div>
+                  <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center text-emerald-400">
+                    <TrendingUp className="w-5 h-5" />
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-white/10 flex justify-between items-center text-[11px] text-slate-300">
+                  <span>Omset: Rp {kpi.totalOmset.toLocaleString('id-ID')}</span>
+                  <span className="text-rose-400 font-bold">-Rp {kpi.totalAllExpense.toLocaleString('id-ID')}</span>
+                </div>
+              </div>
+
+              {/* Card 2: Target vs Capaian Omset */}
+              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                      Pencapaian Target Omset
+                    </span>
+                    <h3 className="text-2xl font-black text-slate-900 mt-1">
+                      {kpi.targetPercent}%
+                    </h3>
+                  </div>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-lg bg-orange-50 text-[#ff6f3c]">
+                    Target: Rp {(kpi.targetBase / 1000000).toFixed(1)}Jt
+                  </span>
+                </div>
+                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden mt-3">
+                  <div 
+                    className="bg-gradient-to-r from-orange-500 to-[#ff6f3c] h-full rounded-full transition-all duration-500" 
+                    style={{ width: `${kpi.targetPercent}%` }}
+                  />
+                </div>
+                <span className="text-[10px] text-slate-400 font-medium block mt-1.5">
+                  Rp {kpi.totalOmset.toLocaleString('id-ID')} terkumpul
                 </span>
               </div>
 
-              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Total Transaksi</span>
-                <p className="text-lg font-black text-indigo-600 mt-1">{kpi.totalBills.toLocaleString('id-ID')}</p>
-                <span className="text-[10px] text-slate-400 font-medium">Struk terbit</span>
+              {/* Card 3: Rata-Rata Belanja / Struk (AOV) */}
+              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                      Average Basket Size (AOV)
+                    </span>
+                    <h3 className="text-2xl font-black text-slate-900 mt-1">
+                      Rp {kpi.aov.toLocaleString('id-ID')}
+                    </h3>
+                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center text-slate-600">
+                    <Receipt className="w-4 h-4" />
+                  </div>
+                </div>
+                <span className="text-[11px] font-semibold text-slate-400 mt-3 block">
+                  Dari total <b className="text-slate-800">{kpi.totalBills} Struk</b> penjualan
+                </span>
               </div>
 
-              {/* 1. Pengeluaran Laci Kasir */}
-              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
-                <span className="text-[10px] font-bold text-rose-500 block uppercase">Pengeluaran Laci</span>
-                <p className="text-lg font-black text-rose-600 mt-1">Rp {kpi.totalExpense.toLocaleString('id-ID')}</p>
-                <span className="text-[10px] text-rose-400 font-medium">Kas kecil kasir</span>
+              {/* Card 4: Likuiditas Kas Fisik Laci */}
+              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                      Uang Tunai Fisik Laci
+                    </span>
+                    <h3 className="text-2xl font-black text-emerald-700 mt-1">
+                      Rp {kpi.netCashFlow.toLocaleString('id-ID')}
+                    </h3>
+                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
+                    <Banknote className="w-4 h-4" />
+                  </div>
+                </div>
+                <span className="text-[11px] font-semibold text-slate-400 mt-3 block">
+                  Wajib disetor/diamankan dari kasir
+                </span>
               </div>
 
-              {/* 2. Beban Non-Kasir (Rumah Produksi & Vendor) */}
-              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
-                <span className="text-[10px] font-bold text-indigo-600 block uppercase">Beban Non-Kasir</span>
-                <p className="text-lg font-black text-indigo-700 mt-1">Rp {kpi.totalNonCashExpense.toLocaleString('id-ID')}</p>
-                <span className="text-[10px] text-indigo-400 font-medium">RP & Vendor</span>
-              </div>
-
-              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Kas Bersih (Net)</span>
-                <p className="text-lg font-black text-emerald-700 mt-1">Rp {kpi.netCashFlow.toLocaleString('id-ID')}</p>
-                <span className="text-[10px] text-slate-400 font-medium">Tunai - kas laci</span>
-              </div>
-
-              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Selisih Kas Laci</span>
-                <p className={`text-lg font-black mt-1 ${kpi.totalCashDiff < 0 ? 'text-red-600' : 'text-slate-800'}`}>
-                  {kpi.totalCashDiff < 0 ? `-Rp ${Math.abs(kpi.totalCashDiff).toLocaleString('id-ID')}` : `Rp ${kpi.totalCashDiff.toLocaleString('id-ID')}`}
-                </p>
-                <span className="text-[10px] text-slate-400 font-medium">{kpi.totalCashDiff === 0 ? 'Klop' : 'Perlu cek'}</span>
-              </div>
-
-              <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 block uppercase">Total Waste Fisik</span>
-                <p className="text-lg font-black text-[#ff6f3c] mt-1">{kpi.totalWasteUnits.toLocaleString('id-ID')}</p>
-                <span className="text-[10px] text-slate-400 font-medium">Item terbuang</span>
-              </div>
             </div>
 
-            {/* PERBANDINGAN OUTLET & CARA BAYAR */}
+            {/* 2. BARIS TENGAH: DETEKSI KEBOCORAN & STORE READINESS */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              
+              {/* Kolom Kiri: Deteksi Dini Kebocoran (2 Spans) */}
+              <div className="lg:col-span-2 bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-500" />
+                    <h3 className="text-xs font-black uppercase text-slate-800">
+                      Audit Kebocoran & Early Warning System
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-400">Kontrol Disiplin Kasir</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  
+                  {/* Status Selisih Kas Laci */}
+                  <div className={`p-4 rounded-2xl border ${
+                    kpi.totalCashDiff < 0 
+                      ? 'bg-rose-50/60 border-rose-200 text-rose-900' 
+                      : 'bg-emerald-50/50 border-emerald-100 text-emerald-900'
+                  }`}>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider block opacity-75">
+                      Selisih Kas Laci
+                    </span>
+                    <p className="text-lg font-black mt-1">
+                      {kpi.totalCashDiff < 0 
+                        ? `-Rp ${Math.abs(kpi.totalCashDiff).toLocaleString('id-ID')}` 
+                        : (kpi.totalCashDiff === 0 ? 'Klop (Rp 0)' : `+Rp ${kpi.totalCashDiff.toLocaleString('id-ID')}`)}
+                    </p>
+                    <span className="text-[10px] font-bold mt-1 block">
+                      {kpi.totalCashDiff < 0 ? '⚠️ Kas fisik tekor dari sistem' : '✅ Uang kas fisik akurat'}
+                    </span>
+                  </div>
+
+                  {/* Pengeluaran Kasir Laci */}
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-slate-800">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider block text-slate-400">
+                      Pengeluaran Kas Laci
+                    </span>
+                    <p className="text-lg font-black text-rose-600 mt-1">
+                      Rp {kpi.totalExpense.toLocaleString('id-ID')}
+                    </p>
+                    <span className="text-[10px] text-slate-400 font-bold mt-1 block">
+                      {expenseLogs.length} nota kas kecil
+                    </span>
+                  </div>
+
+                  {/* Beban Non-Kasir (RP & Vendor) */}
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-slate-800">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider block text-slate-400">
+                      Beban Vendor / RP
+                    </span>
+                    <p className="text-lg font-black text-indigo-700 mt-1">
+                      Rp {kpi.totalNonCashExpense.toLocaleString('id-ID')}
+                    </p>
+                    <span className="text-[10px] text-slate-400 font-bold mt-1 block">
+                      {nonCashExpenseLogs.length} tagihan tercatat
+                    </span>
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Kolom Kanan: Store Readiness & Pulse (Pengganti Presensi Panjang) */}
+              <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-emerald-600" />
+                      <h3 className="text-xs font-black uppercase text-slate-800">
+                        Kesiapan Outlet Hari Ini
+                      </h3>
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Live
+                    </span>
+                  </div>
+
+                  <div className="space-y-2.5 mt-3">
+                    {storePulse.map((s) => (
+                      <div key={s.id} className="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-extrabold text-xs text-slate-800">Outlet {s.name}</span>
+                            {s.isOpen ? (
+                              <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.2 rounded-full">
+                                Buka
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-black bg-slate-200 text-slate-600 px-1.5 py-0.2 rounded-full">
+                                Belum Aktif
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
+                            PIC: {s.leaderName}
+                          </span>
+                        </div>
+                        <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded-xl">
+                          {s.staffCount} Kru On-Duty
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setActiveTab('hr')}
+                  className="w-full mt-3 py-2 bg-slate-50 hover:bg-slate-100 text-indigo-600 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors border border-slate-100"
+                >
+                  <span>Lihat Presensi & Foto Selfie Lengkap</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+            </div>
+
+            {/* 3. BARIS BAWAH: PERBANDINGAN OUTLET & CARA BAYAR */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              
+              {/* Perbandingan Antar Cabang */}
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
@@ -644,6 +842,7 @@ export default function ExecutiveOwnerDashboard() {
                 )}
               </div>
 
+              {/* Komposisi Pembayaran (Arus Kas) */}
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                   <div className="flex items-center gap-2">
@@ -657,7 +856,7 @@ export default function ExecutiveOwnerDashboard() {
                   <div className="flex justify-between items-center text-xs">
                     <div className="flex items-center gap-2">
                       <Banknote className="w-4 h-4 text-emerald-600" />
-                      <span className="font-bold text-slate-700">Tunai / Cash</span>
+                      <span className="font-bold text-slate-700">Tunai / Uang Fisik</span>
                     </div>
                     <span className="font-black text-slate-900">Rp {paymentBreakdown.cash.toLocaleString('id-ID')}</span>
                   </div>
@@ -665,7 +864,7 @@ export default function ExecutiveOwnerDashboard() {
                   <div className="flex justify-between items-center text-xs">
                     <div className="flex items-center gap-2">
                       <QrCode className="w-4 h-4 text-indigo-600" />
-                      <span className="font-bold text-slate-700">QRIS / Transfer</span>
+                      <span className="font-bold text-slate-700">QRIS / Transfer Bank</span>
                     </div>
                     <span className="font-black text-indigo-700">Rp {paymentBreakdown.qris.toLocaleString('id-ID')}</span>
                   </div>
@@ -697,7 +896,7 @@ export default function ExecutiveOwnerDashboard() {
               </div>
             </div>
 
-            {/* TABEL 1: PENGELUARAN KASIR (MEMOTONG LACI) */}
+            {/* 4. DETAIL RIWAYAT BEBAN & PENGELUARAN */}
             {expenseLogs.length > 0 && (
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -749,7 +948,6 @@ export default function ExecutiveOwnerDashboard() {
               </div>
             )}
 
-            {/* TABEL 2: BEBAN NON-KASIR (RUMAH PRODUKSI & VENDOR) */}
             {nonCashExpenseLogs.length > 0 && (
               <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
