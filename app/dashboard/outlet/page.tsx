@@ -104,7 +104,7 @@ export default function OutletDashboard() {
           />
         )}
 
-        {/* Menu 2: PERMINTAAN BELANJA */}
+        {/* Menu 2: Permintaan Belanja */}
         {activeForm === 'order' && (
           isAdminOrOwner ? (
             <AdminOrderSummaryView 
@@ -178,14 +178,16 @@ export default function OutletDashboard() {
               locationId={currentUser?.location_id} 
             />
 
-            {/* Menu Kartu Operasional Outlet */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {/* Menu Kartu Operasional Outlet: Responsive Grid Sesuai Peran */}
+            <div className={`grid grid-cols-1 sm:grid-cols-2 ${
+              isLeaderOrOwner ? 'lg:grid-cols-3' : isLeaderOrCashier ? 'lg:grid-cols-3 sm:lg:grid-cols-5' : 'lg:grid-cols-4'
+            } gap-3.5`}>
               
               {/* Kartu 1: Terima Barang */}
               <button
                 type="button"
                 onClick={() => setActiveForm('reception')}
-                className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-indigo-200 hover:shadow-md transition-all text-left flex flex-col justify-between group"
+                className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-indigo-200 hover:shadow-md transition-all text-left flex flex-col justify-between group min-h-[145px]"
               >
                 <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm mb-3">
                   <Package className="w-5 h-5" />
@@ -194,7 +196,7 @@ export default function OutletDashboard() {
                   <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-indigo-600 transition-colors">
                     1. Terima Barang Datang
                   </h3>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
+                  <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
                     Konfirmasi bahan tiba dari Dapur Pusat / Supplier
                   </p>
                 </div>
@@ -204,7 +206,7 @@ export default function OutletDashboard() {
               <button
                 type="button"
                 onClick={() => setActiveForm('order')}
-                className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-blue-200 hover:shadow-md transition-all text-left flex flex-col justify-between group"
+                className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-blue-200 hover:shadow-md transition-all text-left flex flex-col justify-between group min-h-[145px]"
               >
                 <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-sm mb-3">
                   <Send className="w-5 h-5" />
@@ -213,10 +215,10 @@ export default function OutletDashboard() {
                   <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-blue-600 transition-colors">
                     2. Permintaan Belanja
                   </h3>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
+                  <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
                     {isAdminOrOwner 
-                      ? 'Unduh & cetak lembar belanja hasil inputan kru' 
-                      : 'Pengadaan besok: Rumah Produksi, Pasar & Vendor'}
+                      ? 'Unduh & cetak lembar belanja inputan kru' 
+                      : 'Pengadaan: Rumah Produksi, Pasar & Vendor'}
                   </p>
                 </div>
               </button>
@@ -225,7 +227,7 @@ export default function OutletDashboard() {
               <button
                 type="button"
                 onClick={() => setActiveForm('closing')}
-                className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-orange-200 hover:shadow-md transition-all text-left flex flex-col justify-between group"
+                className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-orange-200 hover:shadow-md transition-all text-left flex flex-col justify-between group min-h-[145px]"
               >
                 <div className="w-10 h-10 rounded-2xl bg-[#ff6f3c] text-white flex items-center justify-center shadow-sm mb-3">
                   <Store className="w-5 h-5" />
@@ -234,18 +236,18 @@ export default function OutletDashboard() {
                   <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-orange-600 transition-colors">
                     3. Form Tutup Toko (Closing)
                   </h3>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Opname sisa fisik malam & foto bukti waste
+                  <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                    Opname sisa fisik malam & bukti waste
                   </p>
                 </div>
               </button>
 
-              {/* Kartu 4: Rekap Omset Kasir */}
+              {/* Kartu 4 (Khusus Kasir / Leader / Owner): Rekap Omset Kasir */}
               {isLeaderOrCashier && (
                 <button
                   type="button"
                   onClick={() => setActiveForm('settlement')}
-                  className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-emerald-200 hover:shadow-md transition-all text-left flex flex-col justify-between group"
+                  className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-emerald-200 hover:shadow-md transition-all text-left flex flex-col justify-between group min-h-[145px]"
                 >
                   <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-sm mb-3">
                     <Banknote className="w-5 h-5" />
@@ -254,19 +256,19 @@ export default function OutletDashboard() {
                     <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-emerald-700 transition-colors">
                       4. Rekap Omset & Kas
                     </h3>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Input modal, total omset tunai, QRIS & uang laci
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                      Input modal, omset tunai, QRIS & laci kasir
                     </p>
                   </div>
                 </button>
               )}
 
-              {/* Kartu 5: Pola Konsumsi */}
+              {/* Kartu 5 (Khusus Leader / Owner): Pola Konsumsi */}
               {isLeaderOrOwner && (
                 <button
                   type="button"
                   onClick={() => setActiveForm('analytics')}
-                  className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-purple-200 hover:shadow-md transition-all text-left flex flex-col justify-between group"
+                  className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-purple-200 hover:shadow-md transition-all text-left flex flex-col justify-between group min-h-[145px]"
                 >
                   <div className="w-10 h-10 rounded-2xl bg-purple-600 text-white flex items-center justify-center shadow-sm mb-3">
                     <BarChart3 className="w-5 h-5" />
@@ -275,35 +277,35 @@ export default function OutletDashboard() {
                     <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-purple-600 transition-colors">
                       5. Pola Konsumsi
                     </h3>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
+                    <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
                       Rata-rata konsumsi weekdays vs weekend
                     </p>
                   </div>
                 </button>
               )}
 
-              {/* Kartu 6: Buku Panduan & SOP */}
+              {/* Kartu Buku Panduan & SOP: Menempati urutan 4 untuk Kru Biasa */}
               <button
                 type="button"
                 onClick={() => setActiveForm('panduan')}
-                className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-amber-200 hover:shadow-md transition-all text-left flex flex-col justify-between group"
+                className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm shadow-slate-200/40 hover:border-amber-200 hover:shadow-md transition-all text-left flex flex-col justify-between group min-h-[145px]"
               >
                 <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-sm mb-3">
                   <BookOpen className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="font-extrabold text-slate-900 text-sm group-hover:text-amber-600 transition-colors">
-                    6. Buku Panduan & SOP
+                    {isLeaderOrOwner ? '6. Buku Panduan & SOP' : isLeaderOrCashier ? '5. Buku Panduan & SOP' : '4. Buku Panduan & SOP'}
                   </h3>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Product knowledge, job desk harian & aturan HR
+                  <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                    Product knowledge, job desk & aturan HR
                   </p>
                 </div>
               </button>
 
             </div>
 
-            {/* Rekap Omset Shift */}
+            {/* Rekap Omset Shift (Leader / Owner) */}
             {isLeaderOrOwner && (
               <div className="pt-1">
                 <LeaderSettlementMonitor 
