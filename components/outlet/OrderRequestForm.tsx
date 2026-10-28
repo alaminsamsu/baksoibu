@@ -30,6 +30,13 @@ interface MasterItem {
   supplier?: string;
 }
 
+const CATEGORY_ORDER = [
+  'Bahan Utama & Dapur',
+  'Kondimen & Pelengkap',
+  'Minuman & Es',
+  'Kemasan & Operasional'
+];
+
 const VENDOR_LIST = [
   'Semua Supplier',
   'RUMAH PRODUKSI',
@@ -75,6 +82,64 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
+  const cleanName = (name?: string) => {
+    return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  };
+
+  // Standarisasi ke 4 Kategori Baku (Identik dengan Laporan Pemakaian & Monitor Stok)
+  const normalizeCategory = (rawCat?: string, itemName?: string) => {
+    const cat = (rawCat || '').trim();
+    const name = cleanName(itemName);
+
+    if (
+      cat === 'Bahan Utama & Dapur' || 
+      cat === 'Bahan Dapur & Bumbu' ||
+      cat === 'Sayur, Mie & Pelengkap' ||
+      cat === 'Bakso & Olahan Frozen' ||
+      name.includes('AYAM') ||
+      name.includes('BUMBU') ||
+      name.includes('MASAKO') ||
+      name.includes('GARAM') ||
+      name.includes('LADAKU') ||
+      name.includes('VITSIN') ||
+      name.includes('MSG') ||
+      name.includes('MINYAK') ||
+      name.includes('TELUR') ||
+      name.includes('BAKSO') ||
+      name.includes('BIHUN') ||
+      name.includes('BAWANG') ||
+      name.includes('BURAS') ||
+      name.includes('CUKA') ||
+      name.includes('TAHU')
+    ) {
+      return 'Bahan Utama & Dapur';
+    }
+
+    if (cat === 'Kondimen & Pelengkap' || name.includes('KECAP') || name.includes('SAOS') || name.includes('SAUS') || name.includes('SAMBAL')) {
+      return 'Kondimen & Pelengkap';
+    }
+
+    if (cat === 'Minuman & Es' || name.includes('TEH') || name.includes('AIR MINERAL') || name.includes('SIRUP')) {
+      return 'Minuman & Es';
+    }
+
+    if (
+      cat === 'Kemasan & Operasional' || 
+      name.includes('SEDOTAN') || 
+      name.includes('PIPET') || 
+      name.includes('TISU') || 
+      name.includes('TISSUE') || 
+      name.includes('PLASTIK') || 
+      name.includes('CUP') || 
+      name.includes('KERTAS') ||
+      name.includes('TALI')
+    ) {
+      return 'Kemasan & Operasional';
+    }
+
+    return 'Bahan Utama & Dapur';
+  };
+
   useEffect(() => {
     async function fetchData() {
       // 1. Tarik Data Master Items
@@ -101,7 +166,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         } else if (stockData) {
           const stockMap: Record<string, number> = {};
           stockData.forEach((s) => {
-            stockMap[s.item_name] = Number(s.remaining_stock || 0);
+            stockMap[cleanName(s.item_name)] = Number(s.remaining_stock || 0);
           });
           setCurrentStocks(stockMap);
         }
@@ -123,14 +188,30 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     });
   }, [items, activeSupplier, searchTerm]);
 
-  const groupedItems = useMemo(() => {
-    const groups: Record<string, MasterItem[]> = {};
+  // Kelompokkan Berdasarkan 4 Kategori Baku & Urutkan A-Z
+  const groupedByCategory = useMemo(() => {
+    const groups: Record<string, MasterItem[]> = {
+      'Bahan Utama & Dapur': [],
+      'Kondimen & Pelengkap': [],
+      'Minuman & Es': [],
+      'Kemasan & Operasional': [],
+    };
+
     filteredItems.forEach((item) => {
-      const sup = item.supplier || 'RUMAH PRODUKSI';
-      if (!groups[sup]) groups[sup] = [];
-      groups[sup].push(item);
+      const normalizedCat = normalizeCategory(item.category, item.name);
+      groups[normalizedCat].push(item);
     });
-    return groups;
+
+    const ordered: { category: string; items: MasterItem[] }[] = [];
+    CATEGORY_ORDER.forEach((cat) => {
+      if (groups[cat] && groups[cat].length > 0) {
+        // Urutkan A-Z di setiap kategori
+        groups[cat].sort((a, b) => a.name.localeCompare(b.name));
+        ordered.push({ category: cat, items: groups[cat] });
+      }
+    });
+
+    return ordered;
   }, [filteredItems]);
 
   const handleQtyChange = (itemName: string, val: string) => {
@@ -208,7 +289,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-sm shadow-slate-200/50">
+    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-sm shadow-slate-200/50 font-sans">
       {onBack && (
         <button
           type="button"
@@ -270,7 +351,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Cari barang cepat (misal: ayam, plastik, bakso, sabun)..."
+            placeholder="Cari barang cepat (misal: ayam, plastik, bakso, kecap)..."
             className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
           />
         </div>
@@ -309,42 +390,46 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
 
       {/* Form & Tabel Barang */}
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-[32rem] overflow-y-auto">
+        <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-[32rem] overflow-y-auto shadow-2xs">
           <table className="w-full text-left border-collapse text-xs">
-            <thead className="bg-slate-50/90 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-sm">
+            <thead className="bg-slate-50/90 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-xs">
               <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                <th className="py-3 px-4">Nama Bahan & Kategori</th>
+                <th className="py-3 px-4 min-w-[200px]">Nama Bahan & Supplier</th>
                 <th className="py-3 px-4 text-center w-36">Stok Akhir</th>
                 <th className="py-3 px-4 text-right w-40">Jumlah Pesan</th>
                 <th className="py-3 px-4 text-center w-44">Sudah Diorder Leader?</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {Object.keys(groupedItems).length === 0 ? (
+              {groupedByCategory.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="py-12 text-center text-slate-400 font-medium">
                     Tidak ada barang ditemukan untuk filter ini.
                   </td>
                 </tr>
               ) : (
-                Object.entries(groupedItems).map(([vendorName, groupList]) => (
-                  <React.Fragment key={vendorName}>
-                    <tr className="bg-slate-100/70 border-y border-slate-200/60">
-                      <td colSpan={4} className="py-2.5 px-4 font-black text-slate-800 uppercase tracking-wider text-[11px] flex items-center justify-between">
-                        <span className="flex items-center gap-1.5">
-                          <Store className="w-3.5 h-3.5 text-indigo-600" />
-                          {vendorName}
-                        </span>
-                        <span className="text-[10px] text-slate-500 font-bold lowercase">
-                          {groupList.length} item
-                        </span>
+                groupedByCategory.map(({ category, items: groupList }) => (
+                  <React.Fragment key={category}>
+                    {/* HEADER SEKAT KATEGORI */}
+                    <tr className="bg-indigo-50/60 border-y border-indigo-100/90">
+                      <td colSpan={4} className="py-2.5 px-4 font-black text-indigo-900 uppercase tracking-wider text-[11px]">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block"></span>
+                            <span>{category}</span>
+                          </div>
+                          <span className="text-[10px] font-bold text-indigo-500 normal-case tracking-normal">
+                            {groupList.length} Bahan Baku
+                          </span>
+                        </div>
                       </td>
                     </tr>
+
                     {groupList.map((item) => {
                       const val = quantities[item.name] || '';
                       const isSelected = parseFloat(val) > 0;
                       const isOrdered = !!orderedByLeader[item.name];
-                      const stockVal = currentStocks[item.name] ?? 0;
+                      const stockVal = currentStocks[cleanName(item.name)] ?? 0;
                       const isLowStock = stockVal <= 2;
 
                       return (
@@ -355,8 +440,10 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                           }`}
                         >
                           <td className="py-2.5 px-4">
-                            <div className="text-slate-800 font-bold">{item.name}</div>
-                            <div className="text-[10px] text-slate-400">{item.category}</div>
+                            <div className="text-slate-900 font-extrabold leading-tight">{item.name}</div>
+                            <div className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                              {item.supplier || 'RUMAH PRODUKSI'} • {item.category}
+                            </div>
                           </td>
 
                           <td className="py-2 px-4 text-center">

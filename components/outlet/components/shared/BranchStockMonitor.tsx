@@ -36,12 +36,10 @@ interface RowItem {
 }
 
 const CATEGORY_ORDER = [
-  'Bakso & Olahan Frozen',
-  'Bahan Dapur & Bumbu',
-  'Sayur, Mie & Pelengkap',
+  'Bahan Utama & Dapur',
+  'Kondimen & Pelengkap',
   'Minuman & Es',
-  'Kemasan & Operasional',
-  'Lain-lain'
+  'Kemasan & Operasional'
 ];
 
 export default function BranchStockMonitor() {
@@ -91,6 +89,64 @@ export default function BranchStockMonitor() {
   const isCrew = currentUser?.role === 'CREW' || currentUser?.role === 'KASIR';
   const canEdit = isLeader || isAdmin || isOwner;
 
+  const cleanName = (name?: string) => {
+    return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  };
+
+  // Normalisasi Kategori Identik dengan Laporan Pemakaian Harian
+  const normalizeCategory = (rawCat?: string, itemName?: string) => {
+    const cat = (rawCat || '').trim();
+    const name = cleanName(itemName);
+
+    if (
+      cat === 'Bahan Utama & Dapur' || 
+      cat === 'Bahan Dapur & Bumbu' ||
+      cat === 'Sayur, Mie & Pelengkap' ||
+      cat === 'Bakso & Olahan Frozen' ||
+      name.includes('AYAM') ||
+      name.includes('BUMBU') ||
+      name.includes('MASAKO') ||
+      name.includes('GARAM') ||
+      name.includes('LADAKU') ||
+      name.includes('VITSIN') ||
+      name.includes('MSG') ||
+      name.includes('MINYAK') ||
+      name.includes('TELUR') ||
+      name.includes('BAKSO') ||
+      name.includes('BIHUN') ||
+      name.includes('BAWANG') ||
+      name.includes('BURAS') ||
+      name.includes('CUKA') ||
+      name.includes('TAHU')
+    ) {
+      return 'Bahan Utama & Dapur';
+    }
+
+    if (cat === 'Kondimen & Pelengkap' || name.includes('KECAP') || name.includes('SAOS') || name.includes('SAUS') || name.includes('SAMBAL')) {
+      return 'Kondimen & Pelengkap';
+    }
+
+    if (cat === 'Minuman & Es' || name.includes('TEH') || name.includes('AIR MINERAL') || name.includes('SIRUP')) {
+      return 'Minuman & Es';
+    }
+
+    if (
+      cat === 'Kemasan & Operasional' || 
+      name.includes('SEDOTAN') || 
+      name.includes('PIPET') || 
+      name.includes('TISU') || 
+      name.includes('TISSUE') || 
+      name.includes('PLASTIK') || 
+      name.includes('CUP') || 
+      name.includes('KERTAS') ||
+      name.includes('TALI')
+    ) {
+      return 'Kemasan & Operasional';
+    }
+
+    return 'Bahan Utama & Dapur';
+  };
+
   const fetchLiveStockMovement = async () => {
     setLoading(true);
     try {
@@ -99,7 +155,7 @@ export default function BranchStockMonitor() {
 
       const { data: masterItems } = await supabase.from('items').select('name, category');
 
-      let branchQuery = supabase.from('branch_stocks').select('*, locations(name)');
+      let branchQuery = supabase.from('branch_stocks').select('*, locations(name)').limit(2000);
       if ((isLeader || isCrew) && currentUser?.location_id) {
         branchQuery = branchQuery.eq('location_id', currentUser.location_id);
       } else if (selectedLocation !== 'all') {
@@ -117,11 +173,13 @@ export default function BranchStockMonitor() {
       const { data: yesterdayClosings } = await supabase
         .from('daily_closings')
         .select('item_name, remaining_stock, location_id')
-        .eq('closing_date', yesterdayStr);
+        .eq('closing_date', yesterdayStr)
+        .limit(2000);
 
       const { data: moveData } = await supabase
         .from('stock_movements')
-        .select('item_name, quantity, location_id, created_at, movement_type');
+        .select('item_name, quantity, location_id, created_at, movement_type')
+        .limit(3000);
 
       const todayMoves = (moveData || []).filter((m) => {
         if (!m.created_at) return false;
@@ -134,15 +192,17 @@ export default function BranchStockMonitor() {
       const { data: todayClosings } = await supabase
         .from('daily_closings')
         .select('*')
-        .eq('closing_date', selectedDate);
+        .eq('closing_date', selectedDate)
+        .limit(2000);
 
-      // --- HITUNG WASTE BULANAN (Bulan berjalan berdasarkan selectedDate) ---
-      const activeYearMonth = selectedDate.substring(0, 7); // Contoh: "2026-10"
+      // Hitung waste bulanan
+      const activeYearMonth = selectedDate.substring(0, 7);
       let monthlyQuery = supabase
         .from('daily_closings')
         .select('waste_qty, terpakai, location_id')
         .gte('closing_date', `${activeYearMonth}-01`)
-        .lte('closing_date', `${activeYearMonth}-31`);
+        .lte('closing_date', `${activeYearMonth}-31`)
+        .limit(5000);
 
       if ((isLeader || isCrew) && currentUser?.location_id) {
         monthlyQuery = monthlyQuery.eq('location_id', currentUser.location_id);
@@ -165,22 +225,22 @@ export default function BranchStockMonitor() {
       }
 
       const rows: RowItem[] = (stocks || []).map((s: any) => {
-        const cleanName = s.item_name.trim().toLowerCase();
+        const normalizedName = cleanName(s.item_name);
 
-        const itemMeta = masterItems?.find((i) => i.name.trim().toLowerCase() === cleanName);
-        const category = s.category || itemMeta?.category || 'Lain-lain';
+        const itemMeta = masterItems?.find((i) => cleanName(i.name) === normalizedName);
+        const category = normalizeCategory(s.category || itemMeta?.category, s.item_name);
 
         const yest = (yesterdayClosings || []).find(
-          (y) => String(y.location_id) === String(s.location_id) && y.item_name.trim().toLowerCase() === cleanName
+          (y) => String(y.location_id) === String(s.location_id) && cleanName(y.item_name) === normalizedName
         );
         const awal = yest ? Number(yest.remaining_stock || 0) : Number(s.initial_stock || 0);
 
         const masuk = todayMoves
-          .filter((m) => String(m.location_id) === String(s.location_id) && m.item_name.trim().toLowerCase() === cleanName)
+          .filter((m) => String(m.location_id) === String(s.location_id) && cleanName(m.item_name) === normalizedName)
           .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0);
 
         const closed = (todayClosings || []).find(
-          (c) => String(c.location_id) === String(s.location_id) && c.item_name.trim().toLowerCase() === cleanName
+          (c) => String(c.location_id) === String(s.location_id) && cleanName(c.item_name) === normalizedName
         );
 
         const waste = closed ? Number(closed.waste_qty || 0) : 0;
@@ -189,7 +249,7 @@ export default function BranchStockMonitor() {
 
         return {
           id: s.id,
-          item_name: s.item_name,
+          item_name: normalizedName,
           category,
           location_id: s.location_id,
           location_name: s.locations?.name || 'Outlet',
@@ -198,7 +258,7 @@ export default function BranchStockMonitor() {
           terpakai: terpakai,
           waste_qty: waste,
           current_stock: sisaAkhir,
-          unit: s.unit || 'porsi',
+          unit: s.unit || 'Pcs',
           reported_by: closed?.reported_by || s.last_updated_by || s.updated_by || 'Sistem',
           updated_at: closed?.created_at || s.last_updated || s.updated_at,
         };
@@ -281,24 +341,25 @@ export default function BranchStockMonitor() {
     });
   }, [dataList, searchTerm, selectedCategory]);
 
+  // Urutkan per kategori dan nama item A-Z
   const groupedData = useMemo(() => {
-    const groups: Record<string, RowItem[]> = {};
+    const groups: Record<string, RowItem[]> = {
+      'Bahan Utama & Dapur': [],
+      'Kondimen & Pelengkap': [],
+      'Minuman & Es': [],
+      'Kemasan & Operasional': [],
+    };
+
     filteredData.forEach((item) => {
-      const cat = item.category || 'Lain-lain';
-      if (!groups[cat]) groups[cat] = [];
+      const cat = groups[item.category] ? item.category : 'Bahan Utama & Dapur';
       groups[cat].push(item);
     });
 
     const ordered: { category: string; items: RowItem[] }[] = [];
     CATEGORY_ORDER.forEach((cat) => {
       if (groups[cat] && groups[cat].length > 0) {
-        ordered.push({ category: cat, items: groups[cat] });
-        delete groups[cat];
-      }
-    });
-
-    Object.keys(groups).forEach((cat) => {
-      if (groups[cat].length > 0) {
+        // Urutkan A-Z
+        groups[cat].sort((a, b) => a.item_name.localeCompare(b.item_name));
         ordered.push({ category: cat, items: groups[cat] });
       }
     });
@@ -327,7 +388,7 @@ export default function BranchStockMonitor() {
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-xs">
+    <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-xs font-sans">
       <div className="p-6 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-200">
@@ -361,7 +422,7 @@ export default function BranchStockMonitor() {
             </div>
           ) : (
             <div className="relative flex-1 sm:w-48">
-              <MapPin className="absolute left-3.5 top-3 w-3.5 h-3.5 text-slate-400" />
+              <MapPin className="absolute left-3.5 top-3 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
               <select
                 value={selectedLocation}
                 onChange={(e) => setSelectedLocation(e.target.value)}
@@ -396,7 +457,7 @@ export default function BranchStockMonitor() {
               <Layers className="w-3.5 h-3.5 text-indigo-500" />
             </div>
             <p className="text-2xl font-black text-slate-900 mt-1">{filteredData.length}</p>
-            <span className="text-[10px] text-slate-400 font-semibold">Master bahan baku outlet</span>
+            <span className="text-[10px] text-slate-400 font-semibold">Master bahan baku outlet terdaftar</span>
           </div>
         </div>
 
@@ -425,9 +486,10 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
+      {/* FILTER SEARCH & KATEGORI */}
       <div className="p-4 border-b border-slate-100 space-y-3">
         <div className="relative">
-          <Search className="absolute left-4 top-3 w-4 h-4 text-slate-400" />
+          <Search className="absolute left-4 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
           <input
             type="text"
             value={searchTerm}
@@ -455,18 +517,19 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
+      {/* TABEL STOK DENGAN HEADER KATEGORI */}
       <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
         <table className="w-full text-left border-collapse text-xs">
-          <thead className="bg-slate-50/80 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-xs">
+          <thead className="bg-slate-50/90 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-xs">
             <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-              <th className="py-3 px-4">Nama Barang & Cabang</th>
-              <th className="py-3 px-3 text-right">Stok Awal</th>
-              <th className="py-3 px-3 text-right text-emerald-600">+ Masuk</th>
-              <th className="py-3 px-3 text-right text-indigo-600">- Terpakai</th>
-              <th className="py-3 px-3 text-right text-amber-600">- Waste</th>
-              <th className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/80">= Stok Akhir</th>
-              <th className="py-3 px-4 text-right">Terakhir Update</th>
-              {canEdit && <th className="py-3 px-4 text-center">Koreksi</th>}
+              <th className="py-3 px-4 min-w-[200px]">Nama Barang & Cabang</th>
+              <th className="py-3 px-3 text-right min-w-[90px]">Stok Awal</th>
+              <th className="py-3 px-3 text-right text-emerald-600 min-w-[85px]">+ Masuk</th>
+              <th className="py-3 px-3 text-right text-indigo-600 min-w-[85px]">- Terpakai</th>
+              <th className="py-3 px-3 text-right text-amber-600 min-w-[85px]">- Waste</th>
+              <th className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/80 min-w-[100px]">= Stok Akhir</th>
+              <th className="py-3 px-4 text-right min-w-[140px]">Terakhir Update</th>
+              {canEdit && <th className="py-3 px-4 text-center min-w-[80px]">Koreksi</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
@@ -485,9 +548,18 @@ export default function BranchStockMonitor() {
             ) : (
               groupedData.map(({ category, items }) => (
                 <React.Fragment key={category}>
-                  <tr className="bg-slate-50/80 border-y border-slate-100">
-                    <td colSpan={canEdit ? 8 : 7} className="py-2 px-4 font-black text-slate-700 uppercase tracking-wider text-[11px]">
-                      • {category} <span className="text-slate-400 font-normal lowercase">({items.length} item)</span>
+                  {/* SEKAT HEADER KATEGORI (Identik dengan Laporan Pemakaian) */}
+                  <tr className="bg-indigo-50/60 border-y border-indigo-100/90">
+                    <td colSpan={canEdit ? 8 : 7} className="py-2.5 px-4 font-black text-indigo-900 uppercase tracking-wider text-[11px]">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block"></span>
+                          <span>{category}</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-indigo-500 normal-case tracking-normal">
+                          {items.length} Bahan Baku Terdaftar
+                        </span>
+                      </div>
                     </td>
                   </tr>
 
@@ -499,11 +571,13 @@ export default function BranchStockMonitor() {
                     return (
                       <tr key={row.id} className="hover:bg-slate-50/60 transition-colors">
                         <td className="py-3 px-4">
-                          <div className="font-extrabold text-slate-800 uppercase">{row.item_name}</div>
-                          <div className="text-[10px] text-slate-400">{row.location_name} • {row.unit}</div>
+                          <div className="font-extrabold text-slate-900 uppercase leading-tight">{row.item_name}</div>
+                          <div className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                            {row.location_name} • {row.unit}
+                          </div>
                         </td>
 
-                        <td className="py-3 px-3 text-right font-bold">
+                        <td className="py-3 px-3 text-right font-bold text-slate-700">
                           {isEditing ? (
                             <input
                               type="number"
@@ -561,7 +635,7 @@ export default function BranchStockMonitor() {
 
                         <td className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/80">
                           <span className="text-sm font-black text-slate-900">
-                            {isEditing ? previewEnd : row.current_stock}{' '}
+                            {isEditing ? previewEnd.toFixed(1) : row.current_stock.toFixed(1)}{' '}
                             <span className="text-[10px] font-bold text-slate-500">{row.unit}</span>
                           </span>
                         </td>
