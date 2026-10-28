@@ -16,7 +16,9 @@ import {
   Lock,
   Calendar,
   AlertTriangle,
-  TrendingDown
+  TrendingDown,
+  Trash2,
+  ExternalLink
 } from 'lucide-react';
 
 interface RowItem {
@@ -35,6 +37,17 @@ interface RowItem {
   updated_at?: string;
 }
 
+interface WasteLogItem {
+  id: string;
+  closing_date: string;
+  item_name: string;
+  waste_qty: number;
+  unit: string;
+  location_name: string;
+  reported_by: string;
+  created_at?: string;
+}
+
 const CATEGORY_ORDER = [
   'Bahan Utama & Dapur',
   'Kondimen & Pelengkap',
@@ -50,6 +63,11 @@ export default function BranchStockMonitor() {
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
+
+  // State Modal Detail Rincian Waste Bulanan
+  const [isWasteModalOpen, setIsWasteModalOpen] = useState(false);
+  const [wasteLogs, setWasteLogs] = useState<WasteLogItem[]>([]);
+  const [wasteSearchTerm, setWasteSearchTerm] = useState('');
 
   // Metrik Waste Bulanan
   const [monthlyWasteStats, setMonthlyWasteStats] = useState<{
@@ -93,7 +111,6 @@ export default function BranchStockMonitor() {
     return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
   };
 
-  // Normalisasi Kategori Identik dengan Laporan Pemakaian Harian
   const normalizeCategory = (rawCat?: string, itemName?: string) => {
     const cat = (rawCat || '').trim();
     const name = cleanName(itemName);
@@ -138,7 +155,7 @@ export default function BranchStockMonitor() {
       name.includes('TISSUE') || 
       name.includes('PLASTIK') || 
       name.includes('CUP') || 
-      name.includes('KERTAS') ||
+      name.includes('KERTAS') || 
       name.includes('TALI')
     ) {
       return 'Kemasan & Operasional';
@@ -195,11 +212,11 @@ export default function BranchStockMonitor() {
         .eq('closing_date', selectedDate)
         .limit(2000);
 
-      // Hitung waste bulanan
+      // Tarik Waste Bulanan & Rincian Kejadian Waste
       const activeYearMonth = selectedDate.substring(0, 7);
       let monthlyQuery = supabase
         .from('daily_closings')
-        .select('waste_qty, terpakai, location_id')
+        .select('id, closing_date, item_name, waste_qty, terpakai, unit, reported_by, location_id, locations(name), created_at')
         .gte('closing_date', `${activeYearMonth}-01`)
         .lte('closing_date', `${activeYearMonth}-31`)
         .limit(5000);
@@ -222,11 +239,27 @@ export default function BranchStockMonitor() {
           usedQty: totalMonthUsed,
           wasteRate: parseFloat(wasteRate.toFixed(2)),
         });
+
+        // Filter hanya item yang ada nilai waste > 0 untuk modal rincian
+        const rawLogs: WasteLogItem[] = monthData
+          .filter((d) => Number(d.waste_qty || 0) > 0)
+          .map((d) => ({
+            id: d.id,
+            closing_date: d.closing_date,
+            item_name: cleanName(d.item_name),
+            waste_qty: Number(d.waste_qty || 0),
+            unit: d.unit || 'Pcs',
+            location_name: (d.locations as any)?.name || 'Outlet',
+            reported_by: d.reported_by || 'Kru',
+            created_at: d.created_at
+          }))
+          .sort((a, b) => b.closing_date.localeCompare(a.closing_date));
+
+        setWasteLogs(rawLogs);
       }
 
       const rows: RowItem[] = (stocks || []).map((s: any) => {
         const normalizedName = cleanName(s.item_name);
-
         const itemMeta = masterItems?.find((i) => cleanName(i.name) === normalizedName);
         const category = normalizeCategory(s.category || itemMeta?.category, s.item_name);
 
@@ -341,7 +374,6 @@ export default function BranchStockMonitor() {
     });
   }, [dataList, searchTerm, selectedCategory]);
 
-  // Urutkan per kategori dan nama item A-Z
   const groupedData = useMemo(() => {
     const groups: Record<string, RowItem[]> = {
       'Bahan Utama & Dapur': [],
@@ -358,7 +390,6 @@ export default function BranchStockMonitor() {
     const ordered: { category: string; items: RowItem[] }[] = [];
     CATEGORY_ORDER.forEach((cat) => {
       if (groups[cat] && groups[cat].length > 0) {
-        // Urutkan A-Z
         groups[cat].sort((a, b) => a.item_name.localeCompare(b.item_name));
         ordered.push({ category: cat, items: groups[cat] });
       }
@@ -366,6 +397,17 @@ export default function BranchStockMonitor() {
 
     return ordered;
   }, [filteredData]);
+
+  const filteredWasteLogs = useMemo(() => {
+    if (!wasteSearchTerm.trim()) return wasteLogs;
+    const term = wasteSearchTerm.toLowerCase();
+    return wasteLogs.filter((log) => 
+      log.item_name.toLowerCase().includes(term) ||
+      log.location_name.toLowerCase().includes(term) ||
+      log.closing_date.includes(term) ||
+      log.reported_by.toLowerCase().includes(term)
+    );
+  }, [wasteLogs, wasteSearchTerm]);
 
   const formatDateTimeWita = (isoString?: string) => {
     if (!isoString) return { dateStr: '-', timeStr: '' };
@@ -448,7 +490,7 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* METRIK HEADER: ITEM DIPANTAU & PERSENTASE WASTE BULANAN */}
+      {/* METRIK HEADER: ITEM DIPANTAU & PERSENTASE WASTE BULANAN (INTERAKTIF) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-5 bg-[#fafbfe] border-b border-slate-100">
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
           <div>
@@ -461,11 +503,21 @@ export default function BranchStockMonitor() {
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+        {/* KARTU WASTE BULANAN: BISA DIKLIK UNTUK MELIHAT LOG DATA WASTE */}
+        <div 
+          onClick={() => setIsWasteModalOpen(true)}
+          role="button"
+          tabIndex={0}
+          title="Klik untuk melihat rincian waste bahan bulan ini"
+          className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between hover:border-amber-300 hover:shadow-md transition-all cursor-pointer group"
+        >
           <div>
             <div className="flex items-center gap-1.5 text-amber-600 text-[11px] font-bold">
               <span>Persentase Waste Bulanan</span>
               <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+              <span className="text-[9px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-md border border-amber-200 ml-1">
+                Buka Log
+              </span>
             </div>
             <div className="flex items-baseline gap-2 mt-1">
               <p className={`text-2xl font-black ${monthlyWasteStats.wasteRate > 3 ? 'text-rose-600' : 'text-amber-600'}`}>
@@ -475,12 +527,12 @@ export default function BranchStockMonitor() {
                 ({monthlyWasteStats.wasteQty.toLocaleString()} qty terbuang)
               </span>
             </div>
-            <span className="text-[10px] text-slate-400 font-semibold">
-              Akumulasi bulan {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(selectedDate))}
+            <span className="text-[10px] text-slate-400 font-semibold group-hover:text-indigo-600 transition-colors flex items-center gap-1">
+              Bulan {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(selectedDate))} • Klik untuk rincian
             </span>
           </div>
 
-          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center ${monthlyWasteStats.wasteRate > 3 ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600'}`}>
+          <div className={`w-11 h-11 rounded-2xl flex items-center justify-center transition-all group-hover:scale-110 ${monthlyWasteStats.wasteRate > 3 ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600'}`}>
             <TrendingDown className="w-6 h-6" />
           </div>
         </div>
@@ -517,7 +569,7 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* TABEL STOK DENGAN HEADER KATEGORI */}
+      {/* TABEL STOK PERGERAKAN */}
       <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
         <table className="w-full text-left border-collapse text-xs">
           <thead className="bg-slate-50/90 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-xs">
@@ -548,7 +600,6 @@ export default function BranchStockMonitor() {
             ) : (
               groupedData.map(({ category, items }) => (
                 <React.Fragment key={category}>
-                  {/* SEKAT HEADER KATEGORI (Identik dengan Laporan Pemakaian) */}
                   <tr className="bg-indigo-50/60 border-y border-indigo-100/90">
                     <td colSpan={canEdit ? 8 : 7} className="py-2.5 px-4 font-black text-indigo-900 uppercase tracking-wider text-[11px]">
                       <div className="flex items-center justify-between">
@@ -640,7 +691,6 @@ export default function BranchStockMonitor() {
                           </span>
                         </td>
 
-                        {/* KOLOM TERAKHIR UPDATE */}
                         <td className="py-3 px-4 text-right">
                           <div className="font-black text-slate-800 text-[11px] flex items-center justify-end gap-1">
                             <UserCheck className="w-3 h-3 text-indigo-600" />
@@ -691,6 +741,112 @@ export default function BranchStockMonitor() {
           </tbody>
         </table>
       </div>
+
+      {/* ========================================================================= */}
+      {/* MODAL AUDIT DETAIL: RINCIAN SEMUA KEJADIAN WASTE BULANAN                  */}
+      {/* ========================================================================= */}
+      {isWasteModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-2xl border border-slate-100 max-h-[88vh] flex flex-col">
+            
+            {/* Modal Header */}
+            <div className="flex justify-between items-start pb-3 border-b border-slate-100 gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 leading-tight">
+                    Rincian Kejadian Waste Bahan Baku
+                  </h3>
+                  <p className="text-xs text-slate-400 font-medium mt-0.5">
+                    Bulan {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(selectedDate))} • Total {monthlyWasteStats.wasteQty.toLocaleString()} unit terbuang ({monthlyWasteStats.wasteRate}%)
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsWasteModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center shrink-0 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Pencarian di Modal */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Cari nama bahan, cabang, tanggal, atau pelapor..."
+                value={wasteSearchTerm}
+                onChange={(e) => setWasteSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none"
+              />
+            </div>
+
+            {/* Tabel Riwayat Waste */}
+            <div className="flex-1 overflow-y-auto border border-slate-100 rounded-2xl shadow-2xs">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-50/90 sticky top-0 border-b border-slate-100 z-10">
+                  <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                    <th className="py-2.5 px-3">Tanggal & Cabang</th>
+                    <th className="py-2.5 px-3">Nama Bahan Baku</th>
+                    <th className="py-2.5 px-3 text-right text-amber-700">Jumlah Waste</th>
+                    <th className="py-2.5 px-3 text-right">Pelapor / Kru</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {filteredWasteLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="py-12 text-center text-slate-400 font-bold bg-slate-50/40">
+                        Tidak ada catatan bahan basi / rusak (waste) di periode ini.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredWasteLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-amber-50/40 transition-colors">
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-slate-800">
+                            {new Date(log.closing_date + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-semibold">{log.location_name}</div>
+                        </td>
+                        <td className="py-2.5 px-3 font-extrabold text-slate-900 uppercase">
+                          {log.item_name}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-black text-rose-600 text-sm">
+                          -{log.waste_qty}{' '}
+                          <span className="text-[10px] text-slate-400 font-normal">{log.unit}</span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className="text-slate-700 font-bold block">{log.reported_by}</span>
+                          <span className="text-[9px] text-slate-400 block">Closing shift</span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer Modal */}
+            <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-xs">
+              <span className="text-[11px] font-semibold text-slate-400">
+                Menampilkan {filteredWasteLogs.length} data laporan waste
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsWasteModalOpen(false)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold transition-colors"
+              >
+                Tutup
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
