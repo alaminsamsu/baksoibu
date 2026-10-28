@@ -17,8 +17,7 @@ import {
   Calendar,
   AlertTriangle,
   TrendingDown,
-  Trash2,
-  ExternalLink
+  Trash2
 } from 'lucide-react';
 
 interface RowItem {
@@ -43,6 +42,7 @@ interface WasteLogItem {
   item_name: string;
   waste_qty: number;
   unit: string;
+  location_id: string;
   location_name: string;
   reported_by: string;
   created_at?: string;
@@ -92,7 +92,9 @@ export default function BranchStockMonitor() {
       try {
         const u = JSON.parse(saved);
         setCurrentUser(u);
-        if (u.location_id && (u.role === 'LEADER' || u.role === 'CREW' || u.role === 'KASIR')) {
+        const roleUpper = (u.role || u.role_name || '').toUpperCase();
+        const isBranchCrew = roleUpper.includes('CREW') || roleUpper.includes('LEADER') || roleUpper.includes('KASIR');
+        if (u.location_id && isBranchCrew && !roleUpper.includes('OWNER') && !roleUpper.includes('ADMIN')) {
           setSelectedLocation(String(u.location_id));
         }
       } catch (e) {
@@ -101,10 +103,12 @@ export default function BranchStockMonitor() {
     }
   }, []);
 
-  const isLeader = currentUser?.role === 'LEADER';
-  const isAdmin = currentUser?.role === 'ADMIN';
-  const isOwner = currentUser?.role === 'OWNER';
-  const isCrew = currentUser?.role === 'CREW' || currentUser?.role === 'KASIR';
+  const rawRole = (currentUser?.role || currentUser?.role_name || '').toUpperCase();
+  const isLeader = rawRole.includes('LEADER');
+  const isAdmin = rawRole.includes('ADMIN');
+  const isOwner = rawRole.includes('OWNER') || rawRole.includes('EXECUTIVE');
+  const isCrew = rawRole.includes('CREW') || rawRole.includes('KASIR');
+  const isOutletStaff = (isCrew || isLeader) && !isOwner && !isAdmin;
   const canEdit = isLeader || isAdmin || isOwner;
 
   const cleanName = (name?: string) => {
@@ -172,11 +176,14 @@ export default function BranchStockMonitor() {
 
       const { data: masterItems } = await supabase.from('items').select('name, category');
 
+      // Tentukan target filter cabang
+      const effectiveFilterLoc = isOutletStaff && currentUser?.location_id 
+        ? String(currentUser.location_id) 
+        : selectedLocation;
+
       let branchQuery = supabase.from('branch_stocks').select('*, locations(name)').limit(2000);
-      if ((isLeader || isCrew) && currentUser?.location_id) {
-        branchQuery = branchQuery.eq('location_id', currentUser.location_id);
-      } else if (selectedLocation !== 'all') {
-        branchQuery = branchQuery.eq('location_id', selectedLocation);
+      if (effectiveFilterLoc !== 'all') {
+        branchQuery = branchQuery.eq('location_id', effectiveFilterLoc);
       }
 
       const { data: stocks, error: stockErr } = await branchQuery;
@@ -187,16 +194,26 @@ export default function BranchStockMonitor() {
       prevDateObj.setDate(prevDateObj.getDate() - 1);
       const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(prevDateObj);
 
-      const { data: yesterdayClosings } = await supabase
+      let yesterdayQuery = supabase
         .from('daily_closings')
         .select('item_name, remaining_stock, location_id')
         .eq('closing_date', yesterdayStr)
         .limit(2000);
 
-      const { data: moveData } = await supabase
+      if (effectiveFilterLoc !== 'all') {
+        yesterdayQuery = yesterdayQuery.eq('location_id', effectiveFilterLoc);
+      }
+      const { data: yesterdayClosings } = await yesterdayQuery;
+
+      let moveQuery = supabase
         .from('stock_movements')
         .select('item_name, quantity, location_id, created_at, movement_type')
         .limit(3000);
+
+      if (effectiveFilterLoc !== 'all') {
+        moveQuery = moveQuery.eq('location_id', effectiveFilterLoc);
+      }
+      const { data: moveData } = await moveQuery;
 
       const todayMoves = (moveData || []).filter((m) => {
         if (!m.created_at) return false;
@@ -206,13 +223,20 @@ export default function BranchStockMonitor() {
         return dStr === selectedDate;
       });
 
-      const { data: todayClosings } = await supabase
+      let todayCloseQuery = supabase
         .from('daily_closings')
         .select('*')
         .eq('closing_date', selectedDate)
         .limit(2000);
 
-      // Tarik Waste Bulanan & Rincian Kejadian Waste
+      if (effectiveFilterLoc !== 'all') {
+        todayCloseQuery = todayCloseQuery.eq('location_id', effectiveFilterLoc);
+      }
+      const { data: todayClosings } = await todayCloseQuery;
+
+      // =========================================================================
+      // Tarik Waste Bulanan: DIKUNCI HANYA CABANG AKTIF JIKA KRU CABANG (MISAL BTP)
+      // =========================================================================
       const activeYearMonth = selectedDate.substring(0, 7);
       let monthlyQuery = supabase
         .from('daily_closings')
@@ -221,10 +245,8 @@ export default function BranchStockMonitor() {
         .lte('closing_date', `${activeYearMonth}-31`)
         .limit(5000);
 
-      if ((isLeader || isCrew) && currentUser?.location_id) {
-        monthlyQuery = monthlyQuery.eq('location_id', currentUser.location_id);
-      } else if (selectedLocation !== 'all') {
-        monthlyQuery = monthlyQuery.eq('location_id', selectedLocation);
+      if (effectiveFilterLoc !== 'all') {
+        monthlyQuery = monthlyQuery.eq('location_id', effectiveFilterLoc);
       }
 
       const { data: monthData } = await monthlyQuery;
@@ -240,7 +262,7 @@ export default function BranchStockMonitor() {
           wasteRate: parseFloat(wasteRate.toFixed(2)),
         });
 
-        // Filter hanya item yang ada nilai waste > 0 untuk modal rincian
+        // Filter riwayat waste khusus cabang terkait
         const rawLogs: WasteLogItem[] = monthData
           .filter((d) => Number(d.waste_qty || 0) > 0)
           .map((d) => ({
@@ -249,6 +271,7 @@ export default function BranchStockMonitor() {
             item_name: cleanName(d.item_name),
             waste_qty: Number(d.waste_qty || 0),
             unit: d.unit || 'Pcs',
+            location_id: d.location_id,
             location_name: (d.locations as any)?.name || 'Outlet',
             reported_by: d.reported_by || 'Kru',
             created_at: d.created_at
@@ -429,6 +452,14 @@ export default function BranchStockMonitor() {
     return { dateStr, timeStr };
   };
 
+  // Label nama cabang yang sedang dilihat
+  const activeLocationDisplayName = useMemo(() => {
+    if (isOutletStaff) return currentUser?.location_name || 'Outlet Anda';
+    if (selectedLocation === 'all') return 'Semua Cabang (Agregat)';
+    const found = locations.find((l) => String(l.id) === String(selectedLocation));
+    return found ? `Outlet ${found.name}` : 'Outlet';
+  }, [isOutletStaff, currentUser, selectedLocation, locations]);
+
   return (
     <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-xs font-sans">
       <div className="p-6 border-b border-slate-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
@@ -457,7 +488,7 @@ export default function BranchStockMonitor() {
             />
           </div>
 
-          {(isLeader || isCrew) ? (
+          {isOutletStaff ? (
             <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-600">
               <Lock className="w-3.5 h-3.5 text-indigo-600" />
               <span>{currentUser?.location_name || 'Outlet'}</span>
@@ -499,11 +530,13 @@ export default function BranchStockMonitor() {
               <Layers className="w-3.5 h-3.5 text-indigo-500" />
             </div>
             <p className="text-2xl font-black text-slate-900 mt-1">{filteredData.length}</p>
-            <span className="text-[10px] text-slate-400 font-semibold">Master bahan baku outlet terdaftar</span>
+            <span className="text-[10px] text-slate-400 font-semibold">
+              Master bahan baku {activeLocationDisplayName}
+            </span>
           </div>
         </div>
 
-        {/* KARTU WASTE BULANAN: BISA DIKLIK UNTUK MELIHAT LOG DATA WASTE */}
+        {/* KARTU WASTE BULANAN: BISA DIKLIK UNTUK MELIHAT LOG DATA WASTE CABANG TERKAIT */}
         <div 
           onClick={() => setIsWasteModalOpen(true)}
           role="button"
@@ -528,7 +561,7 @@ export default function BranchStockMonitor() {
               </span>
             </div>
             <span className="text-[10px] text-slate-400 font-semibold group-hover:text-indigo-600 transition-colors flex items-center gap-1">
-              Bulan {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(selectedDate))} • Klik untuk rincian
+              Bulan {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(selectedDate))} • {activeLocationDisplayName}
             </span>
           </div>
 
@@ -760,7 +793,7 @@ export default function BranchStockMonitor() {
                     Rincian Kejadian Waste Bahan Baku
                   </h3>
                   <p className="text-xs text-slate-400 font-medium mt-0.5">
-                    Bulan {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(selectedDate))} • Total {monthlyWasteStats.wasteQty.toLocaleString()} unit terbuang ({monthlyWasteStats.wasteRate}%)
+                    {activeLocationDisplayName} • Bulan {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(selectedDate))} ({monthlyWasteStats.wasteQty.toLocaleString()} unit terbuang)
                   </p>
                 </div>
               </div>
@@ -777,7 +810,7 @@ export default function BranchStockMonitor() {
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3 pointer-events-none" />
               <input
                 type="text"
-                placeholder="Cari nama bahan, cabang, tanggal, atau pelapor..."
+                placeholder="Cari nama bahan, tanggal, atau pelapor..."
                 value={wasteSearchTerm}
                 onChange={(e) => setWasteSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none"
@@ -799,7 +832,7 @@ export default function BranchStockMonitor() {
                   {filteredWasteLogs.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="py-12 text-center text-slate-400 font-bold bg-slate-50/40">
-                        Tidak ada catatan bahan basi / rusak (waste) di periode ini.
+                        Tidak ada catatan bahan basi / rusak (waste) untuk {activeLocationDisplayName}.
                       </td>
                     </tr>
                   ) : (
@@ -832,7 +865,7 @@ export default function BranchStockMonitor() {
             {/* Footer Modal */}
             <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-xs">
               <span className="text-[11px] font-semibold text-slate-400">
-                Menampilkan {filteredWasteLogs.length} data laporan waste
+                Menampilkan {filteredWasteLogs.length} data laporan waste ({activeLocationDisplayName})
               </span>
               <button
                 type="button"
