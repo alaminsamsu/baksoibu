@@ -32,7 +32,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     }
   }, [defaultLocationId]);
 
-  // Ambil Data Cabang
+  // Ambil Data Cabang Outlet
   useEffect(() => {
     async function fetchLocations() {
       const { data } = await supabase.from('locations').select('id, name').order('name');
@@ -41,7 +41,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     fetchLocations();
   }, []);
 
-  // Generate Kolom Tanggal Mundur
+  // Generate Kolom Rentang Tanggal (Asia/Makassar WITA)
   const dateColumns = useMemo(() => {
     const cols: string[] = [];
     const now = new Date();
@@ -54,7 +54,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     return cols;
   }, [dateRange]);
 
-  // Ambil Data Asli dari branch_stocks dan daily_closings
+  // Ambil Data dari branch_stocks dan daily_closings
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -70,10 +70,10 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       if (stockErr) throw stockErr;
       setBranchStocks(stocks || []);
 
-      // 2. Ambil Riwayat Konsumsi langsung dari daily_closings (Logika Asli)
+      // 2. Ambil Riwayat Konsumsi langsung dari daily_closings
       let cQuery = supabase
         .from('daily_closings')
-        .select('*')
+        .select('item_name, closing_date, terpakai, remaining_stock, unit, category, location_id')
         .gte('closing_date', startDate)
         .lte('closing_date', endDate);
 
@@ -95,7 +95,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     fetchData();
   }, [dateRange, selectedLoc, dateColumns]);
 
-  // Normalisasi Kategori Bahan Baku ke 4 Kategori Baku
+  // Normalisasi Kategori ke 4 Kategori Baku
   const normalizeCategory = (rawCat?: string, itemName?: string) => {
     const cat = (rawCat || '').trim();
     const name = (itemName || '').toUpperCase();
@@ -114,7 +114,9 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       name.includes('TELUR') ||
       name.includes('BAKSO') ||
       name.includes('BIHUN') ||
-      name.includes('BAWANG')
+      name.includes('BAWANG') ||
+      name.includes('CUKA') ||
+      name.includes('BURAS')
     ) {
       return 'Bahan Utama & Dapur';
     }
@@ -135,7 +137,8 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       name.includes('TISSUE') || 
       name.includes('PLASTIK') || 
       name.includes('CUP') || 
-      name.includes('KERTAS')
+      name.includes('KERTAS') ||
+      name.includes('TALI')
     ) {
       return 'Kemasan & Operasional';
     }
@@ -154,7 +157,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       totalUsed: number;
     }> = {};
 
-    // Inisialisasi daftar item dari branch_stocks
+    // 1. Data dari branch_stocks
     branchStocks.forEach((st) => {
       const name = (st.item_name || '').toUpperCase().trim();
       if (!name) return;
@@ -176,7 +179,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       itemMap[name].latestStock += Number(st.remaining_stock || 0);
     });
 
-    // Tambahkan data histori dari tabel daily_closings
+    // 2. Data dari daily_closings (membaca kolom 'terpakai')
     rawClosings.forEach((c) => {
       const name = (c.item_name || '').toUpperCase().trim();
       if (!name) return;
@@ -196,8 +199,8 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
         });
       }
 
-      // Ambil nilai konsumsi (jika consumption_qty ada gunakan itu, jika tidak gunakan sisa fisik/waste)
-      const consumedVal = Number(c.consumption_qty !== undefined ? c.consumption_qty : (c.used_qty || 0));
+      // Ambil nilai dari kolom 'terpakai'
+      const consumedVal = Number(c.terpakai || 0);
 
       if (c.closing_date && itemMap[name].dailyUsage[c.closing_date] !== undefined) {
         itemMap[name].dailyUsage[c.closing_date] += consumedVal;
@@ -232,7 +235,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     return groups;
   }, [branchStocks, rawClosings, dateColumns]);
 
-  // Ekspor CSV Rapi
+  // Ekspor CSV Terkategori
   const handleDownloadCSV = () => {
     setDownloading(true);
     try {
