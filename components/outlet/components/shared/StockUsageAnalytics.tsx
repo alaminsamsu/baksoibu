@@ -3,8 +3,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { 
-  BarChart3, 
-  Calendar, 
   MapPin, 
   Download, 
   RefreshCw, 
@@ -23,7 +21,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
   const [locations, setLocations] = useState<any[]>([]);
   
   const [branchStocks, setBranchStocks] = useState<any[]>([]);
-  const [closingItems, setClosingItems] = useState<any[]>([]);
+  const [rawClosings, setRawClosings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
 
@@ -33,7 +31,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     }
   }, [defaultLocationId]);
 
-  // Ambil Data Lokasi Cabang
   useEffect(() => {
     async function fetchLocations() {
       const { data } = await supabase.from('locations').select('id, name').order('name');
@@ -42,28 +39,33 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     fetchLocations();
   }, []);
 
-  // Generate Kolom Tanggal Mundur
+  const formatDateKey = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const dateColumns = useMemo(() => {
     const cols: string[] = [];
-    const now = new Date();
+    const today = new Date();
     for (let i = dateRange - 1; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const yyyyMmDd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(d);
-      cols.push(yyyyMmDd);
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      cols.push(formatDateKey(d));
     }
     return cols;
   }, [dateRange]);
 
-  // Ambil Data Sisa Fisik & Pemakaian Harian
   const fetchData = async () => {
     setLoading(true);
     try {
-      const startDate = dateColumns[0];
-      const endDate = dateColumns[dateColumns.length - 1];
+      const startObj = new Date(dateColumns[0]);
+      startObj.setDate(startObj.getDate() - 1);
+      const queryStartDate = formatDateKey(startObj);
+      const queryEndDate = dateColumns[dateColumns.length - 1];
 
-      // 1. Ambil Sisa Fisik Terakhir dari branch_stocks
-      let stockQuery = supabase.from('branch_stocks').select('*');
+      let stockQuery = supabase.from('branch_stocks').select('*').limit(2000);
       if (selectedLoc !== 'all') {
         stockQuery = stockQuery.eq('location_id', selectedLoc);
       }
@@ -71,34 +73,20 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       if (stockErr) throw stockErr;
       setBranchStocks(stocks || []);
 
-      // 2. Ambil Histori Konsumsi Closing dari daily_closing_items
-      let closingQuery = supabase
-        .from('daily_closing_items')
-        .select(`
-          id,
-          closing_id,
-          consumption_qty,
-          closing_actual_qty,
-          items (
-            name,
-            category,
-            uom
-          ),
-          daily_closings!inner (
-            closing_date,
-            location_id
-          )
-        `)
-        .gte('daily_closings.closing_date', startDate)
-        .lte('daily_closings.closing_date', endDate);
+      let cQuery = supabase
+        .from('daily_closings')
+        .select('item_name, closing_date, terpakai, remaining_stock, unit, category, location_id')
+        .gte('closing_date', queryStartDate)
+        .lte('closing_date', queryEndDate)
+        .limit(5000);
 
       if (selectedLoc !== 'all') {
-        closingQuery = closingQuery.eq('daily_closings.location_id', selectedLoc);
+        cQuery = cQuery.eq('location_id', selectedLoc);
       }
-
-      const { data: closings, error: closingErr } = await closingQuery;
+      const { data: closings, error: closingErr } = await cQuery;
       if (closingErr) throw closingErr;
-      setClosingItems(closings || []);
+      setRawClosings(closings || []);
+
     } catch (err: any) {
       console.error('Gagal mengambil data konsumsi:', err.message);
     } finally {
@@ -110,14 +98,19 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     fetchData();
   }, [dateRange, selectedLoc, dateColumns]);
 
-  // Helper Pemetaan Kategori Baku
-  const normalizeCategory = (rawCategory?: string, itemName?: string) => {
-    const cat = (rawCategory || '').trim();
-    const name = (itemName || '').toUpperCase();
+  const cleanName = (name?: string) => {
+    return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  };
+
+  const normalizeCategory = (rawCat?: string, itemName?: string) => {
+    const cat = (rawCat || '').trim();
+    const name = cleanName(itemName);
 
     if (
       cat === 'Bahan Utama & Dapur' || 
       cat === 'Bahan Dapur & Bumbu' ||
+      cat === 'Sayur, Mie & Pelengkap' ||
+      cat === 'Bakso & Olahan Frozen' ||
       name.includes('AYAM') ||
       name.includes('BUMBU') ||
       name.includes('MASAKO') ||
@@ -127,12 +120,17 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       name.includes('MSG') ||
       name.includes('MINYAK') ||
       name.includes('TELUR') ||
-      name.includes('BAKSO')
+      name.includes('BAKSO') ||
+      name.includes('BIHUN') ||
+      name.includes('BAWANG') ||
+      name.includes('BURAS') ||
+      name.includes('CUKA') ||
+      name.includes('TAHU')
     ) {
       return 'Bahan Utama & Dapur';
     }
 
-    if (cat === 'Kondimen & Pelengkap' || name.includes('KECAP') || name.includes('SAOS') || name.includes('SAUS')) {
+    if (cat === 'Kondimen & Pelengkap' || name.includes('KECAP') || name.includes('SAOS') || name.includes('SAUS') || name.includes('SAMBAL')) {
       return 'Kondimen & Pelengkap';
     }
 
@@ -145,9 +143,11 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       name.includes('SEDOTAN') || 
       name.includes('PIPET') || 
       name.includes('TISU') || 
+      name.includes('TISSUE') || 
       name.includes('PLASTIK') || 
       name.includes('CUP') || 
-      name.includes('KERTAS')
+      name.includes('KERTAS') ||
+      name.includes('TALI')
     ) {
       return 'Kemasan & Operasional';
     }
@@ -155,7 +155,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     return 'Bahan Utama & Dapur';
   };
 
-  // Olah & Kelompokkan Data Berdasarkan Kategori
   const groupedReportData = useMemo(() => {
     const itemMap: Record<string, {
       itemName: string;
@@ -166,9 +165,8 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       totalUsed: number;
     }> = {};
 
-    // 1. Catat dari branch_stocks
     branchStocks.forEach((st) => {
-      const name = (st.item_name || '').toUpperCase().trim();
+      const name = cleanName(st.item_name);
       if (!name) return;
       const normalizedCat = normalizeCategory(st.category, name);
 
@@ -188,38 +186,37 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       itemMap[name].latestStock += Number(st.remaining_stock || 0);
     });
 
-    // 2. Tambahkan pemakaian dari daily_closing_items
-    closingItems.forEach((ci) => {
-      const itemName = (ci.items?.name || '').toUpperCase().trim();
-      const cDate = ci.daily_closings?.closing_date;
-      const consumed = Number(ci.consumption_qty || 0);
+    rawClosings.forEach((c) => {
+      const name = cleanName(c.item_name);
+      if (!name) return;
 
-      if (itemName) {
-        if (!itemMap[itemName]) {
-          const normalizedCat = normalizeCategory(ci.items?.category, itemName);
-          itemMap[itemName] = {
-            itemName: itemName,
-            category: normalizedCat,
-            unit: ci.items?.uom || 'Pcs',
-            latestStock: 0,
-            dailyUsage: {},
-            totalUsed: 0
-          };
-          dateColumns.forEach((d) => {
-            itemMap[itemName].dailyUsage[d] = 0;
-          });
-        }
-
-        if (cDate && itemMap[itemName].dailyUsage[cDate] !== undefined) {
-          itemMap[itemName].dailyUsage[cDate] += consumed;
-        }
-        itemMap[itemName].totalUsed += consumed;
+      if (!itemMap[name]) {
+        const normalizedCat = normalizeCategory(c.category, name);
+        itemMap[name] = {
+          itemName: name,
+          category: normalizedCat,
+          unit: c.unit || 'Pcs',
+          latestStock: 0,
+          dailyUsage: {},
+          totalUsed: 0
+        };
+        dateColumns.forEach((d) => {
+          itemMap[name].dailyUsage[d] = 0;
+        });
       }
+
+      const val = Number(c.terpakai !== undefined && c.terpakai !== null ? c.terpakai : (c.consumption_qty || 0));
+      const rawDate = String(c.closing_date || '');
+      const cDate = rawDate.includes('T') ? rawDate.split('T')[0] : rawDate.slice(0, 10).trim();
+
+      if (itemMap[name].dailyUsage[cDate] !== undefined) {
+        itemMap[name].dailyUsage[cDate] += val;
+      }
+      itemMap[name].totalUsed += val;
     });
 
     const activeDaysCount = dateColumns.length || 1;
 
-    // Kelompokkan per 4 Kategori Baku
     const groups: Record<string, any[]> = {
       'Bahan Utama & Dapur': [],
       'Kondimen & Pelengkap': [],
@@ -236,15 +233,13 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       });
     });
 
-    // Urutkan item A-Z di tiap kategori
     Object.keys(groups).forEach((key) => {
       groups[key].sort((a, b) => a.itemName.localeCompare(b.itemName));
     });
 
     return groups;
-  }, [branchStocks, closingItems, dateColumns]);
+  }, [branchStocks, rawClosings, dateColumns]);
 
-  // Ekspor CSV Terkategori
   const handleDownloadCSV = () => {
     setDownloading(true);
     try {
@@ -295,7 +290,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
 
   return (
     <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans">
-      {/* HEADER PANEL */}
       <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-slate-100 gap-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
@@ -333,7 +327,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
         </div>
       </div>
 
-      {/* FILTER CONTROLS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50/80 p-4 rounded-2xl border border-slate-100">
         <div>
           <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">
@@ -379,7 +372,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
         )}
       </div>
 
-      {/* TABEL DIKELOMPOKKAN PER KATEGORI */}
       <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
@@ -408,7 +400,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
                   if (items.length === 0) return null;
                   return (
                     <React.Fragment key={catName}>
-                      {/* HEADER SEKAT KATEGORI */}
                       <tr className="bg-indigo-50/60 border-y border-indigo-100/90">
                         <td 
                           colSpan={dateColumns.length + 4} 
@@ -426,7 +417,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
                         </td>
                       </tr>
 
-                      {/* DAFTAR BARIS BAHAN BAKU */}
                       {items.map((row) => (
                         <tr key={row.itemName} className="hover:bg-slate-50/60 transition-colors">
                           <td className="py-3 px-4">
@@ -437,7 +427,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
                             {row.latestStock.toFixed(1)} <span className="text-[10px] text-slate-400 font-normal">{row.unit}</span>
                           </td>
                           
-                          {/* Kolom Tanggal Riil */}
                           {dateColumns.map((d) => {
                             const val = row.dailyUsage[d] || 0;
                             return (
