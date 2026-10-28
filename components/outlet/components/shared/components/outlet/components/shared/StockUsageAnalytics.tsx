@@ -32,7 +32,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     }
   }, [defaultLocationId]);
 
-  // Ambil Data Cabang Outlet
+  // Ambil data lokasi outlet
   useEffect(() => {
     async function fetchLocations() {
       const { data } = await supabase.from('locations').select('id, name').order('name');
@@ -41,27 +41,34 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     fetchLocations();
   }, []);
 
-  // Generate Kolom Rentang Tanggal (Asia/Makassar WITA)
+  // Format YYYY-MM-DD standar WITA
+  const formatDateKey = (d: Date) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Buat daftar tanggal kolom ke belakang
   const dateColumns = useMemo(() => {
     const cols: string[] = [];
-    const now = new Date();
+    const today = new Date();
     for (let i = dateRange - 1; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      const yyyyMmDd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(d);
-      cols.push(yyyyMmDd);
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      cols.push(formatDateKey(d));
     }
     return cols;
   }, [dateRange]);
 
-  // Ambil Data dari branch_stocks dan daily_closings
+  // Fetch data riil dari branch_stocks & daily_closings
   const fetchData = async () => {
     setLoading(true);
     try {
       const startDate = dateColumns[0];
       const endDate = dateColumns[dateColumns.length - 1];
 
-      // 1. Ambil Sisa Fisik dari branch_stocks
+      // 1. Ambil Sisa Fisik Terkini dari branch_stocks
       let stockQuery = supabase.from('branch_stocks').select('*');
       if (selectedLoc !== 'all') {
         stockQuery = stockQuery.eq('location_id', selectedLoc);
@@ -70,7 +77,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       if (stockErr) throw stockErr;
       setBranchStocks(stocks || []);
 
-      // 2. Ambil Riwayat Konsumsi langsung dari daily_closings
+      // 2. Ambil Riwayat Pemakaian dari daily_closings (membaca kolom 'terpakai')
       let cQuery = supabase
         .from('daily_closings')
         .select('item_name, closing_date, terpakai, remaining_stock, unit, category, location_id')
@@ -95,7 +102,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     fetchData();
   }, [dateRange, selectedLoc, dateColumns]);
 
-  // Normalisasi Kategori ke 4 Kategori Baku
+  // Standarisasi Kategori Baku
   const normalizeCategory = (rawCat?: string, itemName?: string) => {
     const cat = (rawCat || '').trim();
     const name = (itemName || '').toUpperCase();
@@ -103,6 +110,8 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     if (
       cat === 'Bahan Utama & Dapur' || 
       cat === 'Bahan Dapur & Bumbu' ||
+      cat === 'Sayur, Mie & Pelengkap' ||
+      cat === 'Bakso & Olahan Frozen' ||
       name.includes('AYAM') ||
       name.includes('BUMBU') ||
       name.includes('MASAKO') ||
@@ -115,13 +124,14 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       name.includes('BAKSO') ||
       name.includes('BIHUN') ||
       name.includes('BAWANG') ||
+      name.includes('BURAS') ||
       name.includes('CUKA') ||
-      name.includes('BURAS')
+      name.includes('TAHU')
     ) {
       return 'Bahan Utama & Dapur';
     }
 
-    if (cat === 'Kondimen & Pelengkap' || name.includes('KECAP') || name.includes('SAOS') || name.includes('SAUS')) {
+    if (cat === 'Kondimen & Pelengkap' || name.includes('KECAP') || name.includes('SAOS') || name.includes('SAUS') || name.includes('SAMBAL')) {
       return 'Kondimen & Pelengkap';
     }
 
@@ -157,7 +167,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       totalUsed: number;
     }> = {};
 
-    // 1. Data dari branch_stocks
+    // 1. Inisialisasi dari branch_stocks
     branchStocks.forEach((st) => {
       const name = (st.item_name || '').toUpperCase().trim();
       if (!name) return;
@@ -179,7 +189,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       itemMap[name].latestStock += Number(st.remaining_stock || 0);
     });
 
-    // 2. Data dari daily_closings (membaca kolom 'terpakai')
+    // 2. Petakan nilai pemakaian dari daily_closings
     rawClosings.forEach((c) => {
       const name = (c.item_name || '').toUpperCase().trim();
       if (!name) return;
@@ -200,17 +210,18 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       }
 
       // Ambil nilai dari kolom 'terpakai'
-      const consumedVal = Number(c.terpakai || 0);
+      const val = Number(c.terpakai || 0);
+      const cDate = String(c.closing_date).trim();
 
-      if (c.closing_date && itemMap[name].dailyUsage[c.closing_date] !== undefined) {
-        itemMap[name].dailyUsage[c.closing_date] += consumedVal;
+      if (itemMap[name].dailyUsage[cDate] !== undefined) {
+        itemMap[name].dailyUsage[cDate] += val;
       }
-      itemMap[name].totalUsed += consumedVal;
+      itemMap[name].totalUsed += val;
     });
 
     const activeDaysCount = dateColumns.length || 1;
 
-    // Kelompokkan per 4 Kategori Baku
+    // Kelompokkan ke 4 Kategori Baku
     const groups: Record<string, any[]> = {
       'Bahan Utama & Dapur': [],
       'Kondimen & Pelengkap': [],
