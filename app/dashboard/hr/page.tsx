@@ -12,14 +12,19 @@ import {
   AlertCircle,
   Award,
   UserX,
-  RefreshCw
+  RefreshCw,
+  BookOpen
 } from 'lucide-react';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
+import OperationalKnowledgeBase from '@/components/shared/OperationalKnowledgeBase';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function HRDashboardPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
+
+  // Navigasi Tab Utama HR
+  const [activeTab, setActiveTab] = useState<'presensi' | 'panduan'>('presensi');
 
   // State Presensi Mandiri HR
   const [attendance, setAttendance] = useState<any>(null);
@@ -176,7 +181,6 @@ export default function HRDashboardPage() {
         }
       }
 
-      // Kriteria lupa checkout
       const isOld = (item.attendance_date || '') < todayStr;
       const isForgotten = !item.clock_out && isOld;
 
@@ -188,7 +192,7 @@ export default function HRDashboardPage() {
     });
   }, [monthAttendances, todayStr]);
 
-  // Agregasi Per Karyawan (Akumulasi Hari Masuk & Skor Mengurangi Lupa Check-Out)
+  // Agregasi Per Karyawan
   const staffDisciplineRanking = useMemo(() => {
     const summary: Record<string, {
       name: string;
@@ -216,7 +220,6 @@ export default function HRDashboardPage() {
     });
 
     return Object.values(summary).map((st) => {
-      // Sesi tertib jika tepat waktu dan tidak lupa check-out
       const violationCount = st.lateCount + st.forgottenCount;
       const validCompliantSessions = Math.max(0, st.totalDays - violationCount);
       const disciplineScore = st.totalDays > 0 ? Math.round((validCompliantSessions / st.totalDays) * 100) : 100;
@@ -338,6 +341,7 @@ export default function HRDashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#f8f9fd] text-slate-800 font-sans flex flex-col">
+      {/* Header Bar dengan Pilihan Tab */}
       <header className="max-w-7xl w-full mx-auto px-4 sm:px-6 pt-5 pb-4 flex items-center justify-between border-b border-slate-200/60 bg-white sm:rounded-b-3xl shadow-xs">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
@@ -349,16 +353,42 @@ export default function HRDashboardPage() {
                 Portal Administrasi HR
               </h1>
               <span className="text-[10px] font-extrabold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
-                SDM & Presensi
+                SDM & Operasional
               </span>
             </div>
             <p className="text-[11px] font-semibold text-slate-400 mt-1">
-              Bakso Ibu • Presensi Mandiri, Rekap Kehadiran & Analisa Kedisiplinan
+              Bakso Ibu • Presensi Mandiri, Rekap Kehadiran, Job Desk & SOP
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Tombol Tab Navigasi */}
+          <div className="flex bg-slate-50 p-1 rounded-2xl border border-slate-200/80 text-xs font-bold">
+            <button
+              onClick={() => setActiveTab('presensi')}
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'presensi' 
+                  ? 'bg-indigo-600 text-white shadow-xs' 
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              Presensi & Disiplin
+            </button>
+            <button
+              onClick={() => setActiveTab('panduan')}
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'panduan' 
+                  ? 'bg-indigo-600 text-white shadow-xs' 
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              Buku Panduan & SOP
+            </button>
+          </div>
+
           <div className="hidden sm:block text-right">
             <span className="text-xs font-black text-slate-800 block leading-tight">
               {currentUser?.active_staff_name || currentUser?.username?.toUpperCase() || 'PETUGAS HR'}
@@ -380,255 +410,270 @@ export default function HRDashboardPage() {
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
         
-        {/* 1. PRESENSI MANDIRI HR */}
-        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-indigo-600" />
-              <span className="text-xs font-black text-slate-800">
-                Presensi Mandiri Petugas HR ({currentUser?.active_staff_name || currentUser?.username?.toUpperCase() || 'HR'})
-              </span>
-            </div>
-            <span className="text-[11px] font-bold text-slate-400">
-              {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-            </span>
+        {/* TAB 1: PANDUAN KERJA, JOB DESK & ATURAN HR */}
+        {activeTab === 'panduan' && (
+          <div>
+            <OperationalKnowledgeBase 
+              userRole="HR" 
+              userName={currentUser?.active_staff_name || currentUser?.username || 'Petugas HR'} 
+            />
           </div>
+        )}
 
-          {attendanceMsg && (
-            <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
-              attendanceMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'
-            }`}>
-              {attendanceMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
-              <span>{attendanceMsg.text}</span>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Jam Masuk (Check-In)</span>
-                <span className="text-sm font-black text-slate-800">
-                  {formatDisplayTime(attendance?.clock_in)}
-                </span>
-                {attendance?.clock_in_lat && (
-                  <span className="text-[10px] text-indigo-600 font-bold block flex items-center gap-1 mt-0.5">
-                    <Navigation className="w-2.5 h-2.5" /> GPS Terkunci
+        {/* TAB 2: PRESENSI & DISIPLIN KRU */}
+        {activeTab === 'presensi' && (
+          <div className="space-y-6">
+            {/* 1. PRESENSI MANDIRI HR */}
+            <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-indigo-600" />
+                  <span className="text-xs font-black text-slate-800">
+                    Presensi Mandiri Petugas HR ({currentUser?.active_staff_name || currentUser?.username?.toUpperCase() || 'HR'})
                   </span>
-                )}
-              </div>
-              {!attendance?.clock_in && (
-                <button
-                  onClick={handleClockIn}
-                  disabled={loadingAttendance}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50"
-                >
-                  {loadingAttendance ? 'Mengunci GPS...' : 'Check-In Masuk'}
-                </button>
-              )}
-            </div>
-
-            <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Jam Pulang (Check-Out)</span>
-                <span className="text-sm font-black text-slate-800">
-                  {formatDisplayTime(attendance?.clock_out)}
+                </div>
+                <span className="text-[11px] font-bold text-slate-400">
+                  {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                 </span>
-                {attendance?.clock_out_lat && (
-                  <span className="text-[10px] text-indigo-600 font-bold block flex items-center gap-1 mt-0.5">
-                    <Navigation className="w-2.5 h-2.5" /> GPS Terkunci
-                  </span>
-                )}
               </div>
-              {attendance?.clock_in && !attendance?.clock_out && (
-                <button
-                  onClick={handleClockOut}
-                  disabled={loadingAttendance}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50"
-                >
-                  {loadingAttendance ? 'Mengunci GPS...' : 'Check-Out Pulang'}
-                </button>
+
+              {attendanceMsg && (
+                <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                  attendanceMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'
+                }`}>
+                  {attendanceMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                  <span>{attendanceMsg.text}</span>
+                </div>
               )}
-            </div>
-          </div>
-        </div>
 
-        {/* 2. PUSAT LOG HARIAN & DOWNLOAD CSV LENGKAP */}
-        <LiveExecutiveSummary />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Jam Masuk (Check-In)</span>
+                    <span className="text-sm font-black text-slate-800">
+                      {formatDisplayTime(attendance?.clock_in)}
+                    </span>
+                    {attendance?.clock_in_lat && (
+                      <span className="text-[10px] text-indigo-600 font-bold block flex items-center gap-1 mt-0.5">
+                        <Navigation className="w-2.5 h-2.5" /> GPS Terkunci
+                      </span>
+                    )}
+                  </div>
+                  {!attendance?.clock_in && (
+                    <button
+                      onClick={handleClockIn}
+                      disabled={loadingAttendance}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50"
+                    >
+                      {loadingAttendance ? 'Mengunci GPS...' : 'Check-In Masuk'}
+                    </button>
+                  )}
+                </div>
 
-        {/* 3. MODUL ANALISA KEDISIPLINAN KRU */}
-        <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between pb-5 border-b border-slate-100 gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-100 shadow-xs">
-                <Award className="w-6 h-6" />
+                <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Jam Pulang (Check-Out)</span>
+                    <span className="text-sm font-black text-slate-800">
+                      {formatDisplayTime(attendance?.clock_out)}
+                    </span>
+                    {attendance?.clock_out_lat && (
+                      <span className="text-[10px] text-indigo-600 font-bold block flex items-center gap-1 mt-0.5">
+                        <Navigation className="w-2.5 h-2.5" /> GPS Terkunci
+                      </span>
+                    )}
+                  </div>
+                  {attendance?.clock_in && !attendance?.clock_out && (
+                    <button
+                      onClick={handleClockOut}
+                      disabled={loadingAttendance}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50"
+                    >
+                      {loadingAttendance ? 'Mengunci GPS...' : 'Check-Out Pulang'}
+                    </button>
+                  )}
+                </div>
               </div>
-              <div>
-                <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
-                  Analisa Kedisiplinan Kru & Evaluasi Kehadiran
-                </h2>
-                <p className="text-xs font-medium text-slate-400">
-                  Shift 1 (08:00 WITA, tol. 15 mnt), Shift 2 (15:00 WITA, tol. 15 mnt), HR (09:00 WITA, tol. 15 mnt).
-                </p>
+            </div>
+
+            {/* 2. PUSAT LOG HARIAN & DOWNLOAD CSV LENGKAP */}
+            <LiveExecutiveSummary />
+
+            {/* 3. MODUL ANALISA KEDISIPLINAN KRU */}
+            <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between pb-5 border-b border-slate-100 gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-100 shadow-xs">
+                    <Award className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-base sm:text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
+                      Analisa Kedisiplinan Kru & Evaluasi Kehadiran
+                    </h2>
+                    <p className="text-xs font-medium text-slate-400">
+                      Shift 1 (08:00 WITA, tol. 15 mnt), Shift 2 (15:00 WITA, tol. 15 mnt), HR (09:00 WITA, tol. 15 mnt).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="month"
+                    value={analyticsMonth}
+                    onChange={(e) => setAnalyticsMonth(e.target.value)}
+                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                  />
+
+                  <select
+                    value={analyticsLoc}
+                    onChange={(e) => setAnalyticsLoc(e.target.value)}
+                    className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                  >
+                    <option value="all">Semua Outlet</option>
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>
+                        Outlet {loc.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    onClick={fetchMonthlyAnalyticsData}
+                    className="p-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-100"
+                    title="Segarkan Analisa"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingAnalytics ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="month"
-                value={analyticsMonth}
-                onChange={(e) => setAnalyticsMonth(e.target.value)}
-                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
-              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">
+                    Total Sesi Kerja
+                  </span>
+                  <span className="text-2xl font-black text-slate-900 mt-1 block">
+                    {totalSessions} <span className="text-xs font-medium text-slate-400">Shift</span>
+                  </span>
+                  <span className="text-[10px] text-slate-400">Bulan {analyticsMonth}</span>
+                </div>
 
-              <select
-                value={analyticsLoc}
-                onChange={(e) => setAnalyticsLoc(e.target.value)}
-                className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
-              >
-                <option value="all">Semua Outlet</option>
-                {locations.map((loc) => (
-                  <option key={loc.id} value={loc.id}>
-                    Outlet {loc.name}
-                  </option>
-                ))}
-              </select>
+                <div className="p-4 bg-emerald-50/60 border border-emerald-100 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-emerald-700 block tracking-wider flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Skor Disiplin Rata-rata
+                  </span>
+                  <span className="text-2xl font-black text-emerald-700 mt-1 block">
+                    {overallOnTimeRate}%
+                  </span>
+                  <span className="text-[10px] text-emerald-600 font-medium">Tepat waktu & checkout rapi</span>
+                </div>
 
-              <button
-                onClick={fetchMonthlyAnalyticsData}
-                className="p-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-100"
-                title="Segarkan Analisa"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingAnalytics ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
-          </div>
+                <div className="p-4 bg-amber-50/60 border border-amber-100 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-amber-700 block tracking-wider flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" /> Total Terlambat
+                  </span>
+                  <span className="text-2xl font-black text-amber-700 mt-1 block">
+                    {totalLates} <span className="text-xs font-medium text-amber-600">Kejadian</span>
+                  </span>
+                  <span className="text-[10px] text-amber-600 font-medium">Lewat dari 15 menit toleransi</span>
+                </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl">
-              <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">
-                Total Sesi Kerja
-              </span>
-              <span className="text-2xl font-black text-slate-900 mt-1 block">
-                {totalSessions} <span className="text-xs font-medium text-slate-400">Shift</span>
-              </span>
-              <span className="text-[10px] text-slate-400">Bulan {analyticsMonth}</span>
-            </div>
+                <div className="p-4 bg-rose-50/60 border border-rose-100 rounded-2xl">
+                  <span className="text-[10px] font-black uppercase text-rose-700 block tracking-wider flex items-center gap-1.5">
+                    <UserX className="w-3.5 h-3.5" /> Lupa Check-Out
+                  </span>
+                  <span className="text-2xl font-black text-rose-700 mt-1 block">
+                    {totalForgotten} <span className="text-xs font-medium text-rose-600">Kali</span>
+                  </span>
+                  <span className="text-[10px] text-rose-500 font-medium">Sesi terlewat jam 01:00 WITA</span>
+                </div>
+              </div>
 
-            <div className="p-4 bg-emerald-50/60 border border-emerald-100 rounded-2xl">
-              <span className="text-[10px] font-black uppercase text-emerald-700 block tracking-wider flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Skor Disiplin Rata-rata
-              </span>
-              <span className="text-2xl font-black text-emerald-700 mt-1 block">
-                {overallOnTimeRate}%
-              </span>
-              <span className="text-[10px] text-emerald-600 font-medium">Tepat waktu & checkout rapi</span>
-            </div>
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                    <Award className="w-4 h-4 text-indigo-600" />
+                    Rapor Kedisiplinan Staf (Ranking Kepatuhan)
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-400">
+                    Total {staffDisciplineRanking.length} Staf Bertugas
+                  </span>
+                </div>
 
-            <div className="p-4 bg-amber-50/60 border border-amber-100 rounded-2xl">
-              <span className="text-[10px] font-black uppercase text-amber-700 block tracking-wider flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5" /> Total Terlambat
-              </span>
-              <span className="text-2xl font-black text-amber-700 mt-1 block">
-                {totalLates} <span className="text-xs font-medium text-amber-600">Kejadian</span>
-              </span>
-              <span className="text-[10px] text-amber-600 font-medium">Lewat dari 15 menit toleransi</span>
-            </div>
-
-            <div className="p-4 bg-rose-50/60 border border-rose-100 rounded-2xl">
-              <span className="text-[10px] font-black uppercase text-rose-700 block tracking-wider flex items-center gap-1.5">
-                <UserX className="w-3.5 h-3.5" /> Lupa Check-Out
-              </span>
-              <span className="text-2xl font-black text-rose-700 mt-1 block">
-                {totalForgotten} <span className="text-xs font-medium text-rose-600">Kali</span>
-              </span>
-              <span className="text-[10px] text-rose-500 font-medium">Sesi terlewat jam 01:00 WITA</span>
-            </div>
-          </div>
-
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
-                <Award className="w-4 h-4 text-indigo-600" />
-                Rapor Kedisiplinan Staf (Ranking Kepatuhan)
-              </span>
-              <span className="text-[11px] font-semibold text-slate-400">
-                Total {staffDisciplineRanking.length} Staf Bertugas
-              </span>
-            </div>
-
-            <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-wider bg-slate-50/70">
-                      <th className="py-3 px-4">Nama Kru</th>
-                      <th className="py-3 px-3">Jabatan</th>
-                      <th className="py-3 px-3 text-center text-indigo-700 font-black">Akumulasi Hari Masuk</th>
-                      <th className="py-3 px-3 text-center text-amber-700">Terlambat</th>
-                      <th className="py-3 px-3 text-center text-rose-600">Lupa Check-Out</th>
-                      <th className="py-3 px-4 text-center">Skor Disiplin</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-semibold">
-                    {loadingAnalytics ? (
-                      <tr>
-                        <td colSpan={6} className="py-12 text-center text-slate-400 font-bold">
-                          Menganalisis data kedisiplinan kru...
-                        </td>
-                      </tr>
-                    ) : staffDisciplineRanking.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="py-12 text-center text-slate-400 font-bold bg-slate-50/50">
-                          Belum ada rekaman presensi pada bulan {analyticsMonth}.
-                        </td>
-                      </tr>
-                    ) : (
-                      staffDisciplineRanking.map((staf, idx) => {
-                        return (
-                          <tr key={staf.name} className="hover:bg-slate-50/60 transition-colors">
-                            <td className="py-3 px-4">
-                              <div className="font-extrabold text-slate-900 flex items-center gap-1.5">
-                                {idx === 0 && <span title="Paling Disiplin">🥇</span>}
-                                {idx === 1 && <span title="Peringkat 2">🥈</span>}
-                                {idx === 2 && <span title="Peringkat 3">🥉</span>}
-                                <span>{staf.name}</span>
-                              </div>
-                            </td>
-                            <td className="py-3 px-3">
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 uppercase">
-                                {staf.role}
-                              </span>
-                            </td>
-                            <td className="py-3 px-3 text-center font-black text-indigo-700">
-                              {staf.totalDays} Hari
-                            </td>
-                            <td className="py-3 px-3 text-center font-black text-amber-600">
-                              {staf.lateCount > 0 ? `${staf.lateCount}x` : '-'}
-                            </td>
-                            <td className="py-3 px-3 text-center font-black text-rose-500">
-                              {staf.forgottenCount > 0 ? `${staf.forgottenCount}x` : '-'}
-                            </td>
-                            <td className="py-3 px-4 text-center">
-                              <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                                staf.disciplineScore >= 90
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                  : staf.disciplineScore >= 75
-                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
-                              }`}>
-                                {staf.disciplineScore}%
-                              </span>
+                <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-wider bg-slate-50/70">
+                          <th className="py-3 px-4">Nama Kru</th>
+                          <th className="py-3 px-3">Jabatan</th>
+                          <th className="py-3 px-3 text-center text-indigo-700 font-black">Akumulasi Hari Masuk</th>
+                          <th className="py-3 px-3 text-center text-amber-700">Terlambat</th>
+                          <th className="py-3 px-3 text-center text-rose-600">Lupa Check-Out</th>
+                          <th className="py-3 px-4 text-center">Skor Disiplin</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-semibold">
+                        {loadingAnalytics ? (
+                          <tr>
+                            <td colSpan={6} className="py-12 text-center text-slate-400 font-bold">
+                              Menganalisis data kedisiplinan kru...
                             </td>
                           </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+                        ) : staffDisciplineRanking.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-12 text-center text-slate-400 font-bold bg-slate-50/50">
+                              Belum ada rekaman presensi pada bulan {analyticsMonth}.
+                            </td>
+                          </tr>
+                        ) : (
+                          staffDisciplineRanking.map((staf, idx) => {
+                            return (
+                              <tr key={staf.name} className="hover:bg-slate-50/60 transition-colors">
+                                <td className="py-3 px-4">
+                                  <div className="font-extrabold text-slate-900 flex items-center gap-1.5">
+                                    {idx === 0 && <span title="Paling Disiplin">🥇</span>}
+                                    {idx === 1 && <span title="Peringkat 2">🥈</span>}
+                                    {idx === 2 && <span title="Peringkat 3">🥉</span>}
+                                    <span>{staf.name}</span>
+                                  </div>
+                                </td>
+                                <td className="py-3 px-3">
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 uppercase">
+                                    {staf.role}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-3 text-center font-black text-indigo-700">
+                                  {staf.totalDays} Hari
+                                </td>
+                                <td className="py-3 px-3 text-center font-black text-amber-600">
+                                  {staf.lateCount > 0 ? `${staf.lateCount}x` : '-'}
+                                </td>
+                                <td className="py-3 px-3 text-center font-black text-rose-500">
+                                  {staf.forgottenCount > 0 ? `${staf.forgottenCount}x` : '-'}
+                                </td>
+                                <td className="py-3 px-4 text-center">
+                                  <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                                    staf.disciplineScore >= 90
+                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                      : staf.disciplineScore >= 75
+                                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                      : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                  }`}>
+                                    {staf.disciplineScore}%
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
       </main>
     </div>
