@@ -19,12 +19,10 @@ interface MasterItem {
 }
 
 const CATEGORY_ORDER = [
-  'Bakso & Olahan Frozen',
-  'Bahan Dapur & Bumbu',
-  'Sayur, Mie & Pelengkap',
+  'Bahan Utama & Dapur',
+  'Kondimen & Pelengkap',
   'Minuman & Es',
-  'Kemasan & Operasional',
-  'Lain-lain'
+  'Kemasan & Operasional'
 ];
 
 export default function ReceptionForm({ user, onBack, locationId, staffName }: Props) {
@@ -39,6 +37,64 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  const cleanName = (name?: string) => {
+    return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  };
+
+  // Standarisasi ke 4 Kategori Baku
+  const normalizeCategory = (rawCat?: string, itemName?: string) => {
+    const cat = (rawCat || '').trim();
+    const name = cleanName(itemName);
+
+    if (
+      cat === 'Bahan Utama & Dapur' || 
+      cat === 'Bahan Dapur & Bumbu' ||
+      cat === 'Sayur, Mie & Pelengkap' ||
+      cat === 'Bakso & Olahan Frozen' ||
+      name.includes('AYAM') ||
+      name.includes('BUMBU') ||
+      name.includes('MASAKO') ||
+      name.includes('GARAM') ||
+      name.includes('LADAKU') ||
+      name.includes('VITSIN') ||
+      name.includes('MSG') ||
+      name.includes('MINYAK') ||
+      name.includes('TELUR') ||
+      name.includes('BAKSO') ||
+      name.includes('BIHUN') ||
+      name.includes('BAWANG') ||
+      name.includes('BURAS') ||
+      name.includes('CUKA') ||
+      name.includes('TAHU')
+    ) {
+      return 'Bahan Utama & Dapur';
+    }
+
+    if (cat === 'Kondimen & Pelengkap' || name.includes('KECAP') || name.includes('SAOS') || name.includes('SAUS') || name.includes('SAMBAL')) {
+      return 'Kondimen & Pelengkap';
+    }
+
+    if (cat === 'Minuman & Es' || name.includes('TEH') || name.includes('AIR MINERAL') || name.includes('SIRUP')) {
+      return 'Minuman & Es';
+    }
+
+    if (
+      cat === 'Kemasan & Operasional' || 
+      name.includes('SEDOTAN') || 
+      name.includes('PIPET') || 
+      name.includes('TISU') || 
+      name.includes('TISSUE') || 
+      name.includes('PLASTIK') || 
+      name.includes('CUP') || 
+      name.includes('KERTAS') || 
+      name.includes('TALI')
+    ) {
+      return 'Kemasan & Operasional';
+    }
+
+    return 'Bahan Utama & Dapur';
+  };
 
   const fetchItems = async () => {
     setLoading(true);
@@ -73,30 +129,31 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
+      const normalizedCat = normalizeCategory(item.category, item.name);
       const matchSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchCat = selectedCategory === 'Semua' || (item.category || 'Lain-lain') === selectedCategory;
+      const matchCat = selectedCategory === 'Semua' || normalizedCat === selectedCategory;
       return matchSearch && matchCat;
     });
   }, [items, searchTerm, selectedCategory]);
 
   const groupedItems = useMemo(() => {
-    const groups: Record<string, MasterItem[]> = {};
+    const groups: Record<string, MasterItem[]> = {
+      'Bahan Utama & Dapur': [],
+      'Kondimen & Pelengkap': [],
+      'Minuman & Es': [],
+      'Kemasan & Operasional': [],
+    };
+
     filteredItems.forEach((item) => {
-      const cat = item.category || 'Lain-lain';
-      if (!groups[cat]) groups[cat] = [];
+      const cat = normalizeCategory(item.category, item.name);
       groups[cat].push(item);
     });
 
     const ordered: { category: string; list: MasterItem[] }[] = [];
     CATEGORY_ORDER.forEach((cat) => {
       if (groups[cat] && groups[cat].length > 0) {
-        ordered.push({ category: cat, list: groups[cat] });
-        delete groups[cat];
-      }
-    });
-
-    Object.keys(groups).forEach((cat) => {
-      if (groups[cat].length > 0) {
+        // Urutkan A-Z di setiap kategori
+        groups[cat].sort((a, b) => a.name.localeCompare(b.name));
         ordered.push({ category: cat, list: groups[cat] });
       }
     });
@@ -121,8 +178,8 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
       for (const [itemName, qtyStr] of validEntries) {
         const qtyNum = parseFloat(qtyStr);
         const itemMeta = items.find((i) => i.name === itemName);
-        const unit = itemMeta?.uom || 'porsi';
-        const category = itemMeta?.category || 'Lain-lain';
+        const unit = itemMeta?.uom || 'Pcs';
+        const category = normalizeCategory(itemMeta?.category, itemName);
 
         await supabase.from('stock_movements').insert([
           {
@@ -166,7 +223,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs max-w-4xl mx-auto space-y-6">
+    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs max-w-4xl mx-auto space-y-6 font-sans">
       {onBack && (
         <button
           type="button"
@@ -222,7 +279,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
 
       <div className="space-y-3">
         <div className="relative">
-          <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
+          <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
           <input
             type="text"
             value={searchTerm}
@@ -254,15 +311,15 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         <div className="text-center py-12 text-xs text-slate-400 font-bold">Memuat daftar barang...</div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-[30rem] overflow-y-auto">
+          <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-[30rem] overflow-y-auto shadow-2xs">
             <table className="w-full text-left border-collapse text-xs">
-              <thead className="bg-slate-50/80 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-xs">
+              <thead className="bg-slate-50/90 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-xs">
                 <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                  <th className="py-3 px-4">Nama Barang</th>
+                  <th className="py-3 px-4 min-w-[200px]">Nama Barang</th>
                   <th className="py-3 px-4 text-right w-36">Jumlah Diterima</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 font-semibold">
                 {groupedItems.length === 0 ? (
                   <tr>
                     <td colSpan={2} className="py-12 text-center text-slate-400 font-medium">
@@ -272,11 +329,21 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
                 ) : (
                   groupedItems.map(({ category, list }) => (
                     <React.Fragment key={category}>
-                      <tr className="bg-slate-50/80 border-y border-slate-100">
-                        <td colSpan={2} className="py-2 px-4 font-black text-slate-700 uppercase tracking-wider text-[11px]">
-                          • {category} <span className="text-slate-400 font-normal lowercase">({list.length} item)</span>
+                      {/* HEADER SEKAT KATEGORI */}
+                      <tr className="bg-indigo-50/60 border-y border-indigo-100/90">
+                        <td colSpan={2} className="py-2.5 px-4 font-black text-indigo-900 uppercase tracking-wider text-[11px]">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block"></span>
+                              <span>{category}</span>
+                            </div>
+                            <span className="text-[10px] font-bold text-indigo-500 normal-case tracking-normal">
+                              {list.length} Bahan Baku
+                            </span>
+                          </div>
                         </td>
                       </tr>
+
                       {list.map((item) => {
                         const val = quantities[item.name] || '';
                         const isSelected = parseFloat(val) > 0;
@@ -287,7 +354,9 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
                               isSelected ? 'bg-indigo-50/40 font-bold' : 'hover:bg-slate-50/60'
                             }`}
                           >
-                            <td className="py-2.5 px-4 text-slate-800 uppercase">{item.name}</td>
+                            <td className="py-2.5 px-4 text-slate-900 font-extrabold uppercase leading-tight">
+                              {item.name}
+                            </td>
                             <td className="py-2 px-4 text-right">
                               <div className="inline-flex items-center gap-2">
                                 <input
@@ -304,7 +373,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
                                   }`}
                                 />
                                 <span className="text-[11px] text-slate-400 w-10 text-left font-semibold">
-                                  {item.uom || 'porsi'}
+                                  {item.uom || 'Pcs'}
                                 </span>
                               </div>
                             </td>
@@ -326,7 +395,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Kondisi beku baik, plastik utuh, dsb (opsional)"
+              placeholder="Kondisi beku baik, kemasan utuh, dsb (opsional)"
               className="w-full px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none"
             />
           </div>
