@@ -92,7 +92,6 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
     fetchOrders();
   }, [selectedDate, selectedLocation]);
 
-  // Update Status Pemesanan via Dropdown
   const handleStatusChange = async (orderId: string, newStatus: string) => {
     setUpdatingId(orderId);
     try {
@@ -116,7 +115,6 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
     }
   };
 
-  // Hapus item order
   const handleDeleteOrder = async (orderId: string) => {
     if (!confirm('Yakin ingin menghapus item permintaan ini?')) return;
     try {
@@ -128,7 +126,6 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
     }
   };
 
-  // Filter pencarian
   const filteredOrders = useMemo(() => {
     return orders.filter((o) => {
       const s = searchTerm.toLowerCase();
@@ -140,7 +137,6 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
     });
   }, [orders, searchTerm]);
 
-  // Hitung Metrik Ringkasan Status
   const metrics = useMemo(() => {
     const total = orders.length;
     let pending = 0;
@@ -164,7 +160,6 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
     return { total, pending, leader, cashier, logistics };
   }, [orders]);
 
-  // Kelompokkan per Supplier
   const groupedOrders = useMemo(() => {
     const groups: Record<string, OrderRecord[]> = {};
     filteredOrders.forEach((o) => {
@@ -175,23 +170,25 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
     return groups;
   }, [filteredOrders]);
 
-  // Export CSV
   const handleExportCSV = () => {
     if (orders.length === 0) {
       alert('Tidak ada data belanja untuk diexport.');
       return;
     }
     const headers = ['Supplier/Vendor', 'Nama Barang', 'Outlet', 'Kuantitas', 'Satuan', 'Status Pemesanan', 'Catatan Kru', 'Waktu'];
-    const rows = orders.map((o) => [
-      `"${o.supplier || 'RUMAH PRODUKSI'}"`,
-      `"${o.item_name}"`,
-      `"${o.locations?.name || 'Outlet'}"`,
-      o.quantity,
-      `"${o.unit}"`,
-      `"${o.status}"`,
-      `"${(o.notes || '-').replace(/"/g, '""')}"`,
-      `"${new Date(o.created_at).toLocaleTimeString('id-ID')}"`
-    ].join(';'));
+    const rows = orders.map((o) => {
+      const locClean = (o.locations?.name || 'Cabang').replace(/^outlet\s+/i, '');
+      return [
+        `"${o.supplier || 'RUMAH PRODUKSI'}"`,
+        `"${o.item_name}"`,
+        `"Outlet ${locClean}"`,
+        o.quantity,
+        `"${o.unit}"`,
+        `"${o.status}"`,
+        `"${(o.notes || '-').replace(/"/g, '""')}"`,
+        `"${new Date(o.created_at).toLocaleTimeString('id-ID')}"`
+      ].join(';');
+    });
 
     const csvContent = [headers.join(';'), ...rows].join('\r\n');
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -204,10 +201,85 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
     document.body.removeChild(link);
   };
 
+  // Helper pembersih label outlet agar tidak menjadi "Outlet Outlet BTP"
+  const getCleanOutletName = (rawName?: string) => {
+    if (!rawName) return 'Outlet';
+    const cleaned = rawName.replace(/^outlet\s+/i, '').trim();
+    return `Outlet ${cleaned}`;
+  };
+
+  // Helper tampilan status teks saat dicetak
+  const getStatusPrintLabel = (st?: string) => {
+    const rawSt = (st || '').toUpperCase();
+    if (rawSt === 'ORDERED_BY_LEADER' || rawSt === 'ORDERED_LEADER') return '✓ Diorder Leader';
+    if (rawSt === 'BOUGHT_CASHIER' || rawSt === 'KASIR') return '💵 Dibeli Kasir';
+    if (rawSt === 'PROCESSED_LOGISTICS' || rawSt === 'LOGISTIK') return '🚚 Diproses Logistik';
+    return '⏳ Menunggu Pembelian';
+  };
+
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans">
+    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans print:p-2 print:border-none print:shadow-none">
       
-      {/* HEADER UTAMA */}
+      {/* CSS KHUSUS PRINT CETAK / PDF */}
+      <style jsx global>{`
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 12mm 10mm;
+          }
+          body {
+            background: white !important;
+            color: #0f172a !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          .print-header {
+            display: block !important;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e2e8f0;
+          }
+          .print-table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            font-size: 10px !important;
+          }
+          .print-table th, .print-table td {
+            padding: 4px 6px !important;
+            border-bottom: 1px solid #f1f5f9 !important;
+          }
+          .print-vendor-box {
+            page-break-inside: avoid !important;
+            margin-bottom: 12px !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 8px !important;
+          }
+        }
+      `}</style>
+
+      {/* HEADER CETAK (HANYA MUNCUL DI PDF/PRINT) */}
+      <div className="hidden print:block print-header">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-base font-black text-slate-900 tracking-tight">
+              BAKSO IBU • REKAP PERMINTAAN BELANJA MASUK
+            </h1>
+            <p className="text-[10px] text-slate-500 font-semibold">
+              Tanggal Operasional: {new Date(selectedDate + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            </p>
+          </div>
+          <div className="text-right">
+            <span className="text-[10px] font-black bg-slate-100 px-2.5 py-1 rounded-md text-slate-700 uppercase">
+              Total {orders.length} Item Bahan
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* HEADER DI LAYAR MONITOR */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-5 border-b border-slate-100 gap-4 no-print">
         <div className="flex items-center gap-3">
           {onBack && (
@@ -285,7 +357,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
         </div>
       </div>
 
-      {/* SCORECARD 4 STATUS PEMESANAN */}
+      {/* 4 SCORECARD STATUS (HANYA DITAMPILKAN DI MONITOR, OTOMATIS HILANG SAAT CETAK / PDF) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 no-print">
         <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl">
           <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-black uppercase">
@@ -320,7 +392,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
         </div>
       </div>
 
-      {/* FILTER SEARCH */}
+      {/* FILTER SEARCH (HILANG SAAT CETAK) */}
       <div className="relative no-print">
         <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3 pointer-events-none" />
         <input
@@ -342,32 +414,32 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
           Tidak ada permintaan belanja masuk pada tanggal ini.
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-5 print:space-y-3">
           {Object.entries(groupedOrders).map(([supplierName, list]) => (
-            <div key={supplierName} className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
-              <div className="bg-slate-100/80 px-4 py-2.5 border-b border-slate-200/80 flex justify-between items-center">
-                <span className="font-black text-slate-800 text-xs uppercase tracking-wider flex items-center gap-2">
-                  <Store className="w-3.5 h-3.5 text-indigo-600" />
+            <div key={supplierName} className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs print-vendor-box">
+              <div className="bg-slate-100/90 px-4 py-2 border-b border-slate-200/80 flex justify-between items-center print:py-1 print:px-2.5">
+                <span className="font-black text-slate-800 text-xs uppercase tracking-wider flex items-center gap-2 print:text-[11px]">
+                  <Store className="w-3.5 h-3.5 text-indigo-600 print:hidden" />
                   {supplierName}
                 </span>
-                <span className="text-[10px] font-bold text-slate-500">
+                <span className="text-[10px] font-bold text-slate-500 print:text-[9px]">
                   {list.length} item
                 </span>
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
+                <table className="w-full text-left text-xs border-collapse print-table">
                   <thead>
-                    <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 bg-slate-50/60">
-                      <th className="py-2.5 px-3 min-w-[160px]">NAMA BARANG</th>
-                      <th className="py-2.5 px-3 min-w-[110px]">OUTLET</th>
-                      <th className="py-2.5 px-3 text-right min-w-[90px]">KUANTITAS</th>
-                      <th className="py-2.5 px-3 min-w-[170px]">STATUS PEMESANAN</th>
-                      <th className="py-2.5 px-3 min-w-[180px]">CATATAN KRU</th>
+                    <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 bg-slate-50/60 print:bg-slate-50 print:text-[9px]">
+                      <th className="py-2.5 px-3 min-w-[150px] print:w-[30%]">NAMA BARANG</th>
+                      <th className="py-2.5 px-3 min-w-[110px] print:w-[15%]">OUTLET</th>
+                      <th className="py-2.5 px-3 text-right min-w-[90px] print:w-[15%]">KUANTITAS</th>
+                      <th className="py-2.5 px-3 min-w-[160px] print:w-[22%]">STATUS PEMESANAN</th>
+                      <th className="py-2.5 px-3 min-w-[140px] print:w-[18%]">CATATAN</th>
                       <th className="py-2.5 px-2 text-center w-10 no-print">AKSI</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-semibold text-xs">
+                  <tbody className="divide-y divide-slate-100 font-semibold text-xs print:text-[10px]">
                     {list.map((item) => {
                       const isUpdating = updatingId === item.id;
                       const rawSt = (item.status || '').toUpperCase();
@@ -377,53 +449,60 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
 
                       return (
                         <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
-                          <td className="py-2.5 px-3 font-extrabold text-slate-900 uppercase">
+                          <td className="py-2 px-3 font-extrabold text-slate-900 uppercase">
                             {item.item_name}
                           </td>
-                          <td className="py-2.5 px-3 text-slate-600">
-                            {item.locations?.name ? `Outlet ${item.locations.name}` : 'Outlet'}
+                          <td className="py-2 px-3 text-slate-600 font-bold">
+                            {getCleanOutletName(item.locations?.name)}
                           </td>
-                          <td className="py-2.5 px-3 text-right font-black text-indigo-700">
+                          <td className="py-2 px-3 text-right font-black text-indigo-700">
                             {item.quantity}{' '}
                             <span className="text-[10px] text-slate-400 font-normal">{item.unit}</span>
                           </td>
                           
-                          {/* DROPDOWN STATUS PEMESANAN INTERAKTIF */}
-                          <td className="py-2.5 px-3">
-                            <select
-                              value={
-                                isLeader
-                                  ? 'ORDERED_LEADER'
-                                  : isCashier
-                                  ? 'BOUGHT_CASHIER'
-                                  : isLogistics
-                                  ? 'PROCESSED_LOGISTICS'
-                                  : 'PENDING'
-                              }
-                              onChange={(e) => handleStatusChange(item.id, e.target.value)}
-                              disabled={isUpdating}
-                              className={`px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all focus:outline-none cursor-pointer ${
-                                isLeader
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : isCashier
-                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                  : isLogistics
-                                  ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                  : 'bg-orange-50 text-orange-700 border-orange-200'
-                              }`}
-                            >
-                              <option value="PENDING">⏳ Menunggu Pembelian</option>
-                              <option value="ORDERED_LEADER">✓ Diorder Leader</option>
-                              <option value="BOUGHT_CASHIER">💵 Dibeli Kasir</option>
-                              <option value="PROCESSED_LOGISTICS">🚚 Diproses Logistik</option>
-                            </select>
+                          {/* STATUS: TAMPIL DROPDOWN DI MONITOR, TAMPIL BADGE BERSIH DI CETAKAN */}
+                          <td className="py-2 px-3">
+                            <div className="no-print">
+                              <select
+                                value={
+                                  isLeader
+                                    ? 'ORDERED_LEADER'
+                                    : isCashier
+                                    ? 'BOUGHT_CASHIER'
+                                    : isLogistics
+                                    ? 'PROCESSED_LOGISTICS'
+                                    : 'PENDING'
+                                }
+                                onChange={(e) => handleStatusChange(item.id, e.target.value)}
+                                disabled={isUpdating}
+                                className={`px-2 py-1 rounded-xl text-[11px] font-black border transition-all focus:outline-none cursor-pointer ${
+                                  isLeader
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : isCashier
+                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                    : isLogistics
+                                    ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                    : 'bg-orange-50 text-orange-700 border-orange-200'
+                                }`}
+                              >
+                                <option value="PENDING">⏳ Menunggu Pembelian</option>
+                                <option value="ORDERED_LEADER">✓ Diorder Leader</option>
+                                <option value="BOUGHT_CASHIER">💵 Dibeli Kasir</option>
+                                <option value="PROCESSED_LOGISTICS">🚚 Diproses Logistik</option>
+                              </select>
+                            </div>
+
+                            <span className="hidden print:inline-block font-bold text-[9px] text-slate-800">
+                              {getStatusPrintLabel(item.status)}
+                            </span>
                           </td>
 
-                          <td className="py-2.5 px-3 text-slate-500 font-medium text-[11px]">
+                          {/* KOLOM CATATAN RINGKAS */}
+                          <td className="py-2 px-3 text-slate-500 font-medium text-[10px] truncate max-w-[140px] print:max-w-none print:whitespace-normal">
                             {item.notes || '-'}
                           </td>
 
-                          <td className="py-2.5 px-2 text-center no-print">
+                          <td className="py-2 px-2 text-center no-print">
                             <button
                               onClick={() => handleDeleteOrder(item.id)}
                               title="Hapus Baris"
