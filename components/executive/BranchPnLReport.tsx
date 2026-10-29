@@ -8,7 +8,10 @@ import {
   Calendar, 
   FileDown, 
   RefreshCw, 
-  PieChart
+  PieChart,
+  Layers,
+  ShoppingBag,
+  Truck
 } from 'lucide-react';
 
 interface LocationItem {
@@ -16,11 +19,24 @@ interface LocationItem {
   name: string;
 }
 
+interface BreakdownLog {
+  id: string;
+  date: string;
+  locationId: string;
+  locationName: string;
+  category: 'RUMAH_PRODUKSI' | 'VENDOR';
+  nominal: number;
+  notes: string;
+  reporter: string;
+}
+
 interface PnLData {
   locationId: string;
   locationName: string;
   revenue: number;
-  cogs: number;
+  cogsRP: number;          // Beban Rumah Produksi
+  cogsVendor: number;      // Beban Vendor Luar
+  totalCogs: number;       // Total HPP
   grossProfit: number;
   grossMarginPct: number;
   cashierExpenses: number;
@@ -44,6 +60,7 @@ export default function BranchPnLReport() {
   const [loading, setLoading] = useState<boolean>(true);
 
   const [pnlList, setPnlList] = useState<PnLData[]>([]);
+  const [expenseBreakdownLogs, setExpenseBreakdownLogs] = useState<BreakdownLog[]>([]);
   const [totalHqSharedPool, setTotalHqSharedPool] = useState<number>(0);
 
   const cleanLocationName = (name?: string) => {
@@ -51,6 +68,7 @@ export default function BranchPnLReport() {
     return `Outlet ${name.replace(/^outlet\s+/i, '').trim()}`;
   };
 
+  // 1. Ambil Lokasi
   useEffect(() => {
     async function fetchLocations() {
       const { data } = await supabase.from('locations').select('id, name').order('name');
@@ -59,15 +77,14 @@ export default function BranchPnLReport() {
     fetchLocations();
   }, []);
 
+  // 2. Agregasi PnL Bulanan dengan Breakdown RP vs Vendor
   const fetchPnLAnalytics = async () => {
     setLoading(true);
     try {
       const startDate = `${selectedMonth}-01`;
       const endDate = `${selectedMonth}-31`;
-      const startDateTime = `${startDate}T00:00:00`;
-      const endDateTime = `${endDate}T23:59:59`;
 
-      // A. Ambil Biaya Kantor Pusat (HQ Shared)
+      // A. Ambil Biaya Kantor Pusat (HQ Shared) & Utilitas Bank Langsung
       const { data: hqExpenses } = await supabase
         .from('hq_and_overhead_expenses')
         .select('*')
@@ -86,7 +103,7 @@ export default function BranchPnLReport() {
       });
       setTotalHqSharedPool(sharedPool);
 
-      // B. Ambil Penggajian Kru Cabang (Store Payroll)
+      // B. Ambil Penggajian Kru Toko & Bonus dari store_payroll
       const { data: payrollData } = await supabase
         .from('store_payroll')
         .select('location_id, total_net_salary')
@@ -99,57 +116,99 @@ export default function BranchPnLReport() {
         }
       });
 
-      // C. Ambil HPP / Belanja Bahan Masuk (Rumah Produksi & Vendor)
-      const { data: orderData } = await supabase
-        .from('order_requests')
-        .select('location_id, quantity, item_name, created_at')
-        .gte('created_at', startDateTime)
-        .lte('created_at', endDateTime);
-
-      const { data: itemsMeta } = await supabase.from('items').select('name, cost_price, price');
-      const itemCostMap: Record<string, number> = {};
-      (itemsMeta || []).forEach((itm: any) => {
-        const clean = (itm.name || '').trim().toUpperCase().replace(/\s+/g, ' ');
-        itemCostMap[clean] = Number(itm.cost_price || itm.price || 0);
-      });
-
-      const cogsMap: Record<string, number> = {};
-      (orderData || []).forEach((ord: any) => {
-        if (ord.location_id) {
-          const cName = (ord.item_name || '').trim().toUpperCase().replace(/\s+/g, ' ');
-          const cost = itemCostMap[cName] || 0;
-          const totalItemCost = Number(ord.quantity || 0) * cost;
-          cogsMap[ord.location_id] = (cogsMap[ord.location_id] || 0) + totalItemCost;
-        }
-      });
-
-      // D. Ambil Pendapatan Penjualan dari Daily Closings (Pastikan item_name di-select)
-      const { data: closingData } = await supabase
-        .from('daily_closings')
-        .select('location_id, item_name, terpakai, closing_date')
-        .gte('closing_date', startDate)
-        .lte('closing_date', endDate);
+      // C. Ambil Omzet, Pengeluaran Kasir, dan Beban Non-Kasir (RP & Vendor) dari cash_settlements
+      const { data: settlements } = await supabase
+        .from('cash_settlements')
+        .select('id, location_id, settlement_date, total_omset, expense_nominal, non_cash_expense_nominal, non_cash_expense_category, non_cash_expense_notes, reported_by, locations(name)')
+        .gte('settlement_date', startDate)
+        .lte('settlement_date', endDate);
 
       const revenueMap: Record<string, number> = {};
       const cashierExpMap: Record<string, number> = {};
+      const cogsRPMap: Record<string, number> = {};
+      const cogsVendorMap: Record<string, number> = {};
+      const logs: BreakdownLog[] = [];
 
-      (closingData || []).forEach((c: any) => {
-        if (c.location_id) {
-          const cName = (c.item_name || '').trim().toUpperCase().replace(/\s+/g, ' ');
-          if (cName.includes('BAKSO') || cName.includes('MIE') || cName.includes('AYAM')) {
-            revenueMap[c.location_id] = (revenueMap[c.location_id] || 0) + (Number(c.terpakai || 0) * 18000);
+      (settlements || []).forEach((s: any) => {
+        const locId = s.location_id;
+        if (!locId) return;
+
+        // Akumulasi Omzet & Pengeluaran Kasir
+        revenueMap[locId] = (revenueMap[locId] || 0) + Number(s.total_omset || 0);
+        cashierExpMap[locId] = (cashierExpMap[locId] || 0) + Number(s.expense_nominal || 0);
+
+        // Parsing Beban Non-Kasir (Rumah Produksi & Vendor)
+        if (Number(s.non_cash_expense_nominal || 0) > 0) {
+          let parsedItems: any[] = [];
+          if (s.non_cash_expense_notes && s.non_cash_expense_notes.startsWith('[')) {
+            try {
+              parsedItems = JSON.parse(s.non_cash_expense_notes);
+            } catch {
+              parsedItems = [];
+            }
+          }
+
+          if (parsedItems.length > 0) {
+            parsedItems.forEach((item: any, idx: number) => {
+              const cat = (item.category || s.non_cash_expense_category || 'RUMAH_PRODUKSI').toUpperCase();
+              const nom = Number(item.nominal || 0);
+              const isRP = cat.includes('RUMAH_PRODUKSI') || cat.includes('RP') || cat.includes('DAPUR');
+
+              if (isRP) {
+                cogsRPMap[locId] = (cogsRPMap[locId] || 0) + nom;
+              } else {
+                cogsVendorMap[locId] = (cogsVendorMap[locId] || 0) + nom;
+              }
+
+              logs.push({
+                id: `${s.id}-${idx}`,
+                date: s.settlement_date,
+                locationId: locId,
+                locationName: cleanLocationName(s.locations?.name),
+                category: isRP ? 'RUMAH_PRODUKSI' : 'VENDOR',
+                nominal: nom,
+                notes: item.notes || item.name || '-',
+                reporter: s.reported_by || 'Kasir'
+              });
+            });
+          } else {
+            const cat = (s.non_cash_expense_category || 'RUMAH_PRODUKSI').toUpperCase();
+            const nom = Number(s.non_cash_expense_nominal || 0);
+            const isRP = cat.includes('RUMAH_PRODUKSI') || cat.includes('RP') || cat.includes('DAPUR');
+
+            if (isRP) {
+              cogsRPMap[locId] = (cogsRPMap[locId] || 0) + nom;
+            } else {
+              cogsVendorMap[locId] = (cogsVendorMap[locId] || 0) + nom;
+            }
+
+            logs.push({
+              id: s.id,
+              date: s.settlement_date,
+              locationId: locId,
+              locationName: cleanLocationName(s.locations?.name),
+              category: isRP ? 'RUMAH_PRODUKSI' : 'VENDOR',
+              nominal: nom,
+              notes: s.non_cash_expense_notes || '-',
+              reporter: s.reported_by || 'Kasir'
+            });
           }
         }
       });
 
-      // E. Kalkulasi PnL per Cabang
+      setExpenseBreakdownLogs(logs);
+
+      // D. Hitung PnL per Cabang
       const branchCount = Math.max(1, locations.length);
       const sharedPerBranch = Math.round(sharedPool / branchCount);
 
       const computedList: PnLData[] = locations.map((loc) => {
         const rev = revenueMap[loc.id] || 0;
-        const cogs = cogsMap[loc.id] || 0;
-        const grossProfit = rev - cogs;
+        const cogsRP = cogsRPMap[loc.id] || 0;
+        const cogsVendor = cogsVendorMap[loc.id] || 0;
+        const totalCogs = cogsRP + cogsVendor;
+
+        const grossProfit = rev - totalCogs;
         const grossMarginPct = rev > 0 ? (grossProfit / rev) * 100 : 0;
 
         const cashierExp = cashierExpMap[loc.id] || 0;
@@ -165,7 +224,9 @@ export default function BranchPnLReport() {
           locationId: loc.id,
           locationName: cleanLocationName(loc.name),
           revenue: rev,
-          cogs: cogs,
+          cogsRP: cogsRP,
+          cogsVendor: cogsVendor,
+          totalCogs: totalCogs,
           grossProfit: grossProfit,
           grossMarginPct: Math.round(grossMarginPct * 10) / 10,
           cashierExpenses: cashierExp,
@@ -191,14 +252,21 @@ export default function BranchPnLReport() {
     fetchPnLAnalytics();
   }, [selectedMonth, locations]);
 
+  // Konsolidasi (Semua Cabang)
   const consolidated = useMemo(() => {
     const targetRows = selectedLocation === 'all' 
       ? pnlList 
       : pnlList.filter(p => p.locationId === selectedLocation);
 
     const totalRev = targetRows.reduce((sum, p) => sum + p.revenue, 0);
-    const totalCogs = targetRows.reduce((sum, p) => sum + p.cogs, 0);
+    const totalCogsRP = targetRows.reduce((sum, p) => sum + p.cogsRP, 0);
+    const totalCogsVendor = targetRows.reduce((sum, p) => sum + p.cogsVendor, 0);
+    const totalCogs = totalCogsRP + totalCogsVendor;
     const totalGross = totalRev - totalCogs;
+    
+    const totalCashierExp = targetRows.reduce((sum, p) => sum + p.cashierExpenses, 0);
+    const totalPayroll = targetRows.reduce((sum, p) => sum + p.storePayroll, 0);
+    const totalUtilityBank = targetRows.reduce((sum, p) => sum + p.storeUtilityBank, 0);
     const totalDirectOpex = targetRows.reduce((sum, p) => sum + p.directOpexTotal, 0);
     const totalStoreProfit = totalGross - totalDirectOpex;
     
@@ -210,9 +278,14 @@ export default function BranchPnLReport() {
 
     return {
       totalRev,
+      totalCogsRP,
+      totalCogsVendor,
       totalCogs,
       totalGross,
       grossPct: totalRev > 0 ? Math.round((totalGross / totalRev) * 1000) / 10 : 0,
+      totalCashierExp,
+      totalPayroll,
+      totalUtilityBank,
       totalDirectOpex,
       totalStoreProfit,
       totalHq,
@@ -220,6 +293,12 @@ export default function BranchPnLReport() {
       netPct: totalRev > 0 ? Math.round((totalNet / totalRev) * 1000) / 10 : 0
     };
   }, [pnlList, selectedLocation, totalHqSharedPool]);
+
+  // Filter logs rincian beban
+  const filteredBreakdownLogs = useMemo(() => {
+    if (selectedLocation === 'all') return expenseBreakdownLogs;
+    return expenseBreakdownLogs.filter(l => l.locationId === selectedLocation);
+  }, [expenseBreakdownLogs, selectedLocation]);
 
   const handlePrint = () => {
     const originalTitle = document.title;
@@ -275,7 +354,7 @@ export default function BranchPnLReport() {
               Laporan Laba Rugi Eksekutif (PnL Bulanan)
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Otomatis menghitung HPP bahan, gaji kru cabang, kas laci & bagi rata beban kantor pusat.
+              Breakdown lengkap HPP Rumah Produksi & Vendor, Gaji Kru Toko, serta Bagi Rata Biaya Pusat.
             </p>
           </div>
         </div>
@@ -336,11 +415,13 @@ export default function BranchPnLReport() {
         </div>
 
         <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-100">
-          <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Total HPP Bahan Masuk</span>
-          <div className="text-xl font-black text-slate-700 mt-1">
+          <span className="text-[10px] uppercase font-black tracking-wider text-rose-500">Total HPP (RP + Vendor)</span>
+          <div className="text-xl font-black text-rose-800 mt-1">
             Rp {consolidated.totalCogs.toLocaleString('id-ID')}
           </div>
-          <span className="text-[10px] text-slate-400 font-semibold mt-0.5 block">RP & Vendor Luar</span>
+          <span className="text-[10px] text-slate-400 font-semibold mt-0.5 block">
+            RP: Rp {consolidated.totalCogsRP.toLocaleString('id-ID')} • Vendor: Rp {consolidated.totalCogsVendor.toLocaleString('id-ID')}
+          </span>
         </div>
 
         <div className="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-100">
@@ -348,7 +429,7 @@ export default function BranchPnLReport() {
           <div className="text-xl font-black text-emerald-800 mt-1">
             Rp {consolidated.totalStoreProfit.toLocaleString('id-ID')}
           </div>
-          <span className="text-[10px] text-emerald-600 font-semibold mt-0.5 block">Sebelum Alokasi Pusat</span>
+          <span className="text-[10px] text-emerald-600 font-semibold mt-0.5 block">Setelah HPP & Beban Toko</span>
         </div>
 
         <div className="bg-indigo-50/70 p-4 rounded-2xl border border-indigo-100">
@@ -362,12 +443,12 @@ export default function BranchPnLReport() {
         </div>
       </div>
 
-      {/* TABEL ANATOMI PnL */}
+      {/* TABEL ANATOMI PnL RESMI (DENGAN BREAKDOWN RP & VENDOR) */}
       <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
         <table className="w-full text-left text-xs border-collapse font-sans">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200/80 text-[10px] font-black uppercase tracking-wider text-slate-500">
-              <th className="py-3 px-4 min-w-[240px]">Komponen Laba Rugi (PnL)</th>
+              <th className="py-3 px-4 min-w-[260px]">Komponen Laba Rugi (PnL)</th>
               {selectedLocation === 'all' ? (
                 <>
                   {pnlList.map((p) => (
@@ -418,25 +499,49 @@ export default function BranchPnLReport() {
                   )}
                 </tr>
 
-                {/* 2. COGS / HPP */}
+                {/* 2. BREAKDOWN HPP / BEBAN POKOK */}
                 <tr>
-                  <td className="py-2 px-4 text-slate-600 pl-8">
-                    (-) Belanja Bahan Masuk (RP & Vendor)
+                  <td className="py-2 px-4 text-slate-700 pl-8 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                    <span>(-) Pasokan Rumah Produksi (RP / Dapur Pusat)</span>
                   </td>
                   {selectedLocation === 'all' ? (
                     <>
                       {pnlList.map((p) => (
                         <td key={p.locationId} className="py-2 px-3 text-right text-rose-700">
-                          (Rp {p.cogs.toLocaleString('id-ID')})
+                          (Rp {p.cogsRP.toLocaleString('id-ID')})
                         </td>
                       ))}
                       <td className="py-2 px-4 text-right text-rose-800 font-bold bg-indigo-50/20">
-                        (Rp {consolidated.totalCogs.toLocaleString('id-ID')})
+                        (Rp {consolidated.totalCogsRP.toLocaleString('id-ID')})
                       </td>
                     </>
                   ) : (
                     <td className="py-2 px-4 text-right text-rose-800 font-bold">
-                      (Rp {consolidated.totalCogs.toLocaleString('id-ID')})
+                      (Rp {consolidated.totalCogsRP.toLocaleString('id-ID')})
+                    </td>
+                  )}
+                </tr>
+
+                <tr>
+                  <td className="py-2 px-4 text-slate-700 pl-8 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                    <span>(-) Belanja Vendor Luar (Sayur, Es, Kemasan)</span>
+                  </td>
+                  {selectedLocation === 'all' ? (
+                    <>
+                      {pnlList.map((p) => (
+                        <td key={p.locationId} className="py-2 px-3 text-right text-amber-800">
+                          (Rp {p.cogsVendor.toLocaleString('id-ID')})
+                        </td>
+                      ))}
+                      <td className="py-2 px-4 text-right text-amber-900 font-bold bg-indigo-50/20">
+                        (Rp {consolidated.totalCogsVendor.toLocaleString('id-ID')})
+                      </td>
+                    </>
+                  ) : (
+                    <td className="py-2 px-4 text-right text-amber-900 font-bold">
+                      (Rp {consolidated.totalCogsVendor.toLocaleString('id-ID')})
                     </td>
                   )}
                 </tr>
@@ -481,6 +586,27 @@ export default function BranchPnLReport() {
                 </tr>
                 <tr>
                   <td className="py-1.5 px-4 text-slate-600 pl-8">
+                    (-) Pengeluaran Kasir / Petty Cash Laci
+                  </td>
+                  {selectedLocation === 'all' ? (
+                    <>
+                      {pnlList.map((p) => (
+                        <td key={p.locationId} className="py-1.5 px-3 text-right text-slate-700">
+                          (Rp {p.cashierExpenses.toLocaleString('id-ID')})
+                        </td>
+                      ))}
+                      <td className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20">
+                        (Rp {consolidated.totalCashierExp.toLocaleString('id-ID')})
+                      </td>
+                    </>
+                  ) : (
+                    <td className="py-1.5 px-4 text-right text-slate-800 font-bold">
+                      (Rp {consolidated.totalCashierExp.toLocaleString('id-ID')})
+                    </td>
+                  )}
+                </tr>
+                <tr>
+                  <td className="py-1.5 px-4 text-slate-600 pl-8">
                     (-) Gaji & Bonus Kru Cabang (Input HR)
                   </td>
                   {selectedLocation === 'all' ? (
@@ -491,12 +617,12 @@ export default function BranchPnLReport() {
                         </td>
                       ))}
                       <td className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20">
-                        (Rp {pnlList.reduce((sum, p) => sum + p.storePayroll, 0).toLocaleString('id-ID')})
+                        (Rp {consolidated.totalPayroll.toLocaleString('id-ID')})
                       </td>
                     </>
                   ) : (
                     <td className="py-1.5 px-4 text-right text-slate-800 font-bold">
-                      (Rp {pnlList.find(p => p.locationId === selectedLocation)?.storePayroll.toLocaleString('id-ID')})
+                      (Rp {consolidated.totalPayroll.toLocaleString('id-ID')})
                     </td>
                   )}
                 </tr>
@@ -512,12 +638,12 @@ export default function BranchPnLReport() {
                         </td>
                       ))}
                       <td className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20">
-                        (Rp {pnlList.reduce((sum, p) => sum + p.storeUtilityBank, 0).toLocaleString('id-ID')})
+                        (Rp {consolidated.totalUtilityBank.toLocaleString('id-ID')})
                       </td>
                     </>
                   ) : (
                     <td className="py-1.5 px-4 text-right text-slate-800 font-bold">
-                      (Rp {pnlList.find(p => p.locationId === selectedLocation)?.storeUtilityBank.toLocaleString('id-ID')})
+                      (Rp {consolidated.totalUtilityBank.toLocaleString('id-ID')})
                     </td>
                   )}
                 </tr>
@@ -539,7 +665,7 @@ export default function BranchPnLReport() {
                       </td>
                     </>
                   ) : (
-                    <td className="py-2.5 px-4 text-right font-black text-slate-900 bg-indigo-50/40">
+                    <td className="py-2 px-4 text-right font-black text-slate-900 bg-indigo-50/40">
                       Rp {consolidated.totalStoreProfit.toLocaleString('id-ID')}
                     </td>
                   )}
@@ -603,6 +729,69 @@ export default function BranchPnLReport() {
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* RINCIAN NOTA PENGELUARAN RUMAH PRODUKSI & VENDOR */}
+      <div className="bg-slate-50/60 p-5 rounded-3xl border border-slate-100 space-y-3 no-print">
+        <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-indigo-600" />
+            <h3 className="text-xs font-black uppercase text-slate-800">
+              Audit Rincian Belanja Bahan: Rumah Produksi & Vendor ({filteredBreakdownLogs.length} Nota)
+            </h3>
+          </div>
+          <span className="text-[10px] font-bold text-slate-400">
+            Ditarik dari Laporan Kasir Non-Kasir
+          </span>
+        </div>
+
+        <div className="overflow-x-auto max-h-64 overflow-y-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200/60 bg-white/60 sticky top-0">
+                <th className="py-2.5 px-3">Tanggal & Outlet</th>
+                <th className="py-2.5 px-3">Kategori</th>
+                <th className="py-2.5 px-3">Rincian Barang / Catatan Nota</th>
+                <th className="py-2.5 px-3 text-right">Nominal (Rp)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200/60 font-medium">
+              {filteredBreakdownLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="py-8 text-center text-slate-400 font-bold">
+                    Belum ada rekaman pengeluaran RP atau Vendor pada periode {selectedMonth}.
+                  </td>
+                </tr>
+              ) : (
+                filteredBreakdownLogs.map((log) => (
+                  <tr key={log.id} className="hover:bg-white/80 transition-colors">
+                    <td className="py-2 px-3">
+                      <div className="font-bold text-slate-900">{log.locationName}</div>
+                      <div className="text-[10px] text-slate-400">{log.date}</div>
+                    </td>
+                    <td className="py-2 px-3">
+                      {log.category === 'RUMAH_PRODUKSI' ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1 w-fit">
+                          <ShoppingBag className="w-3 h-3" /> Rumah Produksi
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-black bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1 w-fit">
+                          <Truck className="w-3 h-3" /> Vendor Luar
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 text-slate-700 font-bold">
+                      {log.notes}
+                    </td>
+                    <td className="py-2 px-3 text-right font-black text-rose-800">
+                      Rp {log.nominal.toLocaleString('id-ID')}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
     </div>
