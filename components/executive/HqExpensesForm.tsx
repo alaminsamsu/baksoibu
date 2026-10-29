@@ -11,9 +11,7 @@ import {
   CheckCircle2, 
   AlertCircle, 
   Store,
-  DollarSign,
-  Layers,
-  ArrowRight
+  Layers
 } from 'lucide-react';
 
 interface ExpenseRecord {
@@ -253,7 +251,7 @@ export default function HqExpensesForm() {
           <div className={`p-4 rounded-2xl text-xs font-bold flex items-center gap-2.5 ${
             message.type === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-red-50 border border-red-200 text-red-700'
           }`}>
-            {message.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+            {message.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" /> : <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />}
             <span>{message.text}</span>
           </div>
         )}
@@ -320,7 +318,7 @@ export default function HqExpensesForm() {
               </label>
               <input
                 type="number"
-                step="5000"
+                step="any"
                 min="0"
                 required
                 value={amount}
