@@ -11,22 +11,19 @@ import {
   CheckCircle2, 
   AlertCircle, 
   DollarSign,
-  Award,
-  MinusCircle,
-  HelpCircle
+  Gift,
+  UserCheck,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 
 interface StaffPayrollRow {
   staff_name: string;
   role: string;
+  is_selected: boolean; // Menandai apakah staf ini berhak menerima pencairan
   days_worked: number;
-  daily_rate: number;
-  base_salary: number;
-  bonus_omzet: number;
-  bonus_performance: number;
-  deduction_late: number;
-  deduction_kasbon: number;
-  total_net: number;
+  take_home_pay: number; // Untuk Siklus Gaji (Tgl 28)
+  bonus_nominal: number; // Untuk Siklus Bonus (Tgl 10)
   notes: string;
   is_saved: boolean;
 }
@@ -36,6 +33,9 @@ export default function StorePayrollForm() {
   const [locations, setLocations] = useState<any[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<string>('');
   
+  // Tipe Siklus: 'GAJI' (Tgl 28 Bulan Berjalan) atau 'BONUS' (Tgl 10 Bulan Berikutnya)
+  const [disbursementType, setDisbursementType] = useState<'GAJI' | 'BONUS'>('GAJI');
+
   const getCurrentMonthStr = () => {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date()).substring(0, 7);
   };
@@ -62,7 +62,7 @@ export default function StorePayrollForm() {
     return `Outlet ${name.replace(/^outlet\s+/i, '').trim()}`;
   };
 
-  // 1. Ambil daftar cabang outlet
+  // 1. Ambil daftar cabang
   useEffect(() => {
     async function fetchLocations() {
       const { data } = await supabase.from('locations').select('id, name').order('name');
@@ -76,26 +76,27 @@ export default function StorePayrollForm() {
     fetchLocations();
   }, []);
 
-  // 2. Tarik daftar kru & hitung hari masuk dari closing/presensi
+  // 2. Tarik daftar kru dan rekaman data sesuai siklus
   const loadPayrollData = async () => {
     if (!selectedLocation) return;
     setLoading(true);
     setMessage(null);
 
     try {
-      // Ambil data yang sudah pernah disimpan di store_payroll untuk periode ini
+      // Ambil data yang sudah tersimpan untuk siklus & periode ini
       const { data: existingRecords } = await supabase
         .from('store_payroll')
         .select('*')
         .eq('period_month', selectedMonth)
-        .eq('location_id', selectedLocation);
+        .eq('location_id', selectedLocation)
+        .eq('disbursement_type', disbursementType);
 
       const existingMap = new Map();
       (existingRecords || []).forEach((r) => {
         existingMap.set(r.staff_name.toUpperCase(), r);
       });
 
-      // Ambil akumulasi hari masuk riil dari daily_closings pada bulan terkait
+      // Hitung akumulasi kehadiran kru dari daily_closings
       const startDate = `${selectedMonth}-01`;
       const endDate = `${selectedMonth}-31`;
 
@@ -106,7 +107,6 @@ export default function StorePayrollForm() {
         .gte('closing_date', startDate)
         .lte('closing_date', endDate);
 
-      // Hitung hari unik kerja tiap staf
       const workDaysMap = new Map<string, Set<string>>();
       (attendanceData || []).forEach((att) => {
         const staff = (att.reported_by || '').trim().toUpperCase();
@@ -118,7 +118,7 @@ export default function StorePayrollForm() {
         }
       });
 
-      // Ambil master user/staff cabang jika ada
+      // Ambil seluruh staf yang terdaftar di user/staff cabang
       const { data: staffUsers } = await supabase
         .from('users')
         .select('username, active_staff_name, role_name, location_id')
@@ -136,34 +136,27 @@ export default function StorePayrollForm() {
       const rows: StaffPayrollRow[] = Array.from(staffList).map((staffName) => {
         const exist = existingMap.get(staffName);
         const daysFromAttendance = workDaysMap.get(staffName)?.size || 0;
-        const daysWorked = exist ? exist.days_worked : daysFromAttendance;
-        const dailyRate = exist ? Number(exist.daily_rate) : 0;
-        const baseSalary = exist ? Number(exist.base_salary) : (daysWorked * dailyRate);
-        const bonusOmzet = exist ? Number(exist.bonus_omzet) : 0;
-        const bonusPerf = exist ? Number(exist.bonus_performance) : 0;
-        const dLate = exist ? Number(exist.deduction_late) : 0;
-        const dKasbon = exist ? Number(exist.deduction_kasbon) : 0;
         
-        const totalNet = exist 
-          ? Number(exist.total_net_salary) 
-          : Math.max(0, (baseSalary + bonusOmzet + bonusPerf) - dLate - dKasbon);
+        const daysWorked = exist ? exist.days_worked : daysFromAttendance;
+        const thp = exist ? Number(exist.total_net_salary || 0) : 0;
+        const bonus = exist ? Number(exist.bonus_omzet || 0) : 0;
+
+        // Default terpilih jika sudah pernah disimpan, atau jika ada hari kerja
+        const isSelected = exist ? true : (disbursementType === 'GAJI' ? daysFromAttendance > 0 : false);
 
         return {
           staff_name: staffName,
           role: exist?.role || 'CREW',
+          is_selected: isSelected,
           days_worked: daysWorked,
-          daily_rate: dailyRate,
-          base_salary: baseSalary,
-          bonus_omzet: bonusOmzet,
-          bonus_performance: bonusPerf,
-          deduction_late: dLate,
-          deduction_kasbon: dKasbon,
-          total_net: totalNet,
+          take_home_pay: thp,
+          bonus_nominal: bonus,
           notes: exist?.notes || '',
           is_saved: !!exist
         };
       });
 
+      // Urutkan staf aktif terlebih dahulu, lalu sesuai abjad
       rows.sort((a, b) => a.staff_name.localeCompare(b.staff_name));
       setPayrollRows(rows);
     } catch (err: any) {
@@ -175,87 +168,97 @@ export default function StorePayrollForm() {
 
   useEffect(() => {
     loadPayrollData();
-  }, [selectedLocation, selectedMonth]);
+  }, [selectedLocation, selectedMonth, disbursementType]);
 
-  // Handler update nilai form secara otomatis
-  const handleValueChange = (index: number, field: keyof StaffPayrollRow, val: any) => {
+  const handleToggleSelect = (index: number) => {
     setPayrollRows((prev) => {
       const next = [...prev];
-      const item = { ...next[index], [field]: val };
-
-      // Kalkulasi ulang total
-      if (['days_worked', 'daily_rate', 'base_salary', 'bonus_omzet', 'bonus_performance', 'deduction_late', 'deduction_kasbon'].includes(field)) {
-        const days = Number(item.days_worked) || 0;
-        const rate = Number(item.daily_rate) || 0;
-        
-        if (field === 'days_worked' || field === 'daily_rate') {
-          item.base_salary = days * rate;
-        }
-
-        const earnings = Number(item.base_salary || 0) + Number(item.bonus_omzet || 0) + Number(item.bonus_performance || 0);
-        const deductions = Number(item.deduction_late || 0) + Number(item.deduction_kasbon || 0);
-        item.total_net = Math.max(0, earnings - deductions);
-      }
-
-      next[index] = item;
+      next[index] = { ...next[index], is_selected: !next[index].is_selected };
       return next;
     });
   };
 
-  // Simpan Penggajian Cabang
+  const handleValueChange = (index: number, field: keyof StaffPayrollRow, val: any) => {
+    setPayrollRows((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: val };
+      return next;
+    });
+  };
+
+  // Simpan data ke store_payroll
   const handleSavePayroll = async () => {
     setSaving(true);
     setMessage(null);
 
     try {
       const submitter = currentUser?.active_staff_name || currentUser?.username || 'HR Officer';
-      const payloads = payrollRows.map((r) => ({
-        period_month: selectedMonth,
-        location_id: selectedLocation,
-        staff_name: r.staff_name,
-        role: r.role,
-        days_worked: Number(r.days_worked || 0),
-        daily_rate: Number(r.daily_rate || 0),
-        base_salary: Number(r.base_salary || 0),
-        bonus_omzet: Number(r.bonus_omzet || 0),
-        bonus_performance: Number(r.bonus_performance || 0),
-        deduction_late: Number(r.deduction_late || 0),
-        deduction_kasbon: Number(r.deduction_kasbon || 0),
-        total_net_salary: Number(r.total_net || 0),
-        notes: r.notes?.trim() || null,
-        submitted_by: submitter,
-        payment_status: 'PAID',
-        payment_date: new Date().toISOString().substring(0, 10),
-        updated_at: new Date().toISOString()
-      }));
+      const targetRows = payrollRows.filter((r) => r.is_selected);
+
+      if (targetRows.length === 0) {
+        throw new Error('Pilih minimal satu staf yang akan dicairkan.');
+      }
+
+      // Siapkan payload sesuai siklus
+      const payloads = targetRows.map((r) => {
+        const isGaji = disbursementType === 'GAJI';
+        const totalNet = isGaji ? Number(r.take_home_pay || 0) : Number(r.bonus_nominal || 0);
+
+        return {
+          period_month: selectedMonth,
+          location_id: selectedLocation,
+          staff_name: r.staff_name,
+          role: r.role,
+          disbursement_type: disbursementType,
+          days_worked: isGaji ? Number(r.days_worked || 0) : 0,
+          daily_rate: 0,
+          base_salary: isGaji ? Number(r.take_home_pay || 0) : 0,
+          bonus_omzet: !isGaji ? Number(r.bonus_nominal || 0) : 0,
+          bonus_performance: 0,
+          deduction_late: 0,
+          deduction_kasbon: 0,
+          total_net_salary: totalNet,
+          notes: r.notes?.trim() || null,
+          submitted_by: submitter,
+          payment_status: 'PAID',
+          payment_date: isGaji ? `${selectedMonth}-28` : `${selectedMonth}-10`,
+          updated_at: new Date().toISOString()
+        };
+      });
 
       const { error } = await supabase
         .from('store_payroll')
-        .upsert(payloads, { onConflict: 'period_month,location_id,staff_name' });
+        .upsert(payloads, { onConflict: 'period_month,location_id,staff_name,disbursement_type' });
 
       if (error) throw error;
 
       setMessage({
-        text: `Data penggajian berhasil disimpan untuk periode ${selectedMonth}! (${payloads.length} staf terdata)`,
+        text: `Berhasil menyimpan ${disbursementType === 'GAJI' ? 'Gaji Kru (Tgl 28)' : 'Bonus Kru (Tgl 10)'} untuk periode ${selectedMonth}! (${payloads.length} kru terdata)`,
         type: 'success'
       });
 
       await loadPayrollData();
     } catch (err: any) {
-      setMessage({ text: err.message || 'Gagal menyimpan payroll.', type: 'error' });
+      setMessage({ text: err.message || 'Gagal menyimpan data.', type: 'error' });
     } finally {
       setSaving(false);
     }
   };
 
-  const totalPayrollCabang = useMemo(() => {
-    return payrollRows.reduce((sum, r) => sum + Number(r.total_net || 0), 0);
+  const totalNominalTerpilih = useMemo(() => {
+    return payrollRows
+      .filter((r) => r.is_selected)
+      .reduce((sum, r) => sum + (disbursementType === 'GAJI' ? Number(r.take_home_pay || 0) : Number(r.bonus_nominal || 0)), 0);
+  }, [payrollRows, disbursementType]);
+
+  const jumlahKruTerpilih = useMemo(() => {
+    return payrollRows.filter((r) => r.is_selected).length;
   }, [payrollRows]);
 
   return (
     <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans">
       
-      {/* Header Bar */}
+      {/* Header Utama Form */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-5 border-b border-slate-100 gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
@@ -266,7 +269,7 @@ export default function StorePayrollForm() {
               Input Penggajian & Bonus Kru Cabang
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Khusus diinput oleh HR. Total otomatis masuk ke pengeluaran langsung cabang terkait.
+              Pencatatan dipisah: Gaji Pokok (Tgl 28) & Bonus Omzet (Tgl 10). Staf dapat dipilih secara selektif.
             </p>
           </div>
         </div>
@@ -308,18 +311,71 @@ export default function StorePayrollForm() {
         </div>
       </div>
 
-      {/* Ringkasan Beban Gaji Cabang */}
-      <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/80 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+      {/* PILIHAN 2 WAKTU SIKLUS PENCAIRAN */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={() => setDisbursementType('GAJI')}
+          className={`p-4 rounded-2xl border text-left transition-all ${
+            disbursementType === 'GAJI'
+              ? 'bg-indigo-50/70 border-indigo-600 ring-2 ring-indigo-500/20'
+              : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/60'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-black text-xs text-indigo-950">
+              <DollarSign className="w-4 h-4 text-indigo-600" />
+              <span>1. Penggajian Pokok (Setiap Tanggal 28)</span>
+            </div>
+            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">
+              Bulan Berjalan
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1 font-medium leading-relaxed">
+            Input hanya <b>Hari Masuk</b> & <b>Take Home Pay (THP)</b> bersih staf. Kru resign tidak perlu dicentang.
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setDisbursementType('BONUS')}
+          className={`p-4 rounded-2xl border text-left transition-all ${
+            disbursementType === 'BONUS'
+              ? 'bg-amber-50/70 border-amber-500 ring-2 ring-amber-500/20'
+              : 'bg-slate-50/60 border-slate-200 hover:bg-slate-100/60'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-black text-xs text-amber-950">
+              <Gift className="w-4 h-4 text-amber-600" />
+              <span>2. Bonus Omzet / Performa (Setiap Tanggal 10)</span>
+            </div>
+            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+              Bulan Berikutnya
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1 font-medium leading-relaxed">
+            Hanya input <b>Nominal Bonus</b> untuk kru yang berhak. Kru yang tidak mendapat bonus cukup dinonaktifkan.
+          </p>
+        </button>
+      </div>
+
+      {/* Ringkasan Total Pencairan */}
+      <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 ${
+        disbursementType === 'GAJI' 
+          ? 'bg-indigo-50/50 border-indigo-100' 
+          : 'bg-amber-50/50 border-amber-100'
+      }`}>
         <div>
-          <span className="text-[10px] uppercase font-black tracking-wider text-indigo-500">
-            Total Beban Gaji & Bonus ({cleanLocationName(locations.find(l => String(l.id) === selectedLocation)?.name)})
+          <span className="text-[10px] uppercase font-black tracking-wider text-slate-500">
+            Total {disbursementType === 'GAJI' ? 'Penggajian THP (Tgl 28)' : 'Bonus Kru (Tgl 10)'} ({cleanLocationName(locations.find(l => String(l.id) === selectedLocation)?.name)})
           </span>
-          <div className="text-xl font-black text-indigo-900 mt-0.5">
-            Rp {totalPayrollCabang.toLocaleString('id-ID')}
+          <div className={`text-xl font-black mt-0.5 ${disbursementType === 'GAJI' ? 'text-indigo-950' : 'text-amber-900'}`}>
+            Rp {totalNominalTerpilih.toLocaleString('id-ID')}
           </div>
         </div>
-        <div className="text-right text-[11px] text-slate-500 font-semibold">
-          {payrollRows.length} Orang Karyawan Tercatat
+        <div className="text-right text-[11px] text-slate-600 font-bold">
+          {jumlahKruTerpilih} dari {payrollRows.length} Kru Dicentang untuk Dicairkan
         </div>
       </div>
 
@@ -332,38 +388,67 @@ export default function StorePayrollForm() {
         </div>
       )}
 
-      {/* Tabel Input Penggajian */}
+      {/* TABEL FORM INPUT FLEKSIBEL */}
       <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
         <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-50/90 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-xs">
               <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                <th className="py-3 px-4 min-w-[150px]">Nama Kru</th>
-                <th className="py-3 px-2 text-center w-24">Hari Masuk</th>
-                <th className="py-3 px-2 text-right min-w-[110px]">Upah/Hari (Rp)</th>
-                <th className="py-3 px-2 text-right min-w-[110px]">Gaji Pokok (Rp)</th>
-                <th className="py-3 px-2 text-right min-w-[100px] text-emerald-600">Bonus Omzet (Rp)</th>
-                <th className="py-3 px-2 text-right min-w-[90px] text-rose-600">Kasbon / Pot. (Rp)</th>
-                <th className="py-3 px-4 text-right min-w-[130px] font-black text-indigo-900 bg-indigo-50/60">Gaji Bersih (Rp)</th>
+                <th className="py-3 px-3 text-center w-12">Pilih</th>
+                <th className="py-3 px-4 min-w-[180px]">Nama Kru & Jabatan</th>
+                
+                {disbursementType === 'GAJI' ? (
+                  <>
+                    <th className="py-3 px-3 text-center w-28">Hari Masuk</th>
+                    <th className="py-3 px-4 text-right min-w-[160px] font-black text-indigo-900 bg-indigo-50/50">
+                      Take Home Pay (THP) Bersih (Rp)
+                    </th>
+                  </>
+                ) : (
+                  <th className="py-3 px-4 text-right min-w-[160px] font-black text-amber-900 bg-amber-50/50">
+                    Nominal Bonus (Rp)
+                  </th>
+                )}
+                
+                <th className="py-3 px-4 min-w-[160px]">Catatan / Keterangan</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="py-16 text-center text-slate-400 font-bold">
-                    Memuat data kehadiran & slip kru...
+                  <td colSpan={disbursementType === 'GAJI' ? 5 : 4} className="py-16 text-center text-slate-400 font-bold">
+                    Memuat daftar kru...
                   </td>
                 </tr>
               ) : payrollRows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-16 text-center text-slate-400 font-bold">
-                    Belum ada data kru terdaftar untuk cabang ini pada periode {selectedMonth}.
+                  <td colSpan={disbursementType === 'GAJI' ? 5 : 4} className="py-16 text-center text-slate-400 font-bold">
+                    Tidak ada kru terdaftar untuk cabang ini pada periode {selectedMonth}.
                   </td>
                 </tr>
               ) : (
                 payrollRows.map((row, idx) => (
-                  <tr key={row.staff_name} className="hover:bg-slate-50/60 transition-colors">
-                    {/* Nama Kru & Role */}
+                  <tr 
+                    key={row.staff_name} 
+                    className={`transition-colors ${row.is_selected ? 'bg-white hover:bg-slate-50/60' : 'bg-slate-50/40 opacity-50'}`}
+                  >
+                    {/* Centang Penerima */}
+                    <td className="py-2.5 px-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSelect(idx)}
+                        className="text-slate-500 hover:text-indigo-600 transition-colors"
+                        title={row.is_selected ? "Batalkan Pencairan" : "Sertakan Kru Ini"}
+                      >
+                        {row.is_selected ? (
+                          <CheckSquare className="w-5 h-5 text-indigo-600 inline" />
+                        ) : (
+                          <Square className="w-5 h-5 text-slate-300 inline" />
+                        )}
+                      </button>
+                    </td>
+
+                    {/* Nama Kru */}
                     <td className="py-2.5 px-4 font-black text-slate-900 uppercase">
                       <div className="flex items-center gap-1.5">
                         <span>{row.staff_name}</span>
@@ -376,71 +461,61 @@ export default function StorePayrollForm() {
                       <span className="text-[10px] text-slate-400 font-normal">Role: {row.role}</span>
                     </td>
 
-                    {/* Hari Masuk */}
-                    <td className="py-2 px-2 text-center">
-                      <input
-                        type="number"
-                        min="0"
-                        value={row.days_worked}
-                        onChange={(e) => handleValueChange(idx, 'days_worked', parseInt(e.target.value) || 0)}
-                        className="w-16 px-2 py-1 text-center bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
-                      />
-                    </td>
+                    {/* SIKLUS 1: GAJI (Tgl 28) */}
+                    {disbursementType === 'GAJI' && (
+                      <>
+                        <td className="py-2 px-3 text-center">
+                          <input
+                            type="number"
+                            min="0"
+                            disabled={!row.is_selected}
+                            value={row.days_worked}
+                            onChange={(e) => handleValueChange(idx, 'days_worked', parseInt(e.target.value) || 0)}
+                            className="w-16 px-2 py-1.5 text-center bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:border-indigo-500 disabled:bg-slate-100 disabled:text-slate-400"
+                          />
+                        </td>
 
-                    {/* Upah Per Hari */}
-                    <td className="py-2 px-2 text-right">
-                      <input
-                        type="number"
-                        step="1000"
-                        min="0"
-                        value={row.daily_rate}
-                        onChange={(e) => handleValueChange(idx, 'daily_rate', parseFloat(e.target.value) || 0)}
-                        className="w-24 px-2 py-1 text-right bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
-                        placeholder="0"
-                      />
-                    </td>
+                        <td className="py-2 px-4 text-right bg-indigo-50/20">
+                          <input
+                            type="number"
+                            step="10000"
+                            min="0"
+                            disabled={!row.is_selected}
+                            value={row.take_home_pay}
+                            onChange={(e) => handleValueChange(idx, 'take_home_pay', parseFloat(e.target.value) || 0)}
+                            className="w-36 px-3 py-1.5 text-right bg-white border border-indigo-200 rounded-xl font-black text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:bg-slate-100 disabled:border-slate-200 disabled:text-slate-400"
+                            placeholder="0"
+                          />
+                        </td>
+                      </>
+                    )}
 
-                    {/* Gaji Pokok (Bisa Ditimpa Manual) */}
-                    <td className="py-2 px-2 text-right">
-                      <input
-                        type="number"
-                        step="5000"
-                        min="0"
-                        value={row.base_salary}
-                        onChange={(e) => handleValueChange(idx, 'base_salary', parseFloat(e.target.value) || 0)}
-                        className="w-24 px-2 py-1 text-right bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
-                      />
-                    </td>
+                    {/* SIKLUS 2: BONUS (Tgl 10) */}
+                    {disbursementType === 'BONUS' && (
+                      <td className="py-2 px-4 text-right bg-amber-50/20">
+                        <input
+                          type="number"
+                          step="10000"
+                          min="0"
+                          disabled={!row.is_selected}
+                          value={row.bonus_nominal}
+                          onChange={(e) => handleValueChange(idx, 'bonus_nominal', parseFloat(e.target.value) || 0)}
+                          className="w-36 px-3 py-1.5 text-right bg-white border border-amber-200 rounded-xl font-black text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-500/20 disabled:bg-slate-100 disabled:border-slate-200 disabled:text-slate-400"
+                          placeholder="0"
+                        />
+                      </td>
+                    )}
 
-                    {/* Bonus Target Omzet */}
-                    <td className="py-2 px-2 text-right">
+                    {/* Catatan Tambahan (Misal: Resign 15 Okt, Bonus Target Lolos) */}
+                    <td className="py-2 px-4">
                       <input
-                        type="number"
-                        step="5000"
-                        min="0"
-                        value={row.bonus_omzet}
-                        onChange={(e) => handleValueChange(idx, 'bonus_omzet', parseFloat(e.target.value) || 0)}
-                        className="w-24 px-2 py-1 text-right bg-emerald-50/60 border border-emerald-200 rounded-lg font-bold text-emerald-800 focus:outline-none focus:border-emerald-500"
-                        placeholder="0"
+                        type="text"
+                        disabled={!row.is_selected}
+                        value={row.notes}
+                        onChange={(e) => handleValueChange(idx, 'notes', e.target.value)}
+                        placeholder="Contoh: Resign tgl 15 / Bonus omzet..."
+                        className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:border-indigo-500 disabled:bg-slate-100 disabled:text-slate-300"
                       />
-                    </td>
-
-                    {/* Potongan Kasbon */}
-                    <td className="py-2 px-2 text-right">
-                      <input
-                        type="number"
-                        step="5000"
-                        min="0"
-                        value={row.deduction_kasbon}
-                        onChange={(e) => handleValueChange(idx, 'deduction_kasbon', parseFloat(e.target.value) || 0)}
-                        className="w-20 px-2 py-1 text-right bg-rose-50/60 border border-rose-200 rounded-lg font-bold text-rose-800 focus:outline-none focus:border-rose-500"
-                        placeholder="0"
-                      />
-                    </td>
-
-                    {/* Gaji Bersih */}
-                    <td className="py-2 px-4 text-right bg-indigo-50/30 font-black text-indigo-900 text-sm">
-                      Rp {Number(row.total_net || 0).toLocaleString('id-ID')}
                     </td>
                   </tr>
                 ))
@@ -450,14 +525,23 @@ export default function StorePayrollForm() {
         </div>
       </div>
 
+      {/* Tombol Simpan */}
       <button
         type="button"
         onClick={handleSavePayroll}
-        disabled={saving || payrollRows.length === 0}
-        className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-2xl shadow-lg shadow-indigo-600/25 transition-all flex items-center justify-center gap-2 disabled:opacity-40"
+        disabled={saving || jumlahKruTerpilih === 0}
+        className={`w-full py-3.5 text-white font-black text-xs rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-40 ${
+          disbursementType === 'GAJI'
+            ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/25'
+            : 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/25'
+        }`}
       >
         <Save className="w-4 h-4" />
-        <span>{saving ? 'Menyimpan Penggajian...' : `Simpan Penggajian Cabang (${payrollRows.length} Staf)`}</span>
+        <span>
+          {saving 
+            ? 'Menyimpan...' 
+            : `Simpan Data ${disbursementType === 'GAJI' ? 'Gaji THP (Tgl 28)' : 'Bonus Kru (Tgl 10)'} (${jumlahKruTerpilih} Kru Terpilih)`}
+        </span>
       </button>
 
     </div>
