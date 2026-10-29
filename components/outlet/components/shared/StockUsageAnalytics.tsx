@@ -3,100 +3,51 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { 
-  MapPin, 
-  Download, 
+  BarChart3, 
   RefreshCw, 
-  Layers
+  Download, 
+  MapPin, 
+  Layers,
+  ArrowUpDown
 } from 'lucide-react';
 
 interface Props {
   user?: any;
-  defaultLocationId?: string;
+  defaultLocationId?: string | number;
   hideLocationFilter?: boolean;
 }
 
-export default function StockUsageAnalytics({ user, defaultLocationId, hideLocationFilter = false }: Props) {
-  const [dateRange, setDateRange] = useState<7 | 14 | 30>(7);
-  const [selectedLoc, setSelectedLoc] = useState<string>(defaultLocationId || 'all');
+interface ItemUsageRow {
+  itemName: string;
+  category: string;
+  unit: string;
+  lastStock: number;
+  dailyUsage: Record<string, number>; // dateStr -> qty
+  totalUsage: number;
+  avgUsage: number;
+}
+
+const CATEGORY_ORDER = [
+  'Bahan Utama & Dapur',
+  'Kondimen & Pelengkap',
+  'Minuman & Es',
+  'Kemasan & Operasional'
+];
+
+export default function StockUsageAnalytics({ user, defaultLocationId, hideLocationFilter }: Props) {
+  const [daysRange, setDaysRange] = useState<number>(7);
   const [locations, setLocations] = useState<any[]>([]);
-  
-  const [branchStocks, setBranchStocks] = useState<any[]>([]);
-  const [rawClosings, setRawClosings] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [downloading, setDownloading] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState<string>('all');
+  const [loading, setLoading] = useState<boolean>(true);
+  const [usageRows, setUsageRows] = useState<ItemUsageRow[]>([]);
+  const [dateColumns, setDateColumns] = useState<string[]>([]);
+  const [activeDaysCount, setActiveDaysCount] = useState<number>(1);
 
-  useEffect(() => {
-    if (defaultLocationId) {
-      setSelectedLoc(defaultLocationId);
-    }
-  }, [defaultLocationId]);
-
-  useEffect(() => {
-    async function fetchLocations() {
-      const { data } = await supabase.from('locations').select('id, name').order('name');
-      if (data) setLocations(data);
-    }
-    fetchLocations();
-  }, []);
-
-  const formatDateKey = (d: Date) => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+  // Bersihkan label cabang agar tidak muncul "Outlet Outlet ..."
+  const cleanLocationName = (name?: string) => {
+    if (!name) return 'Outlet';
+    return `Outlet ${name.replace(/^outlet\s+/i, '').trim()}`;
   };
-
-  const dateColumns = useMemo(() => {
-    const cols: string[] = [];
-    const today = new Date();
-    for (let i = dateRange - 1; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      cols.push(formatDateKey(d));
-    }
-    return cols;
-  }, [dateRange]);
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const startObj = new Date(dateColumns[0]);
-      startObj.setDate(startObj.getDate() - 1);
-      const queryStartDate = formatDateKey(startObj);
-      const queryEndDate = dateColumns[dateColumns.length - 1];
-
-      let stockQuery = supabase.from('branch_stocks').select('*').limit(2000);
-      if (selectedLoc !== 'all') {
-        stockQuery = stockQuery.eq('location_id', selectedLoc);
-      }
-      const { data: stocks, error: stockErr } = await stockQuery;
-      if (stockErr) throw stockErr;
-      setBranchStocks(stocks || []);
-
-      let cQuery = supabase
-        .from('daily_closings')
-        .select('item_name, closing_date, terpakai, remaining_stock, unit, category, location_id')
-        .gte('closing_date', queryStartDate)
-        .lte('closing_date', queryEndDate)
-        .limit(5000);
-
-      if (selectedLoc !== 'all') {
-        cQuery = cQuery.eq('location_id', selectedLoc);
-      }
-      const { data: closings, error: closingErr } = await cQuery;
-      if (closingErr) throw closingErr;
-      setRawClosings(closings || []);
-
-    } catch (err: any) {
-      console.error('Gagal mengambil data konsumsi:', err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, [dateRange, selectedLoc, dateColumns]);
 
   const cleanName = (name?: string) => {
     return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
@@ -146,7 +97,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       name.includes('TISSUE') || 
       name.includes('PLASTIK') || 
       name.includes('CUP') || 
-      name.includes('KERTAS') ||
+      name.includes('KERTAS') || 
       name.includes('TALI')
     ) {
       return 'Kemasan & Operasional';
@@ -155,191 +106,278 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     return 'Bahan Utama & Dapur';
   };
 
-  const groupedReportData = useMemo(() => {
-    const itemMap: Record<string, {
-      itemName: string;
-      category: string;
-      unit: string;
-      latestStock: number;
-      dailyUsage: Record<string, number>;
-      totalUsed: number;
-    }> = {};
+  // Inisialisasi Lokasi
+  useEffect(() => {
+    async function loadLocations() {
+      const { data } = await supabase.from('locations').select('id, name').order('name');
+      if (data) {
+        setLocations(data);
+        if (defaultLocationId) {
+          setSelectedLocation(String(defaultLocationId));
+        } else if (data.length > 0 && selectedLocation === 'all') {
+          // Default ke cabang pertama jika tidak memilih 'all'
+          setSelectedLocation(String(data[0].id));
+        }
+      }
+    }
+    loadLocations();
+  }, [defaultLocationId]);
 
-    branchStocks.forEach((st) => {
-      const name = cleanName(st.item_name);
-      if (!name) return;
-      const normalizedCat = normalizeCategory(st.category, name);
+  // Ambil Data Konsumsi & Hitung Rata-rata
+  const fetchUsageAnalytics = async () => {
+    setLoading(true);
+    try {
+      // 1. Buat deretan tanggal sesuai rentang (7, 14, 30 hari)
+      const dates: string[] = [];
+      const now = new Date();
+      for (let i = daysRange - 1; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        const dStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(d);
+        dates.push(dStr);
+      }
+      setDateColumns(dates);
 
-      if (!itemMap[name]) {
-        itemMap[name] = {
-          itemName: name,
-          category: normalizedCat,
-          unit: st.unit || 'Pcs',
-          latestStock: 0,
+      const startDate = dates[0];
+      const endDate = dates[dates.length - 1];
+
+      // 2. Query master items
+      const { data: masterItems } = await supabase
+        .from('items')
+        .select('name, category, uom')
+        .order('name');
+
+      // 3. Query daily_closings
+      let query = supabase
+        .from('daily_closings')
+        .select('item_name, closing_date, terpakai, remaining_stock, unit, location_id')
+        .gte('closing_date', startDate)
+        .lte('closing_date', endDate);
+
+      if (selectedLocation !== 'all') {
+        query = query.eq('location_id', selectedLocation);
+      }
+
+      const { data: closingData, error } = await query;
+      if (error) throw error;
+
+      // 4. Hitung Hari Aktif Riil (Hari yang sudah ada catatan closing di database)
+      const recordedDates = new Set<string>();
+      (closingData || []).forEach((c) => {
+        if (c.closing_date && Number(c.terpakai || 0) >= 0) {
+          recordedDates.add(c.closing_date);
+        }
+      });
+
+      // Hari ini tidak dijadikan pembagi jika belum ada closing
+      const effectiveActiveDays = Math.max(1, recordedDates.size);
+      setActiveDaysCount(effectiveActiveDays);
+
+      // 5. Susun matriks pemakaian per barang
+      const itemMap: Record<string, ItemUsageRow> = {};
+
+      (masterItems || []).forEach((item) => {
+        const cName = cleanName(item.name);
+        itemMap[cName] = {
+          itemName: cName,
+          category: normalizeCategory(item.category, item.name),
+          unit: item.uom || 'Pcs',
+          lastStock: 0,
           dailyUsage: {},
-          totalUsed: 0
+          totalUsage: 0,
+          avgUsage: 0
         };
-        dateColumns.forEach((d) => {
-          itemMap[name].dailyUsage[d] = 0;
+        dates.forEach((d) => {
+          itemMap[cName].dailyUsage[d] = 0;
         });
-      }
-      itemMap[name].latestStock += Number(st.remaining_stock || 0);
-    });
+      });
 
-    rawClosings.forEach((c) => {
-      const name = cleanName(c.item_name);
-      if (!name) return;
+      // Agregasi pemakaian
+      (closingData || []).forEach((row) => {
+        const cName = cleanName(row.item_name);
+        if (!itemMap[cName]) {
+          itemMap[cName] = {
+            itemName: cName,
+            category: normalizeCategory(undefined, row.item_name),
+            unit: row.unit || 'Pcs',
+            lastStock: 0,
+            dailyUsage: {},
+            totalUsage: 0,
+            avgUsage: 0
+          };
+          dates.forEach((d) => {
+            itemMap[cName].dailyUsage[d] = 0;
+          });
+        }
 
-      if (!itemMap[name]) {
-        const normalizedCat = normalizeCategory(c.category, name);
-        itemMap[name] = {
-          itemName: name,
-          category: normalizedCat,
-          unit: c.unit || 'Pcs',
-          latestStock: 0,
-          dailyUsage: {},
-          totalUsed: 0
+        const date = row.closing_date;
+        const used = Number(row.terpakai || 0);
+
+        if (itemMap[cName].dailyUsage[date] !== undefined) {
+          itemMap[cName].dailyUsage[date] += used;
+        }
+
+        // Ambil stok sisa fisik terbaru
+        if (date === endDate || row.remaining_stock !== null) {
+          itemMap[cName].lastStock = Number(row.remaining_stock || 0);
+          itemMap[cName].unit = row.unit || itemMap[cName].unit;
+        }
+      });
+
+      // 6. Hitung Total & Rata-rata Bulat Utuh (Tanpa Koma)
+      const rows: ItemUsageRow[] = Object.values(itemMap).map((row) => {
+        const total = Object.values(row.dailyUsage).reduce((sum, v) => sum + v, 0);
+        
+        // Rata-rata dibagi hari aktif riil & dibulatkan ke bilangan bulat terdekat
+        const avg = Math.round(total / effectiveActiveDays);
+
+        return {
+          ...row,
+          totalUsage: parseFloat(total.toFixed(1)),
+          avgUsage: avg
         };
-        dateColumns.forEach((d) => {
-          itemMap[name].dailyUsage[d] = 0;
-        });
-      }
+      });
 
-      const val = Number(c.terpakai !== undefined && c.terpakai !== null ? c.terpakai : (c.consumption_qty || 0));
-      const rawDate = String(c.closing_date || '');
-      const cDate = rawDate.includes('T') ? rawDate.split('T')[0] : rawDate.slice(0, 10).trim();
+      setUsageRows(rows);
+    } catch (err: any) {
+      console.error('Gagal mengambil analitik pemakaian:', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      if (itemMap[name].dailyUsage[cDate] !== undefined) {
-        itemMap[name].dailyUsage[cDate] += val;
-      }
-      itemMap[name].totalUsed += val;
-    });
+  useEffect(() => {
+    fetchUsageAnalytics();
+  }, [daysRange, selectedLocation]);
 
-    const activeDaysCount = dateColumns.length || 1;
-
-    const groups: Record<string, any[]> = {
+  // Kelompokkan data per 4 Kategori Baku & Urutkan A-Z
+  const groupedData = useMemo(() => {
+    const groups: Record<string, ItemUsageRow[]> = {
       'Bahan Utama & Dapur': [],
       'Kondimen & Pelengkap': [],
       'Minuman & Es': [],
       'Kemasan & Operasional': [],
     };
 
-    Object.values(itemMap).forEach((item) => {
-      const cat = groups[item.category] ? item.category : 'Bahan Utama & Dapur';
-      const avg = item.totalUsed / activeDaysCount;
-      groups[cat].push({
-        ...item,
-        averagePerDay: avg
-      });
+    usageRows.forEach((row) => {
+      const cat = groups[row.category] ? row.category : 'Bahan Utama & Dapur';
+      groups[cat].push(row);
     });
 
-    Object.keys(groups).forEach((key) => {
-      groups[key].sort((a, b) => a.itemName.localeCompare(b.itemName));
+    const ordered: { category: string; items: ItemUsageRow[] }[] = [];
+    CATEGORY_ORDER.forEach((cat) => {
+      if (groups[cat] && groups[cat].length > 0) {
+        groups[cat].sort((a, b) => a.itemName.localeCompare(b.itemName));
+        ordered.push({ category: cat, items: groups[cat] });
+      }
     });
 
-    return groups;
-  }, [branchStocks, rawClosings, dateColumns]);
+    return ordered;
+  }, [usageRows]);
 
-  const handleDownloadCSV = () => {
-    setDownloading(true);
-    try {
-      const locLabel = selectedLoc === 'all' 
-        ? 'Semua_Cabang' 
-        : locations.find((l) => l.id === selectedLoc)?.name || 'Cabang';
-
-      const headers = [
-        'Kategori Bahan',
-        'Nama Bahan Baku',
-        'Satuan',
-        'Sisa Fisik Terakhir',
-        ...dateColumns.map((d) => `TGL ${d.slice(5)}`),
-        'Total Pemakaian',
-        'Rata-rata / Hari'
-      ];
-
-      const rows: string[] = [];
-
-      Object.entries(groupedReportData).forEach(([catName, items]) => {
-        items.forEach((item) => {
-          const rowData = [
-            `"${catName}"`,
-            `"${item.itemName}"`,
-            `"${item.unit}"`,
-            item.latestStock.toFixed(1),
-            ...dateColumns.map((d) => (item.dailyUsage[d] || 0).toFixed(1)),
-            item.totalUsed.toFixed(1),
-            item.averagePerDay.toFixed(1)
-          ];
-          rows.push(rowData.join(';'));
-        });
-      });
-
-      const csvContent = 'sep=;\r\n' + [headers.join(';'), ...rows].join('\r\n');
-      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `Laporan_Pemakaian_Bahan_${locLabel}_${dateRange}Hari.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } finally {
-      setDownloading(false);
+  // Format Header Tanggal: "TGL 10-28"
+  const formatDateHeader = (dStr: string) => {
+    const parts = dStr.split('-');
+    if (parts.length === 3) {
+      return `TGL ${parts[1]}-${parts[2]}`;
     }
+    return dStr;
+  };
+
+  // Export CSV
+  const handleExportCSV = () => {
+    if (usageRows.length === 0) return;
+    const headers = [
+      'Kategori',
+      'Nama Bahan Baku',
+      'Satuan',
+      'Sisa Fisik Terakhir',
+      ...dateColumns.map((d) => formatDateHeader(d)),
+      'Total Terpakai',
+      'Rata-rata / Hari'
+    ];
+
+    const rows: string[] = [];
+    groupedData.forEach(({ category, items }) => {
+      items.forEach((item) => {
+        const row = [
+          `"${category}"`,
+          `"${item.itemName}"`,
+          `"${item.unit}"`,
+          item.lastStock,
+          ...dateColumns.map((d) => item.dailyUsage[d] || 0),
+          item.totalUsage,
+          item.avgUsage
+        ];
+        rows.push(row.join(';'));
+      });
+    });
+
+    const csvContent = [headers.join(';'), ...rows].join('\r\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Laporan_Konsumsi_Harian_${daysRange}Hari.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
     <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans">
-      <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-slate-100 gap-4">
+      
+      {/* Header Widget */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-5 border-b border-slate-100 gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-            <Layers className="w-5 h-5" />
+          <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+            <BarChart3 className="w-5 h-5" />
           </div>
           <div>
             <h2 className="text-base font-black text-slate-900 tracking-tight">
               Laporan Pemakaian Harian Bahan Baku
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Kuantitas konsumsi riil per tanggal closing dan rata-rata pemakaian berdasarkan hari aktif.
+              Kuantitas konsumsi riil per tanggal closing • Rata-rata dihitung dari <b>{activeDaysCount} hari aktif</b> closing (dibulatkan).
             </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
           <button
-            type="button"
-            onClick={fetchData}
-            className="p-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-100 transition-all"
+            onClick={fetchUsageAnalytics}
+            className="p-2.5 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl text-slate-500"
             title="Segarkan Data"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
 
           <button
-            type="button"
-            onClick={handleDownloadCSV}
-            disabled={downloading}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-xs transition-all"
+            onClick={handleExportCSV}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>{downloading ? 'Menyiapkan...' : 'Download Rekap (.CSV)'}</span>
+            <span>Download Rekap (.CSV)</span>
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50/80 p-4 rounded-2xl border border-slate-100">
+      {/* Filter Kontrol: Rentang Hari & Cabang */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">
-            RENTANG WAKTU
-          </span>
-          <div className="inline-flex bg-white p-1 rounded-xl border border-slate-200 shadow-2xs">
-            {([7, 14, 30] as const).map((r) => (
+          <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">
+            Bentang Waktu
+          </label>
+          <div className="inline-flex p-1 bg-slate-100 rounded-2xl">
+            {[7, 14, 30].map((r) => (
               <button
                 key={r}
                 type="button"
-                onClick={() => setDateRange(r)}
-                className={`px-3 py-1 text-xs font-black rounded-lg transition-all ${
-                  dateRange === r ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-900'
+                onClick={() => setDaysRange(r)}
+                className={`px-4 py-1.5 rounded-xl text-xs font-black transition-all ${
+                  daysRange === r
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 {r} Hari
@@ -350,20 +388,20 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
 
         {!hideLocationFilter && (
           <div>
-            <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block mb-1.5">
-              PILIH CABANG OUTLET
-            </span>
-            <div className="relative max-w-xs">
-              <MapPin className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+            <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">
+              Pilih Cabang Outlet
+            </label>
+            <div className="relative">
+              <MapPin className="w-3.5 h-3.5 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
               <select
-                value={selectedLoc}
-                onChange={(e) => setSelectedLoc(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none shadow-2xs"
+                value={selectedLocation}
+                onChange={(e) => setSelectedLocation(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
               >
-                <option value="all">Semua Cabang (Agregat)</option>
+                <option value="all">Semua Outlet (Agregat)</option>
                 {locations.map((loc) => (
                   <option key={loc.id} value={loc.id}>
-                    Outlet {loc.name}
+                    {cleanLocationName(loc.name)}
                   </option>
                 ))}
               </select>
@@ -372,91 +410,119 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
         )}
       </div>
 
+      {/* Tabel Matriks Konsumsi */}
       <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-wider bg-slate-50/90">
-                <th className="py-3 px-4 min-w-[200px]">NAMA BAHAN & KATEGORI</th>
-                <th className="py-3 px-3 text-right min-w-[100px]">SISA FISIK TERAKHIR</th>
+        <div className="overflow-x-auto max-h-[38rem] overflow-y-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead className="bg-slate-50/90 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-xs">
+              <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                <th className="py-3 px-4 min-w-[200px] sticky left-0 bg-slate-50/90 z-20">NAMA BAHAN & KATEGORI</th>
+                <th className="py-3 px-3 text-center min-w-[90px]">SISA FISIK TERAKHIR</th>
                 {dateColumns.map((d) => (
-                  <th key={d} className="py-3 px-2 text-center min-w-[65px]">
-                    TGL {d.slice(5)}
+                  <th key={d} className="py-3 px-3 text-center min-w-[75px]">
+                    {formatDateHeader(d)}
                   </th>
                 ))}
-                <th className="py-3 px-3 text-right font-black text-indigo-700 min-w-[95px]">TOTAL PAKAI</th>
-                <th className="py-3 px-4 text-right font-black text-emerald-600 min-w-[110px]">RATA-RATA / HARI</th>
+                <th className="py-3 px-3 text-right min-w-[90px] font-black text-indigo-900 bg-indigo-50/40">
+                  TOTAL PAKAI
+                </th>
+                <th className="py-3 px-4 text-right min-w-[110px] font-black text-emerald-700 bg-emerald-50/60">
+                  RATA-RATA / HARI
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 font-semibold text-xs">
+            <tbody className="divide-y divide-slate-100 font-medium">
               {loading ? (
                 <tr>
                   <td colSpan={dateColumns.length + 4} className="py-16 text-center text-slate-400 font-bold">
-                    Memuat data analisa pemakaian bahan...
+                    Memuat data konsumsi harian...
+                  </td>
+                </tr>
+              ) : groupedData.length === 0 ? (
+                <tr>
+                  <td colSpan={dateColumns.length + 4} className="py-16 text-center text-slate-400 font-bold">
+                    Tidak ada data pemakaian untuk cabang & bentang waktu ini.
                   </td>
                 </tr>
               ) : (
-                Object.entries(groupedReportData).map(([catName, items]) => {
-                  if (items.length === 0) return null;
-                  return (
-                    <React.Fragment key={catName}>
-                      <tr className="bg-indigo-50/60 border-y border-indigo-100/90">
-                        <td 
-                          colSpan={dateColumns.length + 4} 
-                          className="py-2.5 px-4 font-black text-indigo-900 uppercase tracking-wider text-[11px]"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block"></span>
-                              <span>{catName}</span>
-                            </div>
-                            <span className="text-[10px] font-bold text-indigo-500 normal-case tracking-normal">
-                              {items.length} Bahan Baku Terdaftar
-                            </span>
+                groupedData.map(({ category, items }) => (
+                  <React.Fragment key={category}>
+                    {/* Header Sekat Kategori */}
+                    <tr className="bg-indigo-50/60 border-y border-indigo-100/90">
+                      <td 
+                        colSpan={dateColumns.length + 4} 
+                        className="py-2.5 px-4 font-black text-indigo-900 uppercase tracking-wider text-[11px]"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block"></span>
+                            <span>{category}</span>
+                          </div>
+                          <span className="text-[10px] font-bold text-indigo-500 normal-case tracking-normal">
+                            {items.length} Bahan Baku Terdaftar
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {items.map((row) => (
+                      <tr key={row.itemName} className="hover:bg-slate-50/60 transition-colors">
+                        {/* Nama Barang (Frozen di Kiri) */}
+                        <td className="py-2.5 px-4 sticky left-0 bg-white hover:bg-slate-50/60 z-10 border-r border-slate-100">
+                          <div className="font-extrabold text-slate-900 uppercase leading-tight">
+                            {row.itemName}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-semibold mt-0.5">
+                            {row.category}
                           </div>
                         </td>
+
+                        {/* Sisa Fisik Terakhir */}
+                        <td className="py-2.5 px-3 text-center font-bold text-slate-700">
+                          {row.lastStock}{' '}
+                          <span className="text-[10px] text-slate-400 font-normal">{row.unit}</span>
+                        </td>
+
+                        {/* Nilai Konsumsi Tiap Tanggal */}
+                        {dateColumns.map((d) => {
+                          const val = row.dailyUsage[d] || 0;
+                          return (
+                            <td 
+                              key={d} 
+                              className={`py-2.5 px-3 text-center font-bold ${
+                                val > 0 ? 'text-slate-800' : 'text-slate-300 font-normal'
+                              }`}
+                            >
+                              {val > 0 ? val : '0.0'}
+                            </td>
+                          );
+                        })}
+
+                        {/* Total Terpakai */}
+                        <td className="py-2.5 px-3 text-right font-black text-indigo-900 bg-indigo-50/20">
+                          {row.totalUsage}{' '}
+                          <span className="text-[10px] text-slate-400 font-normal">{row.unit}</span>
+                        </td>
+
+                        {/* RATA-RATA / HARI (ANGKA BULAT UTUH TANPA KOMA) */}
+                        <td className="py-2.5 px-4 text-right font-black text-emerald-700 bg-emerald-50/40">
+                          <span className="text-sm">
+                            {row.avgUsage}
+                          </span>{' '}
+                          <span className="text-[10px] text-emerald-600 font-normal">
+                            {row.unit}/hari
+                          </span>
+                        </td>
                       </tr>
-
-                      {items.map((row) => (
-                        <tr key={row.itemName} className="hover:bg-slate-50/60 transition-colors">
-                          <td className="py-3 px-4">
-                            <span className="font-extrabold text-slate-900 block leading-tight">{row.itemName}</span>
-                            <span className="text-[10px] text-slate-400 font-bold block mt-0.5">{catName}</span>
-                          </td>
-                          <td className="py-3 px-3 text-right font-extrabold text-slate-700">
-                            {row.latestStock.toFixed(1)} <span className="text-[10px] text-slate-400 font-normal">{row.unit}</span>
-                          </td>
-                          
-                          {dateColumns.map((d) => {
-                            const val = row.dailyUsage[d] || 0;
-                            return (
-                              <td 
-                                key={d} 
-                                className={`py-3 px-2 text-center text-xs ${
-                                  val > 0 ? 'font-bold text-slate-800' : 'text-slate-300 font-normal'
-                                }`}
-                              >
-                                {val.toFixed(1)}
-                              </td>
-                            );
-                          })}
-
-                          <td className="py-3 px-3 text-right font-black text-indigo-700">
-                            {row.totalUsed.toFixed(1)} <span className="text-[10px] text-slate-400 font-normal">{row.unit}</span>
-                          </td>
-                          <td className="py-3 px-4 text-right font-black text-emerald-600">
-                            {row.averagePerDay.toFixed(1)} <span className="text-[9px] text-slate-400 font-normal">{row.unit}/hari</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </React.Fragment>
-                  );
-                })
+                    ))}
+                  </React.Fragment>
+                ))
               )}
             </tbody>
           </table>
         </div>
       </div>
+
     </div>
   );
 }
