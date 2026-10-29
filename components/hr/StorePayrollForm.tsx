@@ -10,10 +10,10 @@ import {
   RefreshCw, 
   CheckCircle2, 
   AlertCircle, 
-  DollarSign,
-  Gift,
-  CheckSquare,
-  Square
+  DollarSign, 
+  Gift, 
+  CheckSquare, 
+  Square 
 } from 'lucide-react';
 
 interface StaffPayrollRow {
@@ -32,7 +32,7 @@ export default function StorePayrollForm() {
   const [locations, setLocations] = useState<any[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<string>('');
   
-  // Tipe Siklus: 'GAJI' (Tgl 28 Bulan Berjalan) atau 'BONUS' (Tgl 10 Bulan Berikutnya)
+  // Tipe Siklus: 'GAJI' (Tgl 28 Bulan Berjalan) atau 'BONUS' (Tgl 5 Bulan Berikutnya)
   const [disbursementType, setDisbursementType] = useState<'GAJI' | 'BONUS'>('GAJI');
 
   const getCurrentMonthStr = () => {
@@ -116,7 +116,6 @@ export default function StorePayrollForm() {
 
       (attendanceData || []).forEach((att) => {
         const staff = (att.staff_name || '').trim().toUpperCase();
-        // Lewati akun sistem / HR pusat
         if (staff && !staff.includes('SISTEM') && !staff.includes('ADMIN') && att.role !== 'HR') {
           if (!workDaysMap.has(staff)) {
             workDaysMap.set(staff, new Set());
@@ -130,7 +129,7 @@ export default function StorePayrollForm() {
         }
       });
 
-      // Gabungkan nama kru yang ada di presensi HR dengan kru yang sebelumnya sudah tersimpan di payroll
+      // Gabungkan nama kru presensi HR dengan yang sudah tersimpan
       const allStaffNames = new Set<string>();
       workDaysMap.forEach((_, staff) => allStaffNames.add(staff));
       existingMap.forEach((_, staff) => allStaffNames.add(staff));
@@ -145,9 +144,9 @@ export default function StorePayrollForm() {
         const bonus = exist ? Number(exist.bonus_omzet || 0) : 0;
         const role = exist?.role || staffRoleMap.get(staffName) || 'CREW';
 
-        // Logika default centang:
-        // - Untuk GAJI (Tgl 28): Otomatis centang jika memiliki presensi kerja di bulan tersebut
-        // - Untuk BONUS (Tgl 10): Default tidak dicentang (HR tinggal centang yang dapat bonus saja)
+        // Default centang:
+        // - GAJI (Tgl 28): Otomatis centang jika punya presensi bulan berjalan
+        // - BONUS (Tgl 5): Default false, HR centang siapa saja yang berhak
         const isSelected = exist ? true : (disbursementType === 'GAJI' ? daysFromHRDB > 0 : false);
 
         return {
@@ -162,7 +161,6 @@ export default function StorePayrollForm() {
         };
       });
 
-      // Urutkan alfabetis
       rows.sort((a, b) => a.staff_name.localeCompare(b.staff_name));
       setPayrollRows(rows);
     } catch (err: any) {
@@ -226,7 +224,8 @@ export default function StorePayrollForm() {
           notes: r.notes?.trim() || null,
           submitted_by: submitter,
           payment_status: 'PAID',
-          payment_date: isGaji ? `${selectedMonth}-28` : `${selectedMonth}-10`,
+          // Tgl 28 untuk Gaji, Tgl 05 untuk Bonus
+          payment_date: isGaji ? `${selectedMonth}-28` : `${selectedMonth}-05`,
           updated_at: new Date().toISOString()
         };
       });
@@ -238,7 +237,7 @@ export default function StorePayrollForm() {
       if (error) throw error;
 
       setMessage({
-        text: `Berhasil menyimpan data ${disbursementType === 'GAJI' ? 'Gaji Kru (Tgl 28)' : 'Bonus Kru (Tgl 10)'} berbasis database presensi HR! (${payloads.length} kru tersimpan)`,
+        text: `Berhasil menyimpan data ${disbursementType === 'GAJI' ? 'Gaji Kru (Tgl 28)' : 'Bonus Kru (Tgl 5)'}! (${payloads.length} kru tersimpan)`,
         type: 'success'
       });
 
@@ -274,7 +273,7 @@ export default function StorePayrollForm() {
               Input Penggajian & Bonus Kru Cabang
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Daftar nama kru & akumulasi kehadiran ditarik langsung dari database presensi HR (<code className="text-indigo-600 font-bold">staff_attendances</code>).
+              Presensi ditarik dari DB HR (<code className="text-indigo-600 font-bold">staff_attendances</code>). Gaji per Tgl 28 & Bonus per Tgl 5.
             </p>
           </div>
         </div>
@@ -316,7 +315,7 @@ export default function StorePayrollForm() {
         </div>
       </div>
 
-      {/* PILIHAN 2 WAKTU SIKLUS PENCAIRAN */}
+      {/* PILIHAN 2 SIKLUS: TGL 28 & TGL 5 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button
           type="button"
@@ -337,7 +336,7 @@ export default function StorePayrollForm() {
             </span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1 font-medium leading-relaxed">
-            Menampilkan kru yang hadir di DB presensi bulan ini. Cukup input <b>Take Home Pay (THP)</b>. Kru resign di tengah jalan hari masuknya otomatis terpotong sesuai tanggal terakhir absen.
+            Menampilkan kru yang hadir di DB presensi bulan ini. Cukup input <b>Take Home Pay (THP)</b>. Kru resign hari masuknya otomatis sesuai absensi terakhir.
           </p>
         </button>
 
@@ -353,14 +352,14 @@ export default function StorePayrollForm() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 font-black text-xs text-amber-950">
               <Gift className="w-4 h-4 text-amber-600" />
-              <span>2. Bonus Cabang (Setiap Tanggal 10)</span>
+              <span>2. Bonus Cabang (Setiap Tanggal 5)</span>
             </div>
             <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800">
               Bulan Berikutnya
             </span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1 font-medium leading-relaxed">
-            Hanya input <b>Nominal Bonus</b> untuk staf yang berhak. Kru yang resign atau tidak lolos kualifikasi bonus tinggal di-uncheck (tidak dicentang).
+            Hanya input <b>Nominal Bonus</b> untuk kru yang berhak. Kru yang resign atau tidak lolos kualifikasi cukup dinonaktifkan centangnya.
           </p>
         </button>
       </div>
@@ -373,7 +372,7 @@ export default function StorePayrollForm() {
       }`}>
         <div>
           <span className="text-[10px] uppercase font-black tracking-wider text-slate-500">
-            Total {disbursementType === 'GAJI' ? 'Penggajian THP (Tgl 28)' : 'Bonus Kru (Tgl 10)'} ({cleanLocationName(locations.find(l => String(l.id) === selectedLocation)?.name)})
+            Total {disbursementType === 'GAJI' ? 'Penggajian THP (Tgl 28)' : 'Bonus Kru (Tgl 5)'} ({cleanLocationName(locations.find(l => String(l.id) === selectedLocation)?.name)})
           </span>
           <div className={`text-xl font-black mt-0.5 ${disbursementType === 'GAJI' ? 'text-indigo-950' : 'text-amber-900'}`}>
             Rp {totalNominalTerpilih.toLocaleString('id-ID')}
@@ -495,7 +494,7 @@ export default function StorePayrollForm() {
                       </>
                     )}
 
-                    {/* SIKLUS 2: BONUS (Tgl 10) */}
+                    {/* SIKLUS 2: BONUS (Tgl 5) */}
                     {disbursementType === 'BONUS' && (
                       <td className="py-2 px-4 text-right bg-amber-50/20">
                         <input
@@ -511,14 +510,14 @@ export default function StorePayrollForm() {
                       </td>
                     )}
 
-                    {/* Catatan / Alasan */}
+                    {/* Catatan / Keterangan */}
                     <td className="py-2 px-4">
                       <input
                         type="text"
                         disabled={!row.is_selected}
                         value={row.notes}
                         onChange={(e) => handleValueChange(idx, 'notes', e.target.value)}
-                        placeholder="Contoh: Resign tgl 14 / Bonus omzet tembus..."
+                        placeholder="Contoh: Resign tgl 14 / Bonus target..."
                         className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:border-indigo-500 disabled:bg-slate-100 disabled:text-slate-300"
                       />
                     </td>
@@ -545,7 +544,7 @@ export default function StorePayrollForm() {
         <span>
           {saving 
             ? 'Menyimpan...' 
-            : `Simpan Data ${disbursementType === 'GAJI' ? 'Gaji THP (Tgl 28)' : 'Bonus Kru (Tgl 10)'} (${jumlahKruTerpilih} Kru Terpilih)`}
+            : `Simpan Data ${disbursementType === 'GAJI' ? 'Gaji THP (Tgl 28)' : 'Bonus Kru (Tgl 5)'} (${jumlahKruTerpilih} Kru Terpilih)`}
         </span>
       </button>
 
