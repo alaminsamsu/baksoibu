@@ -1,3 +1,4 @@
+tsx
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -13,18 +14,20 @@ import {
   Award,
   UserX,
   RefreshCw,
-  BookOpen
+  BookOpen,
+  DollarSign
 } from 'lucide-react';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
 import OperationalKnowledgeBase from '@/components/shared/OperationalKnowledgeBase';
+import StorePayrollForm from '@/components/hr/StorePayrollForm';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function HRDashboardPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
 
-  // Navigasi Tab Utama HR
-  const [activeTab, setActiveTab] = useState<'presensi' | 'panduan'>('presensi');
+  // Navigasi Tab Utama HR: 'presensi' | 'payroll' | 'panduan'
+  const [activeTab, setActiveTab] = useState<'presensi' | 'payroll' | 'panduan'>('presensi');
 
   // State Presensi Mandiri HR
   const [attendance, setAttendance] = useState<any>(null);
@@ -367,7 +370,7 @@ export default function HRDashboardPage() {
           <div className="flex bg-slate-50 p-1 rounded-2xl border border-slate-200/80 text-xs font-bold">
             <button
               onClick={() => setActiveTab('presensi')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'presensi' 
                   ? 'bg-indigo-600 text-white shadow-xs' 
                   : 'text-slate-500 hover:text-slate-800'
@@ -376,9 +379,23 @@ export default function HRDashboardPage() {
               <Clock className="w-3.5 h-3.5" />
               Presensi & Disiplin
             </button>
+
+            {/* TAB BARU: FORM PENGGAJIAN KRU TOKO */}
+            <button
+              onClick={() => setActiveTab('payroll')}
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'payroll' 
+                  ? 'bg-indigo-600 text-white shadow-xs' 
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <DollarSign className="w-3.5 h-3.5" />
+              Penggajian & Bonus
+            </button>
+
             <button
               onClick={() => setActiveTab('panduan')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'panduan' 
                   ? 'bg-indigo-600 text-white shadow-xs' 
                   : 'text-slate-500 hover:text-slate-800'
@@ -417,6 +434,13 @@ export default function HRDashboardPage() {
               userRole="HR" 
               userName={currentUser?.active_staff_name || currentUser?.username || 'Petugas HR'} 
             />
+          </div>
+        )}
+
+        {/* TAB BARU: MODUL PENGGAJIAN & BONUS KRU CABANG */}
+        {activeTab === 'payroll' && (
+          <div>
+            <StorePayrollForm />
           </div>
         )}
 
