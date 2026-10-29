@@ -5,69 +5,84 @@ import { supabase } from '@/lib/supabaseClient';
 import { 
   ShoppingBag, 
   ArrowLeft, 
-  Calendar, 
-  MapPin, 
-  RefreshCw, 
-  Printer, 
   Download, 
+  Printer, 
   Trash2, 
+  RefreshCw, 
+  Calendar, 
   Store, 
   CheckCircle2, 
-  Clock 
+  Clock, 
+  Truck, 
+  Wallet,
+  Search
 } from 'lucide-react';
 
 interface Props {
   user?: any;
-  onBack: () => void;
+  onBack?: () => void;
+}
+
+interface OrderRecord {
+  id: string;
+  location_id: string;
+  item_name: string;
+  quantity: number;
+  unit: string;
+  supplier: string;
+  target_type?: string;
+  source_type?: string;
+  notes?: string;
+  requested_by?: string;
+  status: string;
+  created_at: string;
+  locations?: { name: string };
 }
 
 export default function AdminOrderSummaryView({ user, onBack }: Props) {
-  // Cut-off jam 06:00 WITA untuk hari operasional belanja
-  const getOperationalDate = () => {
-    const now = new Date();
-    const witaHour = parseInt(
-      new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: 'numeric', hour12: false }).format(now)
-    );
-    const d = new Date();
-    if (witaHour < 6) {
-      d.setDate(d.getDate() - 1);
-    }
-    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(d);
+  const getTodayWita = () => {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
   };
 
-  const [orderFilterDate, setOrderFilterDate] = useState<string>(getOperationalDate());
-  const [selectedLoc, setSelectedLoc] = useState<string>('all');
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayWita());
+  const [selectedLocation, setSelectedLocation] = useState<string>('all');
   const [locations, setLocations] = useState<any[]>([]);
-  const [orders, setOrders] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [downloading, setDownloading] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [orders, setOrders] = useState<OrderRecord[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchLocations() {
+      const { data } = await supabase.from('locations').select('id, name').order('name');
+      if (data) setLocations(data);
+    }
+    fetchLocations();
+  }, []);
 
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      const { data: locs } = await supabase.from('locations').select('*');
-      if (locs) setLocations(locs);
-
-      const startWita = new Date(`${orderFilterDate}T00:00:00+08:00`).toISOString();
-      const endWita = new Date(`${orderFilterDate}T23:59:59+08:00`).toISOString();
+      const startDate = `${selectedDate}T00:00:00`;
+      const endDate = `${selectedDate}T23:59:59`;
 
       let query = supabase
         .from('order_requests')
         .select('*, locations(name)')
-        .gte('created_at', startWita)
-        .lte('created_at', endWita)
-        .order('created_at', { ascending: false });
+        .gte('created_at', startDate)
+        .lte('created_at', endDate)
+        .order('supplier', { ascending: true })
+        .order('item_name', { ascending: true });
 
-      if (selectedLoc !== 'all') {
-        query = query.eq('location_id', selectedLoc);
+      if (selectedLocation !== 'all') {
+        query = query.eq('location_id', selectedLocation);
       }
 
       const { data, error } = await query;
       if (error) throw error;
       setOrders(data || []);
     } catch (err: any) {
-      console.error('Gagal mengambil pesanan:', err.message);
+      console.error('Gagal mengambil data order:', err.message);
     } finally {
       setLoading(false);
     }
@@ -75,128 +90,136 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
 
   useEffect(() => {
     fetchOrders();
-  }, [orderFilterDate, selectedLoc]);
+  }, [selectedDate, selectedLocation]);
 
-  // Hapus item dari daftar belanja khusus Admin
-  const handleDeleteOrder = async (id: string, itemName: string) => {
-    const isConfirm = window.confirm(`Apakah Admin yakin ingin menghapus "${itemName}" dari daftar belanja?`);
-    if (!isConfirm) return;
-
-    setDeletingId(id);
+  // Update Status Pemesanan via Dropdown
+  const handleStatusChange = async (orderId: string, newStatus: string) => {
+    setUpdatingId(orderId);
     try {
       const { error } = await supabase
         .from('order_requests')
-        .delete()
-        .eq('id', id);
+        .update({ 
+          status: newStatus,
+          is_ordered_by_leader: newStatus === 'ORDERED_BY_LEADER' || newStatus === 'ORDERED_LEADER'
+        })
+        .eq('id', orderId);
 
       if (error) throw error;
-      setOrders((prev) => prev.filter((item) => item.id !== id));
+
+      setOrders((prev) =>
+        prev.map((ord) => (ord.id === orderId ? { ...ord, status: newStatus } : ord))
+      );
     } catch (err: any) {
-      alert(`Gagal menghapus item: ${err.message}`);
+      alert('Gagal memperbarui status: ' + err.message);
     } finally {
-      setDeletingId(null);
+      setUpdatingId(null);
     }
   };
 
-  // Kelompokkan pesanan berdasarkan Vendor
-  const groupedOrders = useMemo(() => {
-    const groups: Record<string, any[]> = {};
+  // Hapus item order
+  const handleDeleteOrder = async (orderId: string) => {
+    if (!confirm('Yakin ingin menghapus item permintaan ini?')) return;
+    try {
+      const { error } = await supabase.from('order_requests').delete().eq('id', orderId);
+      if (error) throw error;
+      setOrders((prev) => prev.filter((o) => o.id !== orderId));
+    } catch (err: any) {
+      alert('Gagal menghapus: ' + err.message);
+    }
+  };
+
+  // Filter pencarian
+  const filteredOrders = useMemo(() => {
+    return orders.filter((o) => {
+      const s = searchTerm.toLowerCase();
+      return (
+        o.item_name.toLowerCase().includes(s) ||
+        (o.supplier || '').toLowerCase().includes(s) ||
+        (o.locations?.name || '').toLowerCase().includes(s)
+      );
+    });
+  }, [orders, searchTerm]);
+
+  // Hitung Metrik Ringkasan Status
+  const metrics = useMemo(() => {
+    const total = orders.length;
+    let pending = 0;
+    let leader = 0;
+    let cashier = 0;
+    let logistics = 0;
+
     orders.forEach((o) => {
-      const vendor = (o.target_type || o.source_type || o.supplier || 'RUMAH PRODUKSI').toUpperCase();
-      if (!groups[vendor]) groups[vendor] = [];
-      groups[vendor].push(o);
+      const st = (o.status || '').toUpperCase();
+      if (st === 'ORDERED_BY_LEADER' || st === 'ORDERED_LEADER') {
+        leader++;
+      } else if (st === 'BOUGHT_CASHIER' || st === 'KASIR') {
+        cashier++;
+      } else if (st === 'PROCESSED_LOGISTICS' || st === 'LOGISTIK') {
+        logistics++;
+      } else {
+        pending++;
+      }
+    });
+
+    return { total, pending, leader, cashier, logistics };
+  }, [orders]);
+
+  // Kelompokkan per Supplier
+  const groupedOrders = useMemo(() => {
+    const groups: Record<string, OrderRecord[]> = {};
+    filteredOrders.forEach((o) => {
+      const sup = o.supplier || 'RUMAH PRODUKSI';
+      if (!groups[sup]) groups[sup] = [];
+      groups[sup].push(o);
     });
     return groups;
-  }, [orders]);
+  }, [filteredOrders]);
 
-  // Statistik Pesanan
-  const stats = useMemo(() => {
-    const total = orders.length;
-    const direct = orders.filter((o) => o.is_ordered_by_leader || o.status === 'ORDERED_BY_LEADER').length;
-    return {
-      total,
-      direct,
-      needAdmin: total - direct
-    };
-  }, [orders]);
-
-  // Cetak / Simpan PDF
-  const handlePrint = () => {
-    if (orders.length === 0) return alert('Tidak ada data belanja.');
-    window.print();
-  };
-
-  // Download CSV / Excel
-  const handleDownloadCSV = () => {
-    if (orders.length === 0) return alert('Tidak ada data belanja pada tanggal yang dipilih.');
-    setDownloading(true);
-    try {
-      const headers = ['Tanggal', 'Outlet Cabang', 'Vendor / Supplier', 'Nama Barang', 'Jumlah Qty', 'Satuan', 'Status Pesanan', 'Catatan Kru'];
-      const rows = orders.map((o) => {
-        const isLeader = o.is_ordered_by_leader || o.status === 'ORDERED_BY_LEADER';
-        return [
-          `"${orderFilterDate}"`,
-          `"${o.locations?.name || 'Cabang'}"`,
-          `"${o.target_type || o.source_type || o.supplier || 'RUMAH PRODUKSI'}"`,
-          `"${o.item_name}"`,
-          Number(o.quantity || 0),
-          `"${o.unit || 'Pcs'}"`,
-          `"${isLeader ? 'SUDAH DIORDER LEADER' : 'PERLU DIBELI ADMIN'}"`,
-          `"${(o.notes || '').replace(/"/g, '""')}"`
-        ].join(';');
-      });
-
-      const csvContent = [headers.join(';'), ...rows].join('\r\n');
-      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `Permintaan_Belanja_Kru_${orderFilterDate}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } finally {
-      setDownloading(false);
+  // Export CSV
+  const handleExportCSV = () => {
+    if (orders.length === 0) {
+      alert('Tidak ada data belanja untuk diexport.');
+      return;
     }
+    const headers = ['Supplier/Vendor', 'Nama Barang', 'Outlet', 'Kuantitas', 'Satuan', 'Status Pemesanan', 'Catatan Kru', 'Waktu'];
+    const rows = orders.map((o) => [
+      `"${o.supplier || 'RUMAH PRODUKSI'}"`,
+      `"${o.item_name}"`,
+      `"${o.locations?.name || 'Outlet'}"`,
+      o.quantity,
+      `"${o.unit}"`,
+      `"${o.status}"`,
+      `"${(o.notes || '-').replace(/"/g, '""')}"`,
+      `"${new Date(o.created_at).toLocaleTimeString('id-ID')}"`
+    ].join(';'));
+
+    const csvContent = [headers.join(';'), ...rows].join('\r\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Permintaan_Belanja_${selectedDate}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-sm shadow-slate-200/50 space-y-5 font-sans print:p-0 print:border-none print:shadow-none">
+    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans">
       
-      {/* CSS Cetak / Simpan PDF */}
-      <style jsx global>{`
-        @media print {
-          body {
-            background: #ffffff !important;
-            color: #000000 !important;
-            margin: 0 !important;
-            padding: 8mm !important;
-          }
-          .no-print, header, nav, aside {
-            display: none !important;
-          }
-          table {
-            page-break-inside: auto;
-          }
-          tr {
-            page-break-inside: avoid;
-            page-break-after: auto;
-          }
-        }
-      `}</style>
-
-      {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3 no-print">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onBack}
-            className="p-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-slate-600 transition-all mr-1"
-            title="Kembali ke Dashboard"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+      {/* HEADER UTAMA */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-5 border-b border-slate-100 gap-4 no-print">
+        <div className="flex items-center gap-3">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="p-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-slate-500 mr-1"
+              title="Kembali"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          )}
+          <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
             <ShoppingBag className="w-5 h-5" />
           </div>
           <div>
@@ -204,34 +227,33 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
               Rekap Permintaan Belanja Masuk
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Langsung unduh atau simpan berkas PDF belanjaan yang telah diinput kru cabang.
+              Kelola status pengadaan: Leader, Kasir, Logistik/Dapur Pusat, atau Admin.
             </p>
           </div>
         </div>
 
-        {/* Filter & Tombol Aksi */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
-            <Calendar className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
+          <div className="relative flex items-center">
+            <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
             <input
               type="date"
-              value={orderFilterDate}
-              onChange={(e) => setOrderFilterDate(e.target.value)}
-              className="pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="pl-8 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
             />
           </div>
 
           <div className="relative">
-            <MapPin className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
+            <Store className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
             <select
-              value={selectedLoc}
-              onChange={(e) => setSelectedLoc(e.target.value)}
+              value={selectedLocation}
+              onChange={(e) => setSelectedLocation(e.target.value)}
               className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
             >
               <option value="all">Semua Outlet</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  Outlet {loc.name}
                 </option>
               ))}
             </select>
@@ -239,131 +261,175 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
 
           <button
             onClick={fetchOrders}
-            className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl border border-slate-200"
-            title="Segarkan"
+            className="p-2 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl text-slate-500"
+            title="Segarkan Data"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
 
-          {/* Tombol Simpan / Cetak PDF */}
           <button
-            onClick={handlePrint}
-            disabled={orders.length === 0}
-            className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all disabled:opacity-40"
+            onClick={() => window.print()}
+            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs"
           >
             <Printer className="w-3.5 h-3.5" />
             <span>Cetak / PDF</span>
           </button>
 
-          {/* Tombol Download Excel/CSV */}
           <button
-            onClick={handleDownloadCSV}
-            disabled={downloading || orders.length === 0}
-            className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-xs transition-all disabled:opacity-40"
+            onClick={handleExportCSV}
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>{downloading ? 'Menyiapkan...' : 'Download Excel (.CSV)'}</span>
+            <span>Export CSV</span>
           </button>
         </div>
       </div>
 
-      {/* Ringkasan Angka (Sembunyi saat cetak PDF) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 no-print">
-        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-          <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Item Diminta</span>
-          <span className="text-xl font-black text-slate-900 mt-1 block">{stats.total} item</span>
+      {/* SCORECARD 4 STATUS PEMESANAN */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 no-print">
+        <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl">
+          <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-black uppercase">
+            <Clock className="w-3.5 h-3.5 text-orange-500" />
+            <span>Menunggu Pembelian</span>
+          </div>
+          <p className="text-xl font-black text-slate-900 mt-1">{metrics.pending} <span className="text-xs font-semibold text-slate-400">item</span></p>
         </div>
 
-        <div className="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-100">
-          <span className="text-[10px] font-bold text-emerald-700 uppercase block flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Sudah Diorder Leader
-          </span>
-          <span className="text-xl font-black text-emerald-700 mt-1 block">{stats.direct} item</span>
+        <div className="p-3.5 bg-emerald-50/50 border border-emerald-100 rounded-2xl">
+          <div className="flex items-center gap-1.5 text-emerald-700 text-[10px] font-black uppercase">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Diorder Leader</span>
+          </div>
+          <p className="text-xl font-black text-emerald-700 mt-1">{metrics.leader} <span className="text-xs font-semibold text-emerald-600">item</span></p>
         </div>
 
-        <div className="p-4 bg-orange-50/60 rounded-2xl border border-orange-100">
-          <span className="text-[10px] font-bold text-[#ff6f3c] uppercase block flex items-center gap-1">
-            <Clock className="w-3 h-3 text-[#ff6f3c]" /> Perlu Dibeli / Diorder Admin
-          </span>
-          <span className="text-xl font-black text-[#ff6f3c] mt-1 block">{stats.needAdmin} item</span>
+        <div className="p-3.5 bg-blue-50/50 border border-blue-100 rounded-2xl">
+          <div className="flex items-center gap-1.5 text-blue-700 text-[10px] font-black uppercase">
+            <Wallet className="w-3.5 h-3.5 text-blue-600" />
+            <span>Dibeli Kasir</span>
+          </div>
+          <p className="text-xl font-black text-blue-700 mt-1">{metrics.cashier} <span className="text-xs font-semibold text-blue-600">item</span></p>
+        </div>
+
+        <div className="p-3.5 bg-purple-50/50 border border-purple-100 rounded-2xl">
+          <div className="flex items-center gap-1.5 text-purple-700 text-[10px] font-black uppercase">
+            <Truck className="w-3.5 h-3.5 text-purple-600" />
+            <span>Diproses Logistik</span>
+          </div>
+          <p className="text-xl font-black text-purple-700 mt-1">{metrics.logistics} <span className="text-xs font-semibold text-purple-600">item</span></p>
         </div>
       </div>
 
-      {/* Header Khusus Saat Dicetak / PDF */}
-      <div className="hidden print:block pb-3 mb-3 border-b-2 border-slate-900">
-        <h1 className="text-base font-black uppercase text-slate-900">
-          DAFTAR PERMINTAAN BELANJA OUTLET ({orderFilterDate})
-        </h1>
-        <div className="text-xs font-bold text-slate-600 mt-1 flex justify-between">
-          <span>Outlet: {selectedLoc === 'all' ? 'Semua Cabang' : locations.find(l => l.id === selectedLoc)?.name}</span>
-          <span>Dicetak: {new Date().toLocaleString('id-ID')}</span>
-        </div>
+      {/* FILTER SEARCH */}
+      <div className="relative no-print">
+        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+        <input
+          type="text"
+          placeholder="Cari nama barang, supplier, atau cabang..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none"
+        />
       </div>
 
-      {/* Daftar Tabel Belanjaan per Vendor (Tanpa Kolom CEK, dengan Tombol Hapus Admin) */}
+      {/* DAFTAR PER VENDOR / SUPPLIER */}
       {loading ? (
-        <div className="py-12 text-center text-xs font-bold text-slate-400">
-          Memuat rekap permintaan kru...
+        <div className="py-16 text-center text-slate-400 text-xs font-bold">
+          Memuat rekap permintaan belanja...
         </div>
-      ) : orders.length === 0 ? (
-        <div className="py-12 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-          <p className="text-xs font-bold text-slate-700">Belum ada permintaan belanja yang dikirim kru untuk tanggal {orderFilterDate}.</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">Kru belum mengirim form belanja pada tanggal ini.</p>
+      ) : Object.keys(groupedOrders).length === 0 ? (
+        <div className="py-16 text-center text-slate-400 text-xs font-medium bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+          Tidak ada permintaan belanja masuk pada tanggal ini.
         </div>
       ) : (
-        <div className="space-y-4">
-          {Object.entries(groupedOrders).map(([vendorName, groupItems]) => (
-            <div key={vendorName} className="rounded-2xl border border-slate-100 overflow-hidden shadow-2xs print:border-slate-300">
-              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between print:bg-slate-100">
-                <span className="font-black text-xs uppercase text-slate-800 flex items-center gap-1.5">
-                  <Store className="w-3.5 h-3.5 text-indigo-600 print:text-black" />
-                  {vendorName}
+        <div className="space-y-6">
+          {Object.entries(groupedOrders).map(([supplierName, list]) => (
+            <div key={supplierName} className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
+              <div className="bg-slate-100/80 px-4 py-2.5 border-b border-slate-200/80 flex justify-between items-center">
+                <span className="font-black text-slate-800 text-xs uppercase tracking-wider flex items-center gap-2">
+                  <Store className="w-3.5 h-3.5 text-indigo-600" />
+                  {supplierName}
                 </span>
-                <span className="text-[10px] font-bold text-slate-400">
-                  {groupItems.length} item
+                <span className="text-[10px] font-bold text-slate-500">
+                  {list.length} item
                 </span>
               </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 bg-white">
-                      <th className="py-2.5 px-4">Nama Barang</th>
-                      <th className="py-2.5 px-3">Outlet</th>
-                      <th className="py-2.5 px-3 text-right">Kuantitas</th>
-                      <th className="py-2.5 px-4 text-center">Status Pemesanan</th>
-                      <th className="py-2.5 px-4">Catatan Kru</th>
-                      <th className="no-print py-2.5 px-3 text-center">Aksi</th>
+                    <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 bg-slate-50/60">
+                      <th className="py-2.5 px-3 min-w-[160px]">NAMA BARANG</th>
+                      <th className="py-2.5 px-3 min-w-[110px]">OUTLET</th>
+                      <th className="py-2.5 px-3 text-right min-w-[90px]">KUANTITAS</th>
+                      <th className="py-2.5 px-3 min-w-[170px]">STATUS PEMESANAN</th>
+                      <th className="py-2.5 px-3 min-w-[180px]">CATATAN KRU</th>
+                      <th className="py-2.5 px-2 text-center w-10 no-print">AKSI</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
-                    {groupItems.map((item) => {
-                      const isLeader = item.is_ordered_by_leader || item.status === 'ORDERED_BY_LEADER';
+                  <tbody className="divide-y divide-slate-100 font-semibold text-xs">
+                    {list.map((item) => {
+                      const isUpdating = updatingId === item.id;
+                      const rawSt = (item.status || '').toUpperCase();
+                      const isLeader = rawSt === 'ORDERED_BY_LEADER' || rawSt === 'ORDERED_LEADER';
+                      const isCashier = rawSt === 'BOUGHT_CASHIER' || rawSt === 'KASIR';
+                      const isLogistics = rawSt === 'PROCESSED_LOGISTICS' || rawSt === 'LOGISTIK';
+
                       return (
-                        <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="py-2.5 px-4 font-bold text-slate-800 uppercase">{item.item_name}</td>
-                          <td className="py-2.5 px-3 text-slate-500 text-[11px]">{item.locations?.name || '-'}</td>
-                          <td className="py-2.5 px-3 text-right font-black text-indigo-600">
-                            {item.quantity} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                        <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="py-2.5 px-3 font-extrabold text-slate-900 uppercase">
+                            {item.item_name}
                           </td>
-                          <td className="py-2.5 px-4 text-center">
-                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                              isLeader ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-600'
-                            }`}>
-                              {isLeader ? '✓ Sudah Diorder Leader' : 'Perlu Dibeli Admin'}
-                            </span>
+                          <td className="py-2.5 px-3 text-slate-600">
+                            {item.locations?.name ? `Outlet ${item.locations.name}` : 'Outlet'}
                           </td>
-                          <td className="py-2.5 px-4 text-slate-400 text-[11px]">{item.notes || '-'}</td>
-                          {/* Tombol Hapus Khusus Admin */}
-                          <td className="no-print py-2.5 px-3 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteOrder(item.id, item.item_name)}
-                              disabled={deletingId === item.id}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50"
-                              title="Hapus permintaan belanja ini"
+                          <td className="py-2.5 px-3 text-right font-black text-indigo-700">
+                            {item.quantity}{' '}
+                            <span className="text-[10px] text-slate-400 font-normal">{item.unit}</span>
+                          </td>
+                          
+                          {/* DROPDOWN STATUS PEMESANAN INTERAKTIF */}
+                          <td className="py-2.5 px-3">
+                            <select
+                              value={
+                                isLeader
+                                  ? 'ORDERED_LEADER'
+                                  : isCashier
+                                  ? 'BOUGHT_CASHIER'
+                                  : isLogistics
+                                  ? 'PROCESSED_LOGISTICS'
+                                  : 'PENDING'
+                              }
+                              onChange={(e) => handleStatusChange(item.id, e.target.value)}
+                              disabled={isUpdating}
+                              className={`px-2.5 py-1 rounded-xl text-[11px] font-black border transition-all focus:outline-none cursor-pointer ${
+                                isLeader
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : isCashier
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                  : isLogistics
+                                  ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                  : 'bg-orange-50 text-orange-700 border-orange-200'
+                              }`}
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <option value="PENDING">⏳ Menunggu Pembelian</option>
+                              <option value="ORDERED_LEADER">✓ Diorder Leader</option>
+                              <option value="BOUGHT_CASHIER">💵 Dibeli Kasir</option>
+                              <option value="PROCESSED_LOGISTICS">🚚 Diproses Logistik</option>
+                            </select>
+                          </td>
+
+                          <td className="py-2.5 px-3 text-slate-500 font-medium text-[11px]">
+                            {item.notes || '-'}
+                          </td>
+
+                          <td className="py-2.5 px-2 text-center no-print">
+                            <button
+                              onClick={() => handleDeleteOrder(item.id)}
+                              title="Hapus Baris"
+                              className="p-1 text-slate-300 hover:text-rose-600 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </td>
                         </tr>
@@ -376,6 +442,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
           ))}
         </div>
       )}
+
     </div>
   );
 }

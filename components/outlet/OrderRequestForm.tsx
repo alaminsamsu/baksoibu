@@ -10,8 +10,6 @@ import {
   Search, 
   Send, 
   Store, 
-  CheckSquare, 
-  Square,
   PackageCheck
 } from 'lucide-react';
 
@@ -57,8 +55,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   const activeLocationId = locationId || user?.location_id;
   const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
 
-  // LOGIKA BISNIS: Cut-off jam 06:00 pagi WITA. 
-  // Jika kru order jam 00:00 - 05:59 dini hari, otomatis tanggal belanja adalah kemarin (H-1).
+  // LOGIKA BISNIS: Cut-off jam 06:00 pagi WITA
   const getEffectiveOrderDate = () => {
     const now = new Date();
     const witaHour = parseInt(
@@ -74,7 +71,9 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   const [items, setItems] = useState<MasterItem[]>([]);
   const [currentStocks, setCurrentStocks] = useState<Record<string, number>>({});
   const [quantities, setQuantities] = useState<Record<string, string>>({});
-  const [orderedByLeader, setOrderedByLeader] = useState<Record<string, boolean>>({});
+  
+  // State Status Dinamis per Item
+  const [orderStatuses, setOrderStatuses] = useState<Record<string, string>>({});
   
   const [activeSupplier, setActiveSupplier] = useState<string>('Semua Supplier');
   const [searchTerm, setSearchTerm] = useState('');
@@ -86,7 +85,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
   };
 
-  // Standarisasi ke 4 Kategori Baku (Identik dengan Laporan Pemakaian & Monitor Stok)
   const normalizeCategory = (rawCat?: string, itemName?: string) => {
     const cat = (rawCat || '').trim();
     const name = cleanName(itemName);
@@ -131,7 +129,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
       name.includes('TISSUE') || 
       name.includes('PLASTIK') || 
       name.includes('CUP') || 
-      name.includes('KERTAS') ||
+      name.includes('KERTAS') || 
       name.includes('TALI')
     ) {
       return 'Kemasan & Operasional';
@@ -205,7 +203,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     const ordered: { category: string; items: MasterItem[] }[] = [];
     CATEGORY_ORDER.forEach((cat) => {
       if (groups[cat] && groups[cat].length > 0) {
-        // Urutkan A-Z di setiap kategori
         groups[cat].sort((a, b) => a.name.localeCompare(b.name));
         ordered.push({ category: cat, items: groups[cat] });
       }
@@ -221,22 +218,16 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     }));
   };
 
-  const handleToggleOrdered = (itemName: string) => {
-    setOrderedByLeader((prev) => ({
+  const handleStatusChange = (itemName: string, statusVal: string) => {
+    setOrderStatuses((prev) => ({
       ...prev,
-      [itemName]: !prev[itemName],
+      [itemName]: statusVal,
     }));
   };
 
   const totalFilled = useMemo(() => {
     return Object.values(quantities).filter((q) => parseFloat(q) > 0).length;
   }, [quantities]);
-
-  const totalDirectOrdered = useMemo(() => {
-    return Object.entries(quantities).filter(
-      ([name, q]) => parseFloat(q) > 0 && orderedByLeader[name]
-    ).length;
-  }, [quantities, orderedByLeader]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -249,8 +240,10 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         .filter(([_, qty]) => parseFloat(qty) > 0)
         .map(([itemName, qty]) => {
           const itemMeta = items.find((i) => i.name === itemName);
-          const isDirect = !!orderedByLeader[itemName];
+          const chosenStatus = orderStatuses[itemName] || 'PENDING';
+          const isDirectLeader = chosenStatus === 'ORDERED_LEADER';
           const supName = itemMeta?.supplier || 'RUMAH PRODUKSI';
+          
           return {
             location_id: activeLocationId,
             item_name: itemName,
@@ -261,8 +254,8 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             supplier: supName,
             notes: notes.trim() || null,
             requested_by: activeStaffName,
-            status: isDirect ? 'ORDERED_BY_LEADER' : 'pending',
-            is_ordered_by_leader: isDirect,
+            status: chosenStatus,
+            is_ordered_by_leader: isDirectLeader,
             created_at: new Date().toISOString()
           };
         });
@@ -275,11 +268,11 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
       if (error) throw error;
 
       setMessage({
-        text: `Berhasil mengirim ${orderPayload.length} permintaan belanja untuk tanggal ${orderDate}! (${totalDirectOrdered} item ditandai sudah diorder oleh Leader).`,
+        text: `Berhasil mengirim ${orderPayload.length} permintaan belanja untuk tanggal ${orderDate}!`,
         type: 'success',
       });
       setQuantities({});
-      setOrderedByLeader({});
+      setOrderStatuses({});
       setNotes('');
     } catch (err: any) {
       setMessage({ text: err.message || 'Gagal mengirim order.', type: 'error' });
@@ -310,7 +303,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           <div>
             <h2 className="text-lg font-black text-slate-900 tracking-tight">Lembar Permintaan Belanja</h2>
             <p className="text-xs font-medium text-slate-400">
-              Periksa stok akhir, isi kebutuhan bahan & beri tanda jika bahan sudah langsung dipesan ke vendor oleh Leader.
+              Periksa stok akhir, isi jumlah kebutuhan & tentukan penanggung jawab pemesanan.
             </p>
           </div>
         </div>
@@ -318,11 +311,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           <div className="text-xs font-black px-3.5 py-1.5 bg-orange-50 text-[#ff6f3c] border border-orange-200/60 rounded-full">
             {totalFilled} barang diisi
           </div>
-          {totalDirectOrdered > 0 && (
-            <div className="text-xs font-black px-3.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
-              {totalDirectOrdered} diorder Leader
-            </div>
-          )}
         </div>
       </div>
 
@@ -346,7 +334,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
       {/* Pencarian & Filter Tab Vendor */}
       <div className="space-y-3 mb-6">
         <div className="relative">
-          <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
+          <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
           <input
             type="text"
             value={searchTerm}
@@ -397,7 +385,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                 <th className="py-3 px-4 min-w-[200px]">Nama Bahan & Supplier</th>
                 <th className="py-3 px-4 text-center w-36">Stok Akhir</th>
                 <th className="py-3 px-4 text-right w-40">Jumlah Pesan</th>
-                <th className="py-3 px-4 text-center w-44">Sudah Diorder Leader?</th>
+                <th className="py-3 px-4 text-center w-52">Status Pemesanan</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -428,7 +416,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                     {groupList.map((item) => {
                       const val = quantities[item.name] || '';
                       const isSelected = parseFloat(val) > 0;
-                      const isOrdered = !!orderedByLeader[item.name];
+                      const currentStatus = orderStatuses[item.name] || 'PENDING';
                       const stockVal = currentStocks[cleanName(item.name)] ?? 0;
                       const isLowStock = stockVal <= 2;
 
@@ -479,27 +467,29 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                             </div>
                           </td>
 
+                          {/* DROPDOWN STATUS PEMESANAN */}
                           <td className="py-2 px-4 text-center">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleOrdered(item.name)}
+                            <select
+                              value={currentStatus}
+                              onChange={(e) => handleStatusChange(item.name, e.target.value)}
                               disabled={!isSelected}
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                              className={`w-full px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all focus:outline-none cursor-pointer ${
                                 !isSelected
-                                  ? 'opacity-30 cursor-not-allowed text-slate-400'
-                                  : isOrdered
-                                  ? 'bg-emerald-600 text-white shadow-xs'
-                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                  ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400 border-slate-200'
+                                  : currentStatus === 'ORDERED_LEADER'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 font-black'
+                                  : currentStatus === 'BOUGHT_CASHIER'
+                                  ? 'bg-blue-50 text-blue-700 border-blue-300 font-black'
+                                  : currentStatus === 'PROCESSED_LOGISTICS'
+                                  ? 'bg-purple-50 text-purple-700 border-purple-300 font-black'
+                                  : 'bg-orange-50 text-orange-700 border-orange-300 font-black'
                               }`}
-                              title={isSelected ? 'Centang jika Leader sudah memesan ke vendor' : 'Isi jumlah dulu'}
                             >
-                              {isOrdered ? (
-                                <CheckSquare className="w-4 h-4 text-white" />
-                              ) : (
-                                <Square className="w-4 h-4 text-slate-400" />
-                              )}
-                              <span>{isOrdered ? 'Sudah Diorder' : 'Belum Diorder'}</span>
-                            </button>
+                              <option value="PENDING">⏳ Menunggu Pembelian</option>
+                              <option value="ORDERED_LEADER">✓ Diorder Leader</option>
+                              <option value="BOUGHT_CASHIER">💵 Dibeli Kasir</option>
+                              <option value="PROCESSED_LOGISTICS">🚚 Diproses Logistik</option>
+                            </select>
                           </td>
                         </tr>
                       );
