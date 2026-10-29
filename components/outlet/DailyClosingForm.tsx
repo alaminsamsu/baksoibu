@@ -32,8 +32,8 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
   const effectiveLocationId = propLocId || user?.location_id || user?.id || '';
   const effectiveStaffName = propStaff || user?.active_staff_name || user?.username || 'Kru Outlet';
 
-  // LOGIKA BISNIS: Cut-off jam 06:00 pagi WITA. 
-  // Jika kru input jam 00:00 - 05:59 dini hari, otomatis tanggal closing adalah kemarin (H-1).
+  const round1Dec = (num: number) => Math.round((Number(num) || 0) * 10) / 10;
+
   const getEffectiveClosingDate = () => {
     const now = new Date();
     const witaHour = parseInt(
@@ -58,7 +58,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
     return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
   };
 
-  // Normalisasi ke 4 Kategori Baku
   const normalizeCategory = (rawCat?: string, itemName?: string) => {
     const cat = (rawCat || '').trim();
     const name = cleanName(itemName);
@@ -82,7 +81,12 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
       name.includes('BAWANG') ||
       name.includes('BURAS') ||
       name.includes('CUKA') ||
-      name.includes('TAHU')
+      name.includes('TAHU') ||
+      name.includes('DAUN') ||
+      name.includes('JERUK') ||
+      name.includes('KOL') ||
+      name.includes('KACANG') ||
+      name.includes('KERUPUK')
     ) {
       return 'Bahan Utama & Dapur';
     }
@@ -119,19 +123,16 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
     try {
       const activeDate = closingDate;
 
-      // Tanggal modal kemarin (H-1 dari activeDate)
       const curDateObj = new Date(activeDate + 'T00:00:00');
       const prevDateObj = new Date(curDateObj);
       prevDateObj.setDate(prevDateObj.getDate() - 1);
       const yesterdayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(prevDateObj);
 
-      // 1. Ambil master items resmi
       const { data: masterItems } = await supabase
         .from('items')
         .select('name, category, uom')
         .order('name');
 
-      // 2. Ambil stok closing hari sebelumnya sebagai modal awal
       const { data: yesterdayClosings } = await supabase
         .from('daily_closings')
         .select('item_name, remaining_stock')
@@ -139,7 +140,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         .eq('closing_date', yesterdayStr)
         .limit(2000);
 
-      // 3. Ambil data penerimaan/stok masuk pada tanggal aktif
       const { data: moveData } = await supabase
         .from('stock_movements')
         .select('item_name, quantity, created_at, movement_type')
@@ -154,7 +154,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         return dStr === activeDate;
       });
 
-      // 4. Ambil data closing yang sudah tersimpan untuk tanggal aktif
       const { data: savedClosings } = await supabase
         .from('daily_closings')
         .select('*')
@@ -172,14 +171,19 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
           .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0);
         const saved = savedClosings?.find((t) => cleanName(t.item_name) === clean);
 
+        const awalVal = round1Dec(prev ? Number(prev.remaining_stock || 0) : 0);
+        const masukVal = round1Dec(inc);
+        const sisaVal = saved !== undefined ? round1Dec(Number(saved.remaining_stock || 0)).toString() : '0';
+        const wasteVal = saved !== undefined ? round1Dec(Number(saved.waste_qty || 0)).toString() : '0';
+
         return {
           item_name: clean,
           category: normalizedCat,
           unit: m.uom || 'Pcs',
-          stok_awal: prev ? Number(prev.remaining_stock || 0) : 0,
-          stok_masuk: inc,
-          sisa_fisik: saved !== undefined ? String(saved.remaining_stock) : '0',
-          waste: saved !== undefined ? String(saved.waste_qty) : '0',
+          stok_awal: awalVal,
+          stok_masuk: masukVal,
+          sisa_fisik: sisaVal,
+          waste: wasteVal,
         };
       });
 
@@ -216,8 +220,15 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
   const handleBlur = (itemName: string, field: 'sisa_fisik' | 'waste') => {
     setItems((prev) =>
       prev.map((item) => {
-        if (item.item_name === itemName && item[field] === '') {
-          return { ...item, [field]: '0' };
+        if (item.item_name === itemName) {
+          if (item[field] === '') {
+            return { ...item, [field]: '0' };
+          }
+          // Bulatkan input ke 1 desimal saat selesai mengetik
+          const numVal = parseFloat(String(item[field]));
+          if (!isNaN(numVal)) {
+            return { ...item, [field]: round1Dec(numVal).toString() };
+          }
         }
         return item;
       })
@@ -246,18 +257,20 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
       const nowIso = new Date().toISOString();
 
       const payloads = targetItemsToSave.map((row) => {
-        const fisik = row.sisa_fisik === '' ? 0 : Number(row.sisa_fisik);
-        const waste = row.waste === '' ? 0 : Number(row.waste);
-        const totalModal = Number(row.stok_awal || 0) + Number(row.stok_masuk || 0);
-        const terpakai = Math.max(0, totalModal - fisik - waste);
+        const fisik = round1Dec(row.sisa_fisik === '' ? 0 : Number(row.sisa_fisik));
+        const waste = round1Dec(row.waste === '' ? 0 : Number(row.waste));
+        const awal = round1Dec(Number(row.stok_awal || 0));
+        const masuk = round1Dec(Number(row.stok_masuk || 0));
+        const totalModal = round1Dec(awal + masuk);
+        const terpakai = round1Dec(Math.max(0, totalModal - fisik - waste));
 
         return {
           location_id: effectiveLocationId,
           closing_date: activeDate,
           item_name: row.item_name,
           category: row.category,
-          stok_awal: Number(row.stok_awal || 0),
-          stok_masuk: Number(row.stok_masuk || 0),
+          stok_awal: awal,
+          stok_masuk: masuk,
           terpakai: terpakai,
           waste_qty: waste,
           remaining_stock: fisik,
@@ -268,14 +281,14 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         };
       });
 
-      // 1. Simpan ke daily_closings
+      // Simpan ke daily_closings
       const { error: closingError } = await supabase
         .from('daily_closings')
         .upsert(payloads, { onConflict: 'location_id,closing_date,item_name' });
 
       if (closingError) throw closingError;
 
-      // 2. Simpan stok fisik terbaru ke branch_stocks
+      // Update remaining_stock di branch_stocks
       const branchPayloads = payloads.map((p) => ({
         location_id: p.location_id,
         item_name: p.item_name,
@@ -332,7 +345,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
     const ordered: { category: string; list: ClosingItem[] }[] = [];
     CATEGORY_ORDER.forEach((cat) => {
       if (groups[cat] && groups[cat].length > 0) {
-        // Urutkan A-Z di setiap kategori
         groups[cat].sort((a, b) => a.item_name.localeCompare(b.item_name));
         ordered.push({ category: cat, list: groups[cat] });
       }
@@ -368,7 +380,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
-          {/* Pilihan Tanggal Operasional */}
           <div className="relative flex items-center">
             <Calendar className="absolute left-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
             <input
@@ -401,7 +412,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         </div>
       </div>
 
-      {/* Filter Kategori & Pencarian Cepat */}
+      {/* Filter Kategori & Pencarian */}
       <div className="space-y-3">
         <div className="relative">
           <Search className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400" />
@@ -458,7 +469,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
               <tbody className="divide-y divide-slate-50 font-bold">
                 {groupedItems.map(({ category, list }) => (
                   <React.Fragment key={category}>
-                    {/* SEKAT HEADER KATEGORI */}
                     <tr className="bg-indigo-50/60 border-y border-indigo-100/90">
                       <td colSpan={4} className="py-2 px-3 font-black text-indigo-900 uppercase tracking-wider text-[11px]">
                         <div className="flex items-center justify-between">

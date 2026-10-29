@@ -7,8 +7,7 @@ import {
   RefreshCw, 
   Download, 
   MapPin, 
-  Layers,
-  ArrowUpDown
+  Layers 
 } from 'lucide-react';
 
 interface Props {
@@ -22,7 +21,7 @@ interface ItemUsageRow {
   category: string;
   unit: string;
   lastStock: number;
-  dailyUsage: Record<string, number>; // dateStr -> qty
+  dailyUsage: Record<string, number>;
   totalUsage: number;
   avgUsage: number;
 }
@@ -43,7 +42,13 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
   const [dateColumns, setDateColumns] = useState<string[]>([]);
   const [activeDaysCount, setActiveDaysCount] = useState<number>(1);
 
-  // Bersihkan label cabang agar tidak muncul "Outlet Outlet ..."
+  // Fungsi pembersih desimal agar tidak muncul angka panjang (cth: 2.30000000000003 jadi 2.3)
+  const formatQty = (num: number) => {
+    if (num === 0) return '0.0';
+    const rounded = Math.round(num * 10) / 10;
+    return rounded % 1 === 0 ? rounded.toString() : rounded.toFixed(1);
+  };
+
   const cleanLocationName = (name?: string) => {
     if (!name) return 'Outlet';
     return `Outlet ${name.replace(/^outlet\s+/i, '').trim()}`;
@@ -76,7 +81,12 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       name.includes('BAWANG') ||
       name.includes('BURAS') ||
       name.includes('CUKA') ||
-      name.includes('TAHU')
+      name.includes('TAHU') ||
+      name.includes('DAUN') ||
+      name.includes('JERUK') ||
+      name.includes('KOL') ||
+      name.includes('KACANG') ||
+      name.includes('KERUPUK')
     ) {
       return 'Bahan Utama & Dapur';
     }
@@ -106,7 +116,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     return 'Bahan Utama & Dapur';
   };
 
-  // Inisialisasi Lokasi
   useEffect(() => {
     async function loadLocations() {
       const { data } = await supabase.from('locations').select('id, name').order('name');
@@ -115,7 +124,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
         if (defaultLocationId) {
           setSelectedLocation(String(defaultLocationId));
         } else if (data.length > 0 && selectedLocation === 'all') {
-          // Default ke cabang pertama jika tidak memilih 'all'
           setSelectedLocation(String(data[0].id));
         }
       }
@@ -123,11 +131,9 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     loadLocations();
   }, [defaultLocationId]);
 
-  // Ambil Data Konsumsi & Hitung Rata-rata
   const fetchUsageAnalytics = async () => {
     setLoading(true);
     try {
-      // 1. Buat deretan tanggal sesuai rentang (7, 14, 30 hari)
       const dates: string[] = [];
       const now = new Date();
       for (let i = daysRange - 1; i >= 0; i--) {
@@ -141,13 +147,11 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       const startDate = dates[0];
       const endDate = dates[dates.length - 1];
 
-      // 2. Query master items
       const { data: masterItems } = await supabase
         .from('items')
         .select('name, category, uom')
         .order('name');
 
-      // 3. Query daily_closings
       let query = supabase
         .from('daily_closings')
         .select('item_name, closing_date, terpakai, remaining_stock, unit, location_id')
@@ -161,7 +165,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
       const { data: closingData, error } = await query;
       if (error) throw error;
 
-      // 4. Hitung Hari Aktif Riil (Hari yang sudah ada catatan closing di database)
       const recordedDates = new Set<string>();
       (closingData || []).forEach((c) => {
         if (c.closing_date && Number(c.terpakai || 0) >= 0) {
@@ -169,11 +172,9 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
         }
       });
 
-      // Hari ini tidak dijadikan pembagi jika belum ada closing
       const effectiveActiveDays = Math.max(1, recordedDates.size);
       setActiveDaysCount(effectiveActiveDays);
 
-      // 5. Susun matriks pemakaian per barang
       const itemMap: Record<string, ItemUsageRow> = {};
 
       (masterItems || []).forEach((item) => {
@@ -192,7 +193,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
         });
       });
 
-      // Agregasi pemakaian
       (closingData || []).forEach((row) => {
         const cName = cleanName(row.item_name);
         if (!itemMap[cName]) {
@@ -214,26 +214,24 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
         const used = Number(row.terpakai || 0);
 
         if (itemMap[cName].dailyUsage[date] !== undefined) {
-          itemMap[cName].dailyUsage[date] += used;
+          // Bulatkan penjumlahan ke 1 desimal untuk mencegah bug desimal JS
+          itemMap[cName].dailyUsage[date] = Math.round((itemMap[cName].dailyUsage[date] + used) * 10) / 10;
         }
 
-        // Ambil stok sisa fisik terbaru
         if (date === endDate || row.remaining_stock !== null) {
-          itemMap[cName].lastStock = Number(row.remaining_stock || 0);
+          itemMap[cName].lastStock = Math.round(Number(row.remaining_stock || 0) * 10) / 10;
           itemMap[cName].unit = row.unit || itemMap[cName].unit;
         }
       });
 
-      // 6. Hitung Total & Rata-rata Bulat Utuh (Tanpa Koma)
       const rows: ItemUsageRow[] = Object.values(itemMap).map((row) => {
         const total = Object.values(row.dailyUsage).reduce((sum, v) => sum + v, 0);
-        
-        // Rata-rata dibagi hari aktif riil & dibulatkan ke bilangan bulat terdekat
-        const avg = Math.round(total / effectiveActiveDays);
+        const cleanTotal = Math.round(total * 10) / 10;
+        const avg = Math.round(cleanTotal / effectiveActiveDays);
 
         return {
           ...row,
-          totalUsage: parseFloat(total.toFixed(1)),
+          totalUsage: cleanTotal,
           avgUsage: avg
         };
       });
@@ -250,7 +248,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     fetchUsageAnalytics();
   }, [daysRange, selectedLocation]);
 
-  // Kelompokkan data per 4 Kategori Baku & Urutkan A-Z
   const groupedData = useMemo(() => {
     const groups: Record<string, ItemUsageRow[]> = {
       'Bahan Utama & Dapur': [],
@@ -275,7 +272,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     return ordered;
   }, [usageRows]);
 
-  // Format Header Tanggal: "TGL 10-28"
   const formatDateHeader = (dStr: string) => {
     const parts = dStr.split('-');
     if (parts.length === 3) {
@@ -284,7 +280,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
     return dStr;
   };
 
-  // Export CSV
   const handleExportCSV = () => {
     if (usageRows.length === 0) return;
     const headers = [
@@ -304,9 +299,9 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
           `"${category}"`,
           `"${item.itemName}"`,
           `"${item.unit}"`,
-          item.lastStock,
-          ...dateColumns.map((d) => item.dailyUsage[d] || 0),
-          item.totalUsage,
+          formatQty(item.lastStock),
+          ...dateColumns.map((d) => formatQty(item.dailyUsage[d] || 0)),
+          formatQty(item.totalUsage),
           item.avgUsage
         ];
         rows.push(row.join(';'));
@@ -362,7 +357,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
         </div>
       </div>
 
-      {/* Filter Kontrol: Rentang Hari & Cabang */}
+      {/* Filter Kontrol */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2">
@@ -447,7 +442,6 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
               ) : (
                 groupedData.map(({ category, items }) => (
                   <React.Fragment key={category}>
-                    {/* Header Sekat Kategori */}
                     <tr className="bg-indigo-50/60 border-y border-indigo-100/90">
                       <td 
                         colSpan={dateColumns.length + 4} 
@@ -467,7 +461,7 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
 
                     {items.map((row) => (
                       <tr key={row.itemName} className="hover:bg-slate-50/60 transition-colors">
-                        {/* Nama Barang (Frozen di Kiri) */}
+                        {/* Nama Barang */}
                         <td className="py-2.5 px-4 sticky left-0 bg-white hover:bg-slate-50/60 z-10 border-r border-slate-100">
                           <div className="font-extrabold text-slate-900 uppercase leading-tight">
                             {row.itemName}
@@ -479,11 +473,11 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
 
                         {/* Sisa Fisik Terakhir */}
                         <td className="py-2.5 px-3 text-center font-bold text-slate-700">
-                          {row.lastStock}{' '}
+                          {formatQty(row.lastStock)}{' '}
                           <span className="text-[10px] text-slate-400 font-normal">{row.unit}</span>
                         </td>
 
-                        {/* Nilai Konsumsi Tiap Tanggal */}
+                        {/* Kolom Tanggal: Angka dibatasi maksimal 1 desimal ringkas */}
                         {dateColumns.map((d) => {
                           const val = row.dailyUsage[d] || 0;
                           return (
@@ -493,18 +487,18 @@ export default function StockUsageAnalytics({ user, defaultLocationId, hideLocat
                                 val > 0 ? 'text-slate-800' : 'text-slate-300 font-normal'
                               }`}
                             >
-                              {val > 0 ? val : '0.0'}
+                              {val > 0 ? formatQty(val) : '0.0'}
                             </td>
                           );
                         })}
 
                         {/* Total Terpakai */}
                         <td className="py-2.5 px-3 text-right font-black text-indigo-900 bg-indigo-50/20">
-                          {row.totalUsage}{' '}
+                          {formatQty(row.totalUsage)}{' '}
                           <span className="text-[10px] text-slate-400 font-normal">{row.unit}</span>
                         </td>
 
-                        {/* RATA-RATA / HARI (ANGKA BULAT UTUH TANPA KOMA) */}
+                        {/* Rata-Rata / Hari (Bulat Utuh) */}
                         <td className="py-2.5 px-4 text-right font-black text-emerald-700 bg-emerald-50/40">
                           <span className="text-sm">
                             {row.avgUsage}

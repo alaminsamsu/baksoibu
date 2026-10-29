@@ -86,6 +86,21 @@ export default function BranchStockMonitor() {
   const [editUsage, setEditUsage] = useState<number>(0);
   const [editWaste, setEditWaste] = useState<number>(0);
 
+  // Helper pembulatan 1 desimal presisi matematis
+  const round1Dec = (num: number) => Math.round((Number(num) || 0) * 10) / 10;
+
+  // Helper tampilan kuantitas (maks 1 angka di belakang koma, tanpa buntut floating-point)
+  const formatQty = (num: number | null | undefined) => {
+    if (num === null || num === undefined || isNaN(num) || num === 0) return '0';
+    const rounded = round1Dec(num);
+    return rounded % 1 === 0 ? rounded.toString() : rounded.toFixed(1);
+  };
+
+  const cleanLocationName = (name?: string) => {
+    if (!name) return 'Outlet';
+    return `Outlet ${name.replace(/^outlet\s+/i, '').trim()}`;
+  };
+
   useEffect(() => {
     const saved = localStorage.getItem('baksoibu_active_staff');
     if (saved) {
@@ -138,7 +153,12 @@ export default function BranchStockMonitor() {
       name.includes('BAWANG') ||
       name.includes('BURAS') ||
       name.includes('CUKA') ||
-      name.includes('TAHU')
+      name.includes('TAHU') ||
+      name.includes('DAUN') ||
+      name.includes('JERUK') ||
+      name.includes('KOL') ||
+      name.includes('KACANG') ||
+      name.includes('KERUPUK')
     ) {
       return 'Bahan Utama & Dapur';
     }
@@ -176,7 +196,6 @@ export default function BranchStockMonitor() {
 
       const { data: masterItems } = await supabase.from('items').select('name, category');
 
-      // Tentukan target filter cabang
       const effectiveFilterLoc = isOutletStaff && currentUser?.location_id 
         ? String(currentUser.location_id) 
         : selectedLocation;
@@ -234,9 +253,7 @@ export default function BranchStockMonitor() {
       }
       const { data: todayClosings } = await todayCloseQuery;
 
-      // =========================================================================
-      // Tarik Waste Bulanan: DIKUNCI HANYA CABANG AKTIF JIKA KRU CABANG (MISAL BTP)
-      // =========================================================================
+      // Tarik Waste Bulanan
       const activeYearMonth = selectedDate.substring(0, 7);
       let monthlyQuery = supabase
         .from('daily_closings')
@@ -251,28 +268,27 @@ export default function BranchStockMonitor() {
 
       const { data: monthData } = await monthlyQuery;
       if (monthData) {
-        const totalMonthWaste = monthData.reduce((sum, d) => sum + Number(d.waste_qty || 0), 0);
-        const totalMonthUsed = monthData.reduce((sum, d) => sum + Number(d.terpakai || 0), 0);
-        const baseMovement = totalMonthUsed + totalMonthWaste;
+        const totalMonthWaste = round1Dec(monthData.reduce((sum, d) => sum + Number(d.waste_qty || 0), 0));
+        const totalMonthUsed = round1Dec(monthData.reduce((sum, d) => sum + Number(d.terpakai || 0), 0));
+        const baseMovement = round1Dec(totalMonthUsed + totalMonthWaste);
         const wasteRate = baseMovement > 0 ? (totalMonthWaste / baseMovement) * 100 : 0;
 
         setMonthlyWasteStats({
           wasteQty: totalMonthWaste,
           usedQty: totalMonthUsed,
-          wasteRate: parseFloat(wasteRate.toFixed(2)),
+          wasteRate: parseFloat(wasteRate.toFixed(1)),
         });
 
-        // Filter riwayat waste khusus cabang terkait
         const rawLogs: WasteLogItem[] = monthData
           .filter((d) => Number(d.waste_qty || 0) > 0)
           .map((d) => ({
             id: d.id,
             closing_date: d.closing_date,
             item_name: cleanName(d.item_name),
-            waste_qty: Number(d.waste_qty || 0),
+            waste_qty: round1Dec(Number(d.waste_qty || 0)),
             unit: d.unit || 'Pcs',
             location_id: d.location_id,
-            location_name: (d.locations as any)?.name || 'Outlet',
+            location_name: cleanLocationName((d.locations as any)?.name),
             reported_by: d.reported_by || 'Kru',
             created_at: d.created_at
           }))
@@ -289,26 +305,26 @@ export default function BranchStockMonitor() {
         const yest = (yesterdayClosings || []).find(
           (y) => String(y.location_id) === String(s.location_id) && cleanName(y.item_name) === normalizedName
         );
-        const awal = yest ? Number(yest.remaining_stock || 0) : Number(s.initial_stock || 0);
+        const awal = round1Dec(yest ? Number(yest.remaining_stock || 0) : Number(s.initial_stock || 0));
 
-        const masuk = todayMoves
+        const masuk = round1Dec(todayMoves
           .filter((m) => String(m.location_id) === String(s.location_id) && cleanName(m.item_name) === normalizedName)
-          .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0);
+          .reduce((sum, curr) => sum + Number(curr.quantity || 0), 0));
 
         const closed = (todayClosings || []).find(
           (c) => String(c.location_id) === String(s.location_id) && cleanName(c.item_name) === normalizedName
         );
 
-        const waste = closed ? Number(closed.waste_qty || 0) : 0;
-        const terpakai = closed ? Number(closed.terpakai || 0) : 0;
-        const sisaAkhir = closed ? Number(closed.remaining_stock || 0) : (awal + masuk);
+        const waste = round1Dec(closed ? Number(closed.waste_qty || 0) : 0);
+        const terpakai = round1Dec(closed ? Number(closed.terpakai || 0) : 0);
+        const sisaAkhir = round1Dec(closed ? Number(closed.remaining_stock || 0) : Math.max(0, awal + masuk));
 
         return {
           id: s.id,
           item_name: normalizedName,
           category,
           location_id: s.location_id,
-          location_name: s.locations?.name || 'Outlet',
+          location_name: cleanLocationName(s.locations?.name),
           stok_awal: awal,
           stok_masuk: masuk,
           terpakai: terpakai,
@@ -338,16 +354,20 @@ export default function BranchStockMonitor() {
       return;
     }
     setEditingKey(row.id);
-    setEditInitial(row.stok_awal);
-    setEditReceived(row.stok_masuk);
-    setEditUsage(row.terpakai);
-    setEditWaste(row.waste_qty);
+    setEditInitial(round1Dec(row.stok_awal));
+    setEditReceived(round1Dec(row.stok_masuk));
+    setEditUsage(round1Dec(row.terpakai));
+    setEditWaste(round1Dec(row.waste_qty));
   };
 
   const handleSaveEdit = async (row: RowItem) => {
     try {
       const editorName = currentUser?.active_staff_name || currentUser?.username || 'Leader';
-      const calculatedEnd = Math.max(0, (editInitial + editReceived) - editUsage - editWaste);
+      const cleanInit = round1Dec(editInitial);
+      const cleanRec = round1Dec(editReceived);
+      const cleanUse = round1Dec(editUsage);
+      const cleanWst = round1Dec(editWaste);
+      const calculatedEnd = round1Dec(Math.max(0, (cleanInit + cleanRec) - cleanUse - cleanWst));
       const nowIso = new Date().toISOString();
 
       await supabase
@@ -357,10 +377,10 @@ export default function BranchStockMonitor() {
           closing_date: selectedDate,
           item_name: row.item_name,
           category: row.category,
-          stok_awal: editInitial,
-          stok_masuk: editReceived,
-          terpakai: editUsage,
-          waste_qty: editWaste,
+          stok_awal: cleanInit,
+          stok_masuk: cleanRec,
+          terpakai: cleanUse,
+          waste_qty: cleanWst,
           remaining_stock: calculatedEnd,
           unit: row.unit,
           reported_by: `${editorName} (Koreksi)`,
@@ -452,12 +472,11 @@ export default function BranchStockMonitor() {
     return { dateStr, timeStr };
   };
 
-  // Label nama cabang yang sedang dilihat
   const activeLocationDisplayName = useMemo(() => {
-    if (isOutletStaff) return currentUser?.location_name || 'Outlet Anda';
+    if (isOutletStaff) return cleanLocationName(currentUser?.location_name);
     if (selectedLocation === 'all') return 'Semua Cabang (Agregat)';
     const found = locations.find((l) => String(l.id) === String(selectedLocation));
-    return found ? `Outlet ${found.name}` : 'Outlet';
+    return cleanLocationName(found?.name);
   }, [isOutletStaff, currentUser, selectedLocation, locations]);
 
   return (
@@ -491,7 +510,7 @@ export default function BranchStockMonitor() {
           {isOutletStaff ? (
             <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold text-slate-600">
               <Lock className="w-3.5 h-3.5 text-indigo-600" />
-              <span>{currentUser?.location_name || 'Outlet'}</span>
+              <span>{cleanLocationName(currentUser?.location_name)}</span>
             </div>
           ) : (
             <div className="relative flex-1 sm:w-48">
@@ -504,7 +523,7 @@ export default function BranchStockMonitor() {
                 <option value="all">Semua Cabang</option>
                 {locations.map((loc) => (
                   <option key={loc.id} value={loc.id}>
-                    Outlet {loc.name}
+                    {cleanLocationName(loc.name)}
                   </option>
                 ))}
               </select>
@@ -521,7 +540,7 @@ export default function BranchStockMonitor() {
         </div>
       </div>
 
-      {/* METRIK HEADER: ITEM DIPANTAU & PERSENTASE WASTE BULANAN (INTERAKTIF) */}
+      {/* METRIK HEADER */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-5 bg-[#fafbfe] border-b border-slate-100">
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
           <div>
@@ -536,7 +555,6 @@ export default function BranchStockMonitor() {
           </div>
         </div>
 
-        {/* KARTU WASTE BULANAN: BISA DIKLIK UNTUK MELIHAT LOG DATA WASTE CABANG TERKAIT */}
         <div 
           onClick={() => setIsWasteModalOpen(true)}
           role="button"
@@ -557,7 +575,7 @@ export default function BranchStockMonitor() {
                 {monthlyWasteStats.wasteRate}%
               </p>
               <span className="text-[11px] font-bold text-slate-400">
-                ({monthlyWasteStats.wasteQty.toLocaleString()} qty terbuang)
+                ({formatQty(monthlyWasteStats.wasteQty)} unit terbuang)
               </span>
             </div>
             <span className="text-[10px] text-slate-400 font-semibold group-hover:text-indigo-600 transition-colors flex items-center gap-1">
@@ -610,8 +628,8 @@ export default function BranchStockMonitor() {
               <th className="py-3 px-4 min-w-[200px]">Nama Barang & Cabang</th>
               <th className="py-3 px-3 text-right min-w-[90px]">Stok Awal</th>
               <th className="py-3 px-3 text-right text-emerald-600 min-w-[85px]">+ Masuk</th>
-              <th className="py-3 px-3 text-right text-indigo-600 min-w-[85px]">- Terpakai</th>
-              <th className="py-3 px-3 text-right text-amber-600 min-w-[85px]">- Waste</th>
+              <th className="py-3 px-3 text-right text-indigo-600 min-w-[85px]">Terpakai</th>
+              <th className="py-3 px-3 text-right text-amber-600 min-w-[85px]">Waste</th>
               <th className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/80 min-w-[100px]">= Stok Akhir</th>
               <th className="py-3 px-4 text-right min-w-[140px]">Terakhir Update</th>
               {canEdit && <th className="py-3 px-4 text-center min-w-[80px]">Koreksi</th>}
@@ -649,7 +667,7 @@ export default function BranchStockMonitor() {
 
                   {items.map((row) => {
                     const isEditing = editingKey === row.id;
-                    const previewEnd = Math.max(0, (editInitial + editReceived) - editUsage - editWaste);
+                    const previewEnd = Math.max(0, round1Dec((editInitial + editReceived) - editUsage - editWaste));
                     const { dateStr, timeStr } = formatDateTimeWita(row.updated_at);
 
                     return (
@@ -661,6 +679,7 @@ export default function BranchStockMonitor() {
                           </div>
                         </td>
 
+                        {/* Stok Awal */}
                         <td className="py-3 px-3 text-right font-bold text-slate-700">
                           {isEditing ? (
                             <input
@@ -671,10 +690,11 @@ export default function BranchStockMonitor() {
                               className="w-16 px-1.5 py-1 border border-indigo-500 rounded-lg text-right text-xs font-bold bg-white focus:outline-none"
                             />
                           ) : (
-                            `${row.stok_awal} ${row.unit}`
+                            `${formatQty(row.stok_awal)} ${row.unit}`
                           )}
                         </td>
 
+                        {/* Stok Masuk */}
                         <td className="py-3 px-3 text-right font-black text-emerald-600">
                           {isEditing ? (
                             <input
@@ -685,10 +705,11 @@ export default function BranchStockMonitor() {
                               className="w-16 px-1.5 py-1 border border-emerald-500 rounded-lg text-right text-xs font-bold bg-white text-emerald-600 focus:outline-none"
                             />
                           ) : (
-                            row.stok_masuk > 0 ? `+${row.stok_masuk}` : '0'
+                            row.stok_masuk > 0 ? `+${formatQty(row.stok_masuk)}` : '0'
                           )}
                         </td>
 
+                        {/* Terpakai */}
                         <td className="py-3 px-3 text-right font-black text-indigo-600">
                           {isEditing ? (
                             <input
@@ -699,10 +720,11 @@ export default function BranchStockMonitor() {
                               className="w-16 px-1.5 py-1 border border-indigo-500 rounded-lg text-right text-xs font-bold bg-white text-indigo-600 focus:outline-none"
                             />
                           ) : (
-                            row.terpakai > 0 ? `-${row.terpakai}` : '0'
+                            row.terpakai > 0 ? `-${formatQty(row.terpakai)}` : '0'
                           )}
                         </td>
 
+                        {/* Waste */}
                         <td className="py-3 px-3 text-right font-bold text-amber-600">
                           {isEditing ? (
                             <input
@@ -713,17 +735,19 @@ export default function BranchStockMonitor() {
                               className="w-16 px-1.5 py-1 border border-amber-500 rounded-lg text-right text-xs font-bold bg-white text-amber-600 focus:outline-none"
                             />
                           ) : (
-                            row.waste_qty > 0 ? `-${row.waste_qty}` : '0'
+                            row.waste_qty > 0 ? `-${formatQty(row.waste_qty)}` : '0'
                           )}
                         </td>
 
+                        {/* Stok Akhir */}
                         <td className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/80">
                           <span className="text-sm font-black text-slate-900">
-                            {isEditing ? previewEnd.toFixed(1) : row.current_stock.toFixed(1)}{' '}
+                            {formatQty(isEditing ? previewEnd : row.current_stock)}{' '}
                             <span className="text-[10px] font-bold text-slate-500">{row.unit}</span>
                           </span>
                         </td>
 
+                        {/* Terakhir Update */}
                         <td className="py-3 px-4 text-right">
                           <div className="font-black text-slate-800 text-[11px] flex items-center justify-end gap-1">
                             <UserCheck className="w-3 h-3 text-indigo-600" />
@@ -775,14 +799,10 @@ export default function BranchStockMonitor() {
         </table>
       </div>
 
-      {/* ========================================================================= */}
-      {/* MODAL AUDIT DETAIL: RINCIAN SEMUA KEJADIAN WASTE BULANAN                  */}
-      {/* ========================================================================= */}
+      {/* MODAL RINCIAN LOG WASTE */}
       {isWasteModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-2xl border border-slate-100 max-h-[88vh] flex flex-col">
-            
-            {/* Modal Header */}
             <div className="flex justify-between items-start pb-3 border-b border-slate-100 gap-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
@@ -793,7 +813,7 @@ export default function BranchStockMonitor() {
                     Rincian Kejadian Waste Bahan Baku
                   </h3>
                   <p className="text-xs text-slate-400 font-medium mt-0.5">
-                    {activeLocationDisplayName} • Bulan {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(selectedDate))} ({monthlyWasteStats.wasteQty.toLocaleString()} unit terbuang)
+                    {activeLocationDisplayName} • Bulan {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(selectedDate))} ({formatQty(monthlyWasteStats.wasteQty)} unit terbuang)
                   </p>
                 </div>
               </div>
@@ -805,7 +825,6 @@ export default function BranchStockMonitor() {
               </button>
             </div>
 
-            {/* Pencarian di Modal */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3 pointer-events-none" />
               <input
@@ -817,7 +836,6 @@ export default function BranchStockMonitor() {
               />
             </div>
 
-            {/* Tabel Riwayat Waste */}
             <div className="flex-1 overflow-y-auto border border-slate-100 rounded-2xl shadow-2xs">
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-50/90 sticky top-0 border-b border-slate-100 z-10">
@@ -848,7 +866,7 @@ export default function BranchStockMonitor() {
                           {log.item_name}
                         </td>
                         <td className="py-2.5 px-3 text-right font-black text-rose-600 text-sm">
-                          -{log.waste_qty}{' '}
+                          -{formatQty(log.waste_qty)}{' '}
                           <span className="text-[10px] text-slate-400 font-normal">{log.unit}</span>
                         </td>
                         <td className="py-2.5 px-3 text-right">
@@ -862,7 +880,6 @@ export default function BranchStockMonitor() {
               </table>
             </div>
 
-            {/* Footer Modal */}
             <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-xs">
               <span className="text-[11px] font-semibold text-slate-400">
                 Menampilkan {filteredWasteLogs.length} data laporan waste ({activeLocationDisplayName})
@@ -875,7 +892,6 @@ export default function BranchStockMonitor() {
                 Tutup
               </button>
             </div>
-
           </div>
         </div>
       )}
