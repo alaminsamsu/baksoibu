@@ -90,14 +90,31 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
     fetchOrders();
   }, [selectedDate, selectedLocation]);
 
+  // Fungsi Cetak dengan Judul File Otomatis: Order Bakso Ibu (DD-MM-YYYY)
+  const handleDownloadPdf = () => {
+    const originalTitle = document.title;
+    
+    // Ubah format tanggal YYYY-MM-DD ke DD-MM-YYYY
+    const [year, month, day] = selectedDate.split('-');
+    const formattedDate = `${day}-${month}-${year}`;
+    
+    // Set judul halaman yang akan otomatis menjadi nama file saat Save as PDF
+    document.title = `Order Bakso Ibu (${formattedDate})`;
+
+    window.print();
+
+    // Kembalikan judul halaman setelah dialog ditutup
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 1500);
+  };
+
   // Update Status Pemesanan
   const handleStatusChange = async (orderId: string, newStatus: string) => {
     setUpdatingId(orderId);
     setSuccessToast(null);
 
     const isLeader = newStatus === 'ORDERED_LEADER' || newStatus === 'ORDERED_BY_LEADER';
-    
-    // Normalisasi status ke format database
     let dbStatus = newStatus;
     if (newStatus === 'ORDERED_LEADER') dbStatus = 'ORDERED_BY_LEADER';
     if (newStatus === 'PENDING') dbStatus = 'pending';
@@ -111,12 +128,8 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
         })
         .eq('id', orderId);
 
-      if (error) {
-        console.error('Update status error:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      // Update state di UI
       setOrders((prev) =>
         prev.map((ord) => 
           ord.id === orderId 
@@ -128,7 +141,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
       setSuccessToast('Status berhasil diperbarui!');
       setTimeout(() => setSuccessToast(null), 2500);
     } catch (err: any) {
-      alert('Gagal memperbarui status: ' + (err.message || 'Periksa koneksi atau izin database.'));
+      alert('Gagal memperbarui status: ' + (err.message || 'Periksa koneksi database.'));
     } finally {
       setUpdatingId(null);
     }
@@ -203,14 +216,14 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans print:p-0 print:border-none print:shadow-none">
+    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans print:p-0 print:m-0 print:border-none print:shadow-none">
       
-      {/* CSS PRINT UNTUK MEMASTIKAN WARNA KELUAR DI PDF */}
+      {/* CSS PRINT: MARGIN MINIMAL & WARNA PENUH */}
       <style jsx global>{`
         @media print {
           @page {
             size: A4 portrait;
-            margin: 12mm 10mm;
+            margin: 0mm !important; /* Otomatis margin minimal */
           }
           * {
             -webkit-print-color-adjust: exact !important;
@@ -219,21 +232,22 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
           }
           body {
             background-color: #ffffff !important;
+            padding: 8mm 6mm !important; /* Padding tepi aman agar tidak terpotong */
           }
           .no-print {
             display: none !important;
           }
           .print-header {
             display: block !important;
-            margin-bottom: 14px;
-            padding-bottom: 8px;
+            margin-bottom: 10px;
+            padding-bottom: 6px;
             border-bottom: 2px solid #0f172a;
           }
           .print-vendor-box {
             page-break-inside: avoid !important;
-            margin-bottom: 12px !important;
+            margin-bottom: 8px !important;
             border: 1px solid #cbd5e1 !important;
-            border-radius: 6px !important;
+            border-radius: 4px !important;
           }
           .print-vendor-header {
             background-color: #f1f5f9 !important;
@@ -249,26 +263,26 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
         }
       `}</style>
 
-      {/* HEADER KHUSUS DOKUMEN PDF / CETAK */}
+      {/* HEADER CETAK DOKUMEN PDF */}
       <div className="hidden print:block print-header">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-base font-black text-slate-900 tracking-tight">
+            <h1 className="text-sm font-black text-slate-900 tracking-tight">
               BAKSO IBU • REKAP PERMINTAAN BELANJA MASUK
             </h1>
-            <p className="text-[11px] text-slate-600 font-semibold mt-0.5">
-              Tanggal Operasional: {new Date(selectedDate + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            <p className="text-[10px] text-slate-600 font-semibold mt-0.5">
+              Tanggal: {new Date(selectedDate + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
             </p>
           </div>
           <div className="text-right">
-            <span className="text-[11px] font-black bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-md text-indigo-900">
+            <span className="text-[10px] font-black bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded text-indigo-900">
               Total {orders.length} Item
             </span>
           </div>
         </div>
       </div>
 
-      {/* TOAST NOTIFIKASI BERHASIL EDIT */}
+      {/* TOAST NOTIFIKASI */}
       {successToast && (
         <div className="fixed top-5 right-5 z-50 bg-emerald-600 text-white px-4 py-2.5 rounded-2xl text-xs font-black shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-2 no-print">
           <CheckCircle2 className="w-4 h-4" />
@@ -276,7 +290,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
         </div>
       )}
 
-      {/* HEADER KONTROL DI SCREEN MONITOR */}
+      {/* HEADER KONTROL LAYAR */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-5 border-b border-slate-100 gap-4 no-print">
         <div className="flex items-center gap-3">
           {onBack && (
@@ -296,7 +310,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
               Rekap Permintaan Belanja Masuk
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Revisi status pengadaan barang & unduh rekap PDF per vendor.
+              Kelola status pengadaan & unduh rekap PDF per vendor.
             </p>
           </div>
         </div>
@@ -336,9 +350,9 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
 
-          {/* SATU-SATUNYA TOMBOL: DOWNLOAD PDF */}
+          {/* TOMBOL DOWNLOAD PDF DENGAN PENAMAAN OTOMATIS */}
           <button
-            onClick={() => window.print()}
+            onClick={handleDownloadPdf}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-md shadow-indigo-600/20"
           >
             <FileDown className="w-4 h-4" />
@@ -369,13 +383,13 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
           Tidak ada permintaan belanja masuk pada tanggal ini.
         </div>
       ) : (
-        <div className="space-y-5 print:space-y-3">
+        <div className="space-y-4 print:space-y-2.5">
           {Object.entries(groupedOrders).map(([supplierName, list]) => (
             <div key={supplierName} className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs print-vendor-box">
               
               {/* Header Box Vendor */}
-              <div className="bg-slate-100 px-4 py-2 border-b border-slate-200/80 flex justify-between items-center print-vendor-header">
-                <span className="font-black text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2 print:text-[11px]">
+              <div className="bg-slate-100 px-3.5 py-1.5 border-b border-slate-200/80 flex justify-between items-center print-vendor-header">
+                <span className="font-black text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2 print:text-[10px]">
                   <Store className="w-3.5 h-3.5 text-indigo-600 print:hidden" />
                   {supplierName}
                 </span>
@@ -388,12 +402,12 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
                 <table className="w-full text-left text-xs border-collapse print-table">
                   <thead>
                     <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 bg-slate-50/60 print:text-[9px]">
-                      <th className="py-2.5 px-3 min-w-[160px] print:w-[32%]">NAMA BARANG</th>
-                      <th className="py-2.5 px-3 min-w-[110px] print:w-[15%]">OUTLET</th>
-                      <th className="py-2.5 px-3 text-right min-w-[90px] print:w-[15%]">KUANTITAS</th>
-                      <th className="py-2.5 px-3 min-w-[170px] print:w-[22%]">STATUS PEMESANAN</th>
-                      <th className="py-2.5 px-3 min-w-[140px] print:w-[16%]">CATATAN</th>
-                      <th className="py-2.5 px-2 text-center w-10 no-print">AKSI</th>
+                      <th className="py-2 px-3 min-w-[160px] print:w-[32%]">NAMA BARANG</th>
+                      <th className="py-2 px-3 min-w-[110px] print:w-[15%]">OUTLET</th>
+                      <th className="py-2 px-3 text-right min-w-[90px] print:w-[15%]">KUANTITAS</th>
+                      <th className="py-2 px-3 min-w-[170px] print:w-[22%]">STATUS PEMESANAN</th>
+                      <th className="py-2 px-3 min-w-[140px] print:w-[16%]">CATATAN</th>
+                      <th className="py-2 px-2 text-center w-10 no-print">AKSI</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-semibold text-xs print:text-[10px]">
@@ -404,11 +418,11 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
 
                       return (
                         <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
-                          <td className="py-2 px-3 font-black text-slate-900 uppercase">
+                          <td className="py-1.5 px-3 font-black text-slate-900 uppercase">
                             {item.item_name}
                           </td>
-                          <td className="py-2 px-3">
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-black ${
+                          <td className="py-1.5 px-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
                               isBtp 
                                 ? 'bg-blue-50 text-blue-700 border border-blue-200 print:bg-blue-100 print:text-blue-900' 
                                 : 'bg-purple-50 text-purple-700 border border-purple-200 print:bg-purple-100 print:text-purple-900'
@@ -416,13 +430,13 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
                               {getCleanOutletName(item.locations?.name)}
                             </span>
                           </td>
-                          <td className="py-2 px-3 text-right font-black text-indigo-700 print:text-indigo-900">
+                          <td className="py-1.5 px-3 text-right font-black text-indigo-700 print:text-indigo-900">
                             {item.quantity}{' '}
                             <span className="text-[10px] text-slate-500 font-normal">{item.unit}</span>
                           </td>
                           
-                          {/* STATUS: DROPDOWN INTERAKTIF (DI LAYAR) & BADGE WARNA (DI PDF) */}
-                          <td className="py-2 px-3">
+                          {/* STATUS */}
+                          <td className="py-1.5 px-3">
                             <div className="no-print">
                               <select
                                 value={badge.val}
@@ -443,11 +457,11 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
                             </span>
                           </td>
 
-                          <td className="py-2 px-3 text-slate-500 font-medium text-[10px] truncate max-w-[140px] print:max-w-none print:whitespace-normal">
+                          <td className="py-1.5 px-3 text-slate-500 font-medium text-[10px] truncate max-w-[140px] print:max-w-none print:whitespace-normal">
                             {item.notes || '-'}
                           </td>
 
-                          <td className="py-2 px-2 text-center no-print">
+                          <td className="py-1.5 px-2 text-center no-print">
                             <button
                               onClick={() => handleDeleteOrder(item.id)}
                               title="Hapus Baris"
