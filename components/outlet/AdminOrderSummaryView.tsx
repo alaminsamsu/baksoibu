@@ -90,26 +90,19 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
     fetchOrders();
   }, [selectedDate, selectedLocation]);
 
-  // Fungsi Cetak dengan Judul File Otomatis: Order Bakso Ibu (DD-MM-YYYY)
   const handleDownloadPdf = () => {
     const originalTitle = document.title;
-    
-    // Ubah format tanggal YYYY-MM-DD ke DD-MM-YYYY
     const [year, month, day] = selectedDate.split('-');
     const formattedDate = `${day}-${month}-${year}`;
     
-    // Set judul halaman yang akan otomatis menjadi nama file saat Save as PDF
     document.title = `Order Bakso Ibu (${formattedDate})`;
-
     window.print();
 
-    // Kembalikan judul halaman setelah dialog ditutup
     setTimeout(() => {
       document.title = originalTitle;
     }, 1500);
   };
 
-  // Update Status Pemesanan
   const handleStatusChange = async (orderId: string, newStatus: string) => {
     setUpdatingId(orderId);
     setSuccessToast(null);
@@ -218,12 +211,12 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
   return (
     <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans print:p-0 print:m-0 print:border-none print:shadow-none">
       
-      {/* CSS PRINT: MARGIN MINIMAL & WARNA PENUH */}
+      {/* CSS PRINT DENGAN MARGIN MINIMUM & WARNA ASLI */}
       <style jsx global>{`
         @media print {
           @page {
             size: A4 portrait;
-            margin: 0mm !important; /* Otomatis margin minimal */
+            margin: 0mm !important;
           }
           * {
             -webkit-print-color-adjust: exact !important;
@@ -232,7 +225,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
           }
           body {
             background-color: #ffffff !important;
-            padding: 8mm 6mm !important; /* Padding tepi aman agar tidak terpotong */
+            padding: 8mm 6mm !important;
           }
           .no-print {
             display: none !important;
@@ -263,7 +256,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
         }
       `}</style>
 
-      {/* HEADER CETAK DOKUMEN PDF */}
+      {/* HEADER CETAK */}
       <div className="hidden print:block print-header">
         <div className="flex justify-between items-center">
           <div>
@@ -282,7 +275,6 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
         </div>
       </div>
 
-      {/* TOAST NOTIFIKASI */}
       {successToast && (
         <div className="fixed top-5 right-5 z-50 bg-emerald-600 text-white px-4 py-2.5 rounded-2xl text-xs font-black shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-2 no-print">
           <CheckCircle2 className="w-4 h-4" />
@@ -290,7 +282,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
         </div>
       )}
 
-      {/* HEADER KONTROL LAYAR */}
+      {/* HEADER KONTROL */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-5 border-b border-slate-100 gap-4 no-print">
         <div className="flex items-center gap-3">
           {onBack && (
@@ -350,7 +342,6 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
 
-          {/* TOMBOL DOWNLOAD PDF DENGAN PENAMAAN OTOMATIS */}
           <button
             onClick={handleDownloadPdf}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-md shadow-indigo-600/20"
@@ -361,7 +352,6 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
         </div>
       </div>
 
-      {/* FILTER PENCARIAN (HANYA DI LAYAR) */}
       <div className="relative no-print">
         <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3 pointer-events-none" />
         <input
@@ -373,7 +363,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
         />
       </div>
 
-      {/* DAFTAR PER VENDOR / SUPPLIER */}
+      {/* DAFTAR PER VENDOR */}
       {loading ? (
         <div className="py-16 text-center text-slate-400 text-xs font-bold">
           Memuat rekap permintaan belanja...
@@ -386,8 +376,6 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
         <div className="space-y-4 print:space-y-2.5">
           {Object.entries(groupedOrders).map(([supplierName, list]) => (
             <div key={supplierName} className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs print-vendor-box">
-              
-              {/* Header Box Vendor */}
               <div className="bg-slate-100 px-3.5 py-1.5 border-b border-slate-200/80 flex justify-between items-center print-vendor-header">
                 <span className="font-black text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2 print:text-[10px]">
                   <Store className="w-3.5 h-3.5 text-indigo-600 print:hidden" />
@@ -415,6 +403,10 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
                       const isUpdating = updatingId === item.id;
                       const badge = getStatusBadge(item.status);
                       const isBtp = (item.locations?.name || '').toLowerCase().includes('btp');
+                      
+                      // Tampilkan catatan hanya jika diisi teks non-kosong, jika tidak maka '-'
+                      const hasNote = item.notes && item.notes.trim() !== '' && !item.notes.includes('Mohon dikirim');
+                      const displayNote = hasNote ? item.notes : '-';
 
                       return (
                         <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
@@ -435,7 +427,6 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
                             <span className="text-[10px] text-slate-500 font-normal">{item.unit}</span>
                           </td>
                           
-                          {/* STATUS */}
                           <td className="py-1.5 px-3">
                             <div className="no-print">
                               <select
@@ -451,14 +442,14 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
                               </select>
                             </div>
 
-                            {/* TAMPILAN RESMI BERWARNA SAAT DI PDF */}
                             <span className={`hidden print:inline-block px-2 py-0.5 rounded border text-[9px] font-black ${badge.colorClass}`}>
                               {badge.label}
                             </span>
                           </td>
 
-                          <td className="py-1.5 px-3 text-slate-500 font-medium text-[10px] truncate max-w-[140px] print:max-w-none print:whitespace-normal">
-                            {item.notes || '-'}
+                          {/* KOLOM CATATAN BERSIH */}
+                          <td className={`py-1.5 px-3 text-[10px] truncate max-w-[140px] print:max-w-none print:whitespace-normal ${hasNote ? 'text-slate-700 font-bold' : 'text-slate-400 font-normal'}`}>
+                            {displayNote}
                           </td>
 
                           <td className="py-1.5 px-2 text-center no-print">

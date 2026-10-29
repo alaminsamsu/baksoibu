@@ -55,7 +55,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   const activeLocationId = locationId || user?.location_id;
   const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
 
-  // LOGIKA BISNIS: Cut-off jam 06:00 pagi WITA
   const getEffectiveOrderDate = () => {
     const now = new Date();
     const witaHour = parseInt(
@@ -71,13 +70,10 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   const [items, setItems] = useState<MasterItem[]>([]);
   const [currentStocks, setCurrentStocks] = useState<Record<string, number>>({});
   const [quantities, setQuantities] = useState<Record<string, string>>({});
-  
-  // State Status Dinamis per Item
   const [orderStatuses, setOrderStatuses] = useState<Record<string, string>>({});
-  
   const [activeSupplier, setActiveSupplier] = useState<string>('Semua Supplier');
   const [searchTerm, setSearchTerm] = useState('');
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(''); // Murni kosong tanpa teks default
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -140,7 +136,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
 
   useEffect(() => {
     async function fetchData() {
-      // 1. Tarik Data Master Items
       const { data: itemsData, error: itemsError } = await supabase
         .from('items')
         .select('*')
@@ -152,7 +147,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         setItems(itemsData);
       }
 
-      // 2. Tarik Data Stok Akhir / Berjalan Cabang Saat Ini
       if (activeLocationId) {
         const { data: stockData, error: stockError } = await supabase
           .from('branch_stocks')
@@ -186,7 +180,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     });
   }, [items, activeSupplier, searchTerm]);
 
-  // Kelompokkan Berdasarkan 4 Kategori Baku & Urutkan A-Z
   const groupedByCategory = useMemo(() => {
     const groups: Record<string, MasterItem[]> = {
       'Bahan Utama & Dapur': [],
@@ -252,7 +245,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             source_type: supName === 'RUMAH PRODUKSI' ? 'PRODUCTION' : 'VENDOR',
             target_type: supName,
             supplier: supName,
-            notes: notes.trim() || null,
+            notes: notes.trim() ? notes.trim() : null, // Tersimpan null jika tidak diisi
             requested_by: activeStaffName,
             status: chosenStatus,
             is_ordered_by_leader: isDirectLeader,
@@ -294,7 +287,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </button>
       )}
 
-      {/* Header Form */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-slate-100 gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-[#ff6f3c] text-white flex items-center justify-center shadow-md shadow-orange-500/20">
@@ -331,7 +323,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </div>
       )}
 
-      {/* Pencarian & Filter Tab Vendor */}
       <div className="space-y-3 mb-6">
         <div className="relative">
           <Search className="absolute left-4 top-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
@@ -376,7 +367,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </div>
       </div>
 
-      {/* Form & Tabel Barang */}
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-[32rem] overflow-y-auto shadow-2xs">
           <table className="w-full text-left border-collapse text-xs">
@@ -398,7 +388,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
               ) : (
                 groupedByCategory.map(({ category, items: groupList }) => (
                   <React.Fragment key={category}>
-                    {/* HEADER SEKAT KATEGORI */}
                     <tr className="bg-indigo-50/60 border-y border-indigo-100/90">
                       <td colSpan={4} className="py-2.5 px-4 font-black text-indigo-900 uppercase tracking-wider text-[11px]">
                         <div className="flex items-center justify-between">
@@ -467,7 +456,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                             </div>
                           </td>
 
-                          {/* DROPDOWN STATUS PEMESANAN */}
                           <td className="py-2 px-4 text-center">
                             <select
                               value={currentStatus}
@@ -501,6 +489,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           </table>
         </div>
 
+        {/* INPUT CATATAN MURNI KOSONG TANPA VALUE BAWAAN */}
         <div>
           <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
             Catatan Tambahan untuk Pengadaan / Dapur
@@ -509,7 +498,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Misal: Mohon dikirim sebelum jam 10.00 pagi atau bawa kantong tambahan (opsional)"
+            placeholder="Ketik catatan di sini jika ada kebutuhan khusus (opsional)..."
             className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
           />
         </div>
