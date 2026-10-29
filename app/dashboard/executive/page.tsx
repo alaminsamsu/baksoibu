@@ -25,12 +25,15 @@ import {
   AlertTriangle,
   Clock,
   ArrowRight,
-  BookOpen
+  BookOpen,
+  PieChart
 } from 'lucide-react';
 import BranchStockMonitor from '@/components/outlet/components/shared/BranchStockMonitor';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
 import StockUsageAnalytics from '@/components/outlet/components/shared/StockUsageAnalytics';
 import OperationalKnowledgeBase from '@/components/shared/OperationalKnowledgeBase';
+import HqExpensesForm from '@/components/executive/HqExpensesForm';
+import BranchPnLReport from '@/components/executive/BranchPnLReport';
 
 interface SettlementRecord {
   id: string;
@@ -79,7 +82,8 @@ export default function ExecutiveOwnerDashboard() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [locations, setLocations] = useState<any[]>([]);
   
-  const [activeTab, setActiveTab] = useState<'overview' | 'konsumsi' | 'hr' | 'stok' | 'panduan'>('overview');
+  // Tab Navigasi Executive: overview | pnl | hq_expenses | konsumsi | hr | stok | panduan
+  const [activeTab, setActiveTab] = useState<'overview' | 'pnl' | 'hq_expenses' | 'konsumsi' | 'hr' | 'stok' | 'panduan'>('overview');
   
   const [filterMode, setFilterMode] = useState<'today' | 'weekly' | 'monthly' | 'custom'>('today');
   const [customDate, setCustomDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -409,46 +413,73 @@ export default function ExecutiveOwnerDashboard() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* TAB BAR UTAMA EXECUTIVE LENGKAP */}
           <div className="flex bg-white p-1 rounded-2xl border border-slate-200/80 shadow-xs text-xs font-bold overflow-x-auto">
             <button
               onClick={() => setActiveTab('overview')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'overview' ? 'bg-[#ff6f3c] text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               <DollarSign className="w-3.5 h-3.5" />
               Executive KPI
             </button>
+
+            {/* TAB BARU 1: LAPORAN PnL EKSEKUTIF */}
+            <button
+              onClick={() => setActiveTab('pnl')}
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'pnl' ? 'bg-emerald-600 text-white shadow-xs' : 'text-emerald-700 hover:text-emerald-900 bg-emerald-50/50'
+              }`}
+            >
+              <PieChart className="w-3.5 h-3.5" />
+              Laporan PnL
+            </button>
+
+            {/* TAB BARU 2: BEBAN HQ & UTILITAS NON-KASIR */}
+            <button
+              onClick={() => setActiveTab('hq_expenses')}
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'hq_expenses' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              Beban HQ & Utilitas
+            </button>
+
             <button
               onClick={() => setActiveTab('konsumsi')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'konsumsi' ? 'bg-[#ff6f3c] text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               <BarChart3 className="w-3.5 h-3.5" />
               Pola Konsumsi
             </button>
+
             <button
               onClick={() => setActiveTab('hr')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'hr' ? 'bg-[#ff6f3c] text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               <Users className="w-3.5 h-3.5" />
               Live Presensi Tim
             </button>
+
             <button
               onClick={() => setActiveTab('stok')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'stok' ? 'bg-[#ff6f3c] text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               <Activity className="w-3.5 h-3.5" />
               Monitor Stok
             </button>
+
             <button
               onClick={() => setActiveTab('panduan')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'panduan' ? 'bg-[#ff6f3c] text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
@@ -470,7 +501,21 @@ export default function ExecutiveOwnerDashboard() {
       {/* Main Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 space-y-6">
         
-        {/* TAB 1: KNOWLEDGE BASE / JOB DESK & SOP */}
+        {/* TAB: LAPORAN PnL BULANAN */}
+        {activeTab === 'pnl' && (
+          <div>
+            <BranchPnLReport />
+          </div>
+        )}
+
+        {/* TAB: BEBAN HQ & UTILITAS NON-KASIR */}
+        {activeTab === 'hq_expenses' && (
+          <div>
+            <HqExpensesForm />
+          </div>
+        )}
+
+        {/* TAB: KNOWLEDGE BASE / JOB DESK & SOP */}
         {activeTab === 'panduan' && (
           <div>
             <OperationalKnowledgeBase 
@@ -480,28 +525,28 @@ export default function ExecutiveOwnerDashboard() {
           </div>
         )}
 
-        {/* TAB 2: POLA KONSUMSI */}
+        {/* TAB: POLA KONSUMSI */}
         {activeTab === 'konsumsi' && (
           <div>
             <StockUsageAnalytics user={currentUser} />
           </div>
         )}
 
-        {/* TAB 3: MONITOR STOK */}
+        {/* TAB: MONITOR STOK */}
         {activeTab === 'stok' && (
           <div>
             <BranchStockMonitor />
           </div>
         )}
 
-        {/* TAB 4: LIVE PRESENSI HR */}
+        {/* TAB: LIVE PRESENSI HR */}
         {activeTab === 'hr' && (
           <div className="space-y-6">
             <LiveExecutiveSummary />
           </div>
         )}
 
-        {/* TAB 5: OVERVIEW UTAMA */}
+        {/* TAB: OVERVIEW UTAMA */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
 

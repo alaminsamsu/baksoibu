@@ -1,4 +1,3 @@
-tsx
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -370,7 +369,7 @@ export default function HRDashboardPage() {
           <div className="flex bg-slate-50 p-1 rounded-2xl border border-slate-200/80 text-xs font-bold">
             <button
               onClick={() => setActiveTab('presensi')}
-              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'presensi' 
                   ? 'bg-indigo-600 text-white shadow-xs' 
                   : 'text-slate-500 hover:text-slate-800'
@@ -380,10 +379,10 @@ export default function HRDashboardPage() {
               Presensi & Disiplin
             </button>
 
-            {/* TAB BARU: FORM PENGGAJIAN KRU TOKO */}
+            {/* TAB FORM PENGGAJIAN KRU TOKO */}
             <button
               onClick={() => setActiveTab('payroll')}
-              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'payroll' 
                   ? 'bg-indigo-600 text-white shadow-xs' 
                   : 'text-slate-500 hover:text-slate-800'
@@ -395,7 +394,7 @@ export default function HRDashboardPage() {
 
             <button
               onClick={() => setActiveTab('panduan')}
-              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'panduan' 
                   ? 'bg-indigo-600 text-white shadow-xs' 
                   : 'text-slate-500 hover:text-slate-800'
@@ -437,14 +436,14 @@ export default function HRDashboardPage() {
           </div>
         )}
 
-        {/* TAB BARU: MODUL PENGGAJIAN & BONUS KRU CABANG */}
+        {/* TAB 2: FORM PENGGAJIAN & BONUS KRU CABANG */}
         {activeTab === 'payroll' && (
           <div>
             <StorePayrollForm />
           </div>
         )}
 
-        {/* TAB 2: PRESENSI & DISIPLIN KRU */}
+        {/* TAB 3: PRESENSI & DISIPLIN KRU */}
         {activeTab === 'presensi' && (
           <div className="space-y-6">
             {/* 1. PRESENSI MANDIRI HR */}
