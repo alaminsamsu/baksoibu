@@ -24,7 +24,7 @@ interface BreakdownLog {
   date: string;
   locationId: string;
   locationName: string;
-  category: 'RUMAH_PRODUKSI' | 'VENDOR';
+  vendorName: string;
   nominal: number;
   notes: string;
   reporter: string;
@@ -34,9 +34,8 @@ interface PnLData {
   locationId: string;
   locationName: string;
   revenue: number;
-  cogsRP: number;          // Beban Rumah Produksi
-  cogsVendor: number;      // Beban Vendor Luar
-  totalCogs: number;       // Total HPP
+  vendorBreakdown: Record<string, number>; // Rincian per vendor (RP, Pasar, Hamdalah, dll)
+  totalCogs: number;                       // Total HPP
   grossProfit: number;
   grossMarginPct: number;
   cashierExpenses: number;
@@ -61,6 +60,7 @@ export default function BranchPnLReport() {
 
   const [pnlList, setPnlList] = useState<PnLData[]>([]);
   const [expenseBreakdownLogs, setExpenseBreakdownLogs] = useState<BreakdownLog[]>([]);
+  const [allVendorNames, setAllVendorNames] = useState<string[]>([]);
   const [totalHqSharedPool, setTotalHqSharedPool] = useState<number>(0);
 
   const cleanLocationName = (name?: string) => {
@@ -68,7 +68,26 @@ export default function BranchPnLReport() {
     return `Outlet ${name.replace(/^outlet\s+/i, '').trim()}`;
   };
 
-  // 1. Ambil Lokasi
+  // Standarisasi Nama Vendor agar rapi di tabel PnL
+  const normalizeVendorName = (rawName?: string) => {
+    if (!rawName) return 'Rumah Produksi';
+    const clean = rawName.trim();
+    const upper = clean.toUpperCase();
+
+    if (upper.includes('RUMAH_PRODUKSI') || upper.includes('RUMAH PRODUKSI') || upper === 'RP') {
+      return 'Rumah Produksi';
+    }
+    if (upper.includes('PASAR')) {
+      return 'Vendor Pasar';
+    }
+    if (upper.includes('HAMDALAH')) {
+      return 'Vendor Hamdalah';
+    }
+    // Huruf kapital awal tiap kata untuk vendor umum
+    return clean.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase());
+  };
+
+  // 1. Ambil Data Lokasi
   useEffect(() => {
     async function fetchLocations() {
       const { data } = await supabase.from('locations').select('id, name').order('name');
@@ -77,14 +96,14 @@ export default function BranchPnLReport() {
     fetchLocations();
   }, []);
 
-  // 2. Agregasi PnL Bulanan dengan Breakdown RP vs Vendor
+  // 2. Agregasi PnL Bulanan dengan Breakdown Dinamis Per Vendor
   const fetchPnLAnalytics = async () => {
     setLoading(true);
     try {
       const startDate = `${selectedMonth}-01`;
       const endDate = `${selectedMonth}-31`;
 
-      // A. Ambil Biaya Kantor Pusat (HQ Shared) & Utilitas Bank Langsung
+      // A. Beban Manajemen Pusat (HQ Shared) & Utilitas Transfer Bank
       const { data: hqExpenses } = await supabase
         .from('hq_and_overhead_expenses')
         .select('*')
@@ -103,7 +122,7 @@ export default function BranchPnLReport() {
       });
       setTotalHqSharedPool(sharedPool);
 
-      // B. Ambil Penggajian Kru Toko & Bonus dari store_payroll
+      // B. Penggajian Kru Cabang (Store Payroll)
       const { data: payrollData } = await supabase
         .from('store_payroll')
         .select('location_id, total_net_salary')
@@ -116,7 +135,7 @@ export default function BranchPnLReport() {
         }
       });
 
-      // C. Ambil Omzet, Pengeluaran Kasir, dan Beban Non-Kasir (RP & Vendor) dari cash_settlements
+      // C. Ambil Omzet, Pengeluaran Laci & Beban RP/Vendor dari cash_settlements
       const { data: settlements } = await supabase
         .from('cash_settlements')
         .select('id, location_id, settlement_date, total_omset, expense_nominal, non_cash_expense_nominal, non_cash_expense_category, non_cash_expense_notes, reported_by, locations(name)')
@@ -125,19 +144,23 @@ export default function BranchPnLReport() {
 
       const revenueMap: Record<string, number> = {};
       const cashierExpMap: Record<string, number> = {};
-      const cogsRPMap: Record<string, number> = {};
-      const cogsVendorMap: Record<string, number> = {};
+      const vendorPerLocMap: Record<string, Record<string, number>> = {};
+      const discoveredVendors = new Set<string>(['Rumah Produksi']); // Rumah Produksi selalu tampil di urutan awal
       const logs: BreakdownLog[] = [];
 
       (settlements || []).forEach((s: any) => {
         const locId = s.location_id;
         if (!locId) return;
 
-        // Akumulasi Omzet & Pengeluaran Kasir
+        // Omzet & Pengeluaran Kasir
         revenueMap[locId] = (revenueMap[locId] || 0) + Number(s.total_omset || 0);
         cashierExpMap[locId] = (cashierExpMap[locId] || 0) + Number(s.expense_nominal || 0);
 
-        // Parsing Beban Non-Kasir (Rumah Produksi & Vendor)
+        if (!vendorPerLocMap[locId]) {
+          vendorPerLocMap[locId] = {};
+        }
+
+        // Parse Beban Non-Kasir (Rumah Produksi & Vendor)
         if (Number(s.non_cash_expense_nominal || 0) > 0) {
           let parsedItems: any[] = [];
           if (s.non_cash_expense_notes && s.non_cash_expense_notes.startsWith('[')) {
@@ -150,44 +173,36 @@ export default function BranchPnLReport() {
 
           if (parsedItems.length > 0) {
             parsedItems.forEach((item: any, idx: number) => {
-              const cat = (item.category || s.non_cash_expense_category || 'RUMAH_PRODUKSI').toUpperCase();
+              const vendor = normalizeVendorName(item.category || item.vendor || s.non_cash_expense_category);
               const nom = Number(item.nominal || 0);
-              const isRP = cat.includes('RUMAH_PRODUKSI') || cat.includes('RP') || cat.includes('DAPUR');
 
-              if (isRP) {
-                cogsRPMap[locId] = (cogsRPMap[locId] || 0) + nom;
-              } else {
-                cogsVendorMap[locId] = (cogsVendorMap[locId] || 0) + nom;
-              }
+              discoveredVendors.add(vendor);
+              vendorPerLocMap[locId][vendor] = (vendorPerLocMap[locId][vendor] || 0) + nom;
 
               logs.push({
                 id: `${s.id}-${idx}`,
                 date: s.settlement_date,
                 locationId: locId,
                 locationName: cleanLocationName(s.locations?.name),
-                category: isRP ? 'RUMAH_PRODUKSI' : 'VENDOR',
+                vendorName: vendor,
                 nominal: nom,
                 notes: item.notes || item.name || '-',
                 reporter: s.reported_by || 'Kasir'
               });
             });
           } else {
-            const cat = (s.non_cash_expense_category || 'RUMAH_PRODUKSI').toUpperCase();
+            const vendor = normalizeVendorName(s.non_cash_expense_category);
             const nom = Number(s.non_cash_expense_nominal || 0);
-            const isRP = cat.includes('RUMAH_PRODUKSI') || cat.includes('RP') || cat.includes('DAPUR');
 
-            if (isRP) {
-              cogsRPMap[locId] = (cogsRPMap[locId] || 0) + nom;
-            } else {
-              cogsVendorMap[locId] = (cogsVendorMap[locId] || 0) + nom;
-            }
+            discoveredVendors.add(vendor);
+            vendorPerLocMap[locId][vendor] = (vendorPerLocMap[locId][vendor] || 0) + nom;
 
             logs.push({
               id: s.id,
               date: s.settlement_date,
               locationId: locId,
               locationName: cleanLocationName(s.locations?.name),
-              category: isRP ? 'RUMAH_PRODUKSI' : 'VENDOR',
+              vendorName: vendor,
               nominal: nom,
               notes: s.non_cash_expense_notes || '-',
               reporter: s.reported_by || 'Kasir'
@@ -196,6 +211,13 @@ export default function BranchPnLReport() {
         }
       });
 
+      // Susun urutan vendor: Rumah Produksi di paling atas, diikuti vendor lain sesuai abjad
+      const vendorArray = Array.from(discoveredVendors).sort((a, b) => {
+        if (a === 'Rumah Produksi') return -1;
+        if (b === 'Rumah Produksi') return 1;
+        return a.localeCompare(b);
+      });
+      setAllVendorNames(vendorArray);
       setExpenseBreakdownLogs(logs);
 
       // D. Hitung PnL per Cabang
@@ -204,9 +226,12 @@ export default function BranchPnLReport() {
 
       const computedList: PnLData[] = locations.map((loc) => {
         const rev = revenueMap[loc.id] || 0;
-        const cogsRP = cogsRPMap[loc.id] || 0;
-        const cogsVendor = cogsVendorMap[loc.id] || 0;
-        const totalCogs = cogsRP + cogsVendor;
+        const vBreakdown = vendorPerLocMap[loc.id] || {};
+        
+        let totalCogs = 0;
+        vendorArray.forEach((v) => {
+          totalCogs += Number(vBreakdown[v] || 0);
+        });
 
         const grossProfit = rev - totalCogs;
         const grossMarginPct = rev > 0 ? (grossProfit / rev) * 100 : 0;
@@ -224,8 +249,7 @@ export default function BranchPnLReport() {
           locationId: loc.id,
           locationName: cleanLocationName(loc.name),
           revenue: rev,
-          cogsRP: cogsRP,
-          cogsVendor: cogsVendor,
+          vendorBreakdown: vBreakdown,
           totalCogs: totalCogs,
           grossProfit: grossProfit,
           grossMarginPct: Math.round(grossMarginPct * 10) / 10,
@@ -252,16 +276,21 @@ export default function BranchPnLReport() {
     fetchPnLAnalytics();
   }, [selectedMonth, locations]);
 
-  // Konsolidasi (Semua Cabang)
+  // Konsolidasi Semua Cabang
   const consolidated = useMemo(() => {
     const targetRows = selectedLocation === 'all' 
       ? pnlList 
       : pnlList.filter(p => p.locationId === selectedLocation);
 
     const totalRev = targetRows.reduce((sum, p) => sum + p.revenue, 0);
-    const totalCogsRP = targetRows.reduce((sum, p) => sum + p.cogsRP, 0);
-    const totalCogsVendor = targetRows.reduce((sum, p) => sum + p.cogsVendor, 0);
-    const totalCogs = totalCogsRP + totalCogsVendor;
+    
+    // Total per masing-masing vendor
+    const totalPerVendor: Record<string, number> = {};
+    allVendorNames.forEach((v) => {
+      totalPerVendor[v] = targetRows.reduce((sum, p) => sum + Number(p.vendorBreakdown[v] || 0), 0);
+    });
+
+    const totalCogs = targetRows.reduce((sum, p) => sum + p.totalCogs, 0);
     const totalGross = totalRev - totalCogs;
     
     const totalCashierExp = targetRows.reduce((sum, p) => sum + p.cashierExpenses, 0);
@@ -278,8 +307,7 @@ export default function BranchPnLReport() {
 
     return {
       totalRev,
-      totalCogsRP,
-      totalCogsVendor,
+      totalPerVendor,
       totalCogs,
       totalGross,
       grossPct: totalRev > 0 ? Math.round((totalGross / totalRev) * 1000) / 10 : 0,
@@ -292,9 +320,9 @@ export default function BranchPnLReport() {
       totalNet,
       netPct: totalRev > 0 ? Math.round((totalNet / totalRev) * 1000) / 10 : 0
     };
-  }, [pnlList, selectedLocation, totalHqSharedPool]);
+  }, [pnlList, selectedLocation, allVendorNames, totalHqSharedPool]);
 
-  // Filter logs rincian beban
+  // Log Rincian Nota
   const filteredBreakdownLogs = useMemo(() => {
     if (selectedLocation === 'all') return expenseBreakdownLogs;
     return expenseBreakdownLogs.filter(l => l.locationId === selectedLocation);
@@ -354,7 +382,7 @@ export default function BranchPnLReport() {
               Laporan Laba Rugi Eksekutif (PnL Bulanan)
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Breakdown lengkap HPP Rumah Produksi & Vendor, Gaji Kru Toko, serta Bagi Rata Biaya Pusat.
+              Breakdown rinci pengeluaran Rumah Produksi, Vendor Pasar, Hamdalah, dll.
             </p>
           </div>
         </div>
@@ -415,12 +443,12 @@ export default function BranchPnLReport() {
         </div>
 
         <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-100">
-          <span className="text-[10px] uppercase font-black tracking-wider text-rose-500">Total HPP (RP + Vendor)</span>
+          <span className="text-[10px] uppercase font-black tracking-wider text-rose-500">Total Belanja Bahan (HPP)</span>
           <div className="text-xl font-black text-rose-800 mt-1">
             Rp {consolidated.totalCogs.toLocaleString('id-ID')}
           </div>
           <span className="text-[10px] text-slate-400 font-semibold mt-0.5 block">
-            RP: Rp {consolidated.totalCogsRP.toLocaleString('id-ID')} • Vendor: Rp {consolidated.totalCogsVendor.toLocaleString('id-ID')}
+            {allVendorNames.length} Vendor / Sumber Pasokan
           </span>
         </div>
 
@@ -443,7 +471,7 @@ export default function BranchPnLReport() {
         </div>
       </div>
 
-      {/* TABEL ANATOMI PnL RESMI (DENGAN BREAKDOWN RP & VENDOR) */}
+      {/* TABEL ANATOMI PnL RESMI (DENGAN BARIS DINAMIS PER VENDOR) */}
       <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
         <table className="w-full text-left text-xs border-collapse font-sans">
           <thead>
@@ -499,52 +527,43 @@ export default function BranchPnLReport() {
                   )}
                 </tr>
 
-                {/* 2. BREAKDOWN HPP / BEBAN POKOK */}
-                <tr>
-                  <td className="py-2 px-4 text-slate-700 pl-8 flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                    <span>(-) Pasokan Rumah Produksi (RP / Dapur Pusat)</span>
+                {/* 2. BREAKDOWN HPP / BEBAN POKOK (DINAMIS PER VENDOR) */}
+                <tr className="bg-slate-50/20">
+                  <td colSpan={selectedLocation === 'all' ? pnlList.length + 2 : 2} className="py-2 px-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Beban Pokok Penjualan / Bahan Masuk (HPP)
                   </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td key={p.locationId} className="py-2 px-3 text-right text-rose-700">
-                          (Rp {p.cogsRP.toLocaleString('id-ID')})
-                        </td>
-                      ))}
-                      <td className="py-2 px-4 text-right text-rose-800 font-bold bg-indigo-50/20">
-                        (Rp {consolidated.totalCogsRP.toLocaleString('id-ID')})
-                      </td>
-                    </>
-                  ) : (
-                    <td className="py-2 px-4 text-right text-rose-800 font-bold">
-                      (Rp {consolidated.totalCogsRP.toLocaleString('id-ID')})
-                    </td>
-                  )}
                 </tr>
 
-                <tr>
-                  <td className="py-2 px-4 text-slate-700 pl-8 flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                    <span>(-) Belanja Vendor Luar (Sayur, Es, Kemasan)</span>
-                  </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td key={p.locationId} className="py-2 px-3 text-right text-amber-800">
-                          (Rp {p.cogsVendor.toLocaleString('id-ID')})
-                        </td>
-                      ))}
-                      <td className="py-2 px-4 text-right text-amber-900 font-bold bg-indigo-50/20">
-                        (Rp {consolidated.totalCogsVendor.toLocaleString('id-ID')})
+                {allVendorNames.map((vendor) => {
+                  const isRP = vendor === 'Rumah Produksi';
+                  return (
+                    <tr key={vendor}>
+                      <td className="py-2 px-4 text-slate-700 pl-8 flex items-center gap-2">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isRP ? 'bg-rose-500' : 'bg-amber-500'}`}></span>
+                        <span>(-) {vendor}</span>
                       </td>
-                    </>
-                  ) : (
-                    <td className="py-2 px-4 text-right text-amber-900 font-bold">
-                      (Rp {consolidated.totalCogsVendor.toLocaleString('id-ID')})
-                    </td>
-                  )}
-                </tr>
+                      {selectedLocation === 'all' ? (
+                        <>
+                          {pnlList.map((p) => {
+                            const val = Number(p.vendorBreakdown[vendor] || 0);
+                            return (
+                              <td key={p.locationId} className={`py-2 px-3 text-right ${isRP ? 'text-rose-700' : 'text-amber-800'}`}>
+                                (Rp {val.toLocaleString('id-ID')})
+                              </td>
+                            );
+                          })}
+                          <td className={`py-2 px-4 text-right font-bold bg-indigo-50/20 ${isRP ? 'text-rose-800' : 'text-amber-900'}`}>
+                            (Rp {Number(consolidated.totalPerVendor[vendor] || 0).toLocaleString('id-ID')})
+                          </td>
+                        </>
+                      ) : (
+                        <td className={`py-2 px-4 text-right font-bold ${isRP ? 'text-rose-800' : 'text-amber-900'}`}>
+                          (Rp {Number(consolidated.totalPerVendor[vendor] || 0).toLocaleString('id-ID')})
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
 
                 {/* LABA KOTOR */}
                 <tr className="bg-emerald-50/30 border-y border-emerald-100">
@@ -731,7 +750,7 @@ export default function BranchPnLReport() {
         </table>
       </div>
 
-      {/* RINCIAN NOTA PENGELUARAN RUMAH PRODUKSI & VENDOR */}
+      {/* RINCIAN NOTA PENGELUARAN PER VENDOR */}
       <div className="bg-slate-50/60 p-5 rounded-3xl border border-slate-100 space-y-3 no-print">
         <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
           <div className="flex items-center gap-2">
@@ -750,7 +769,7 @@ export default function BranchPnLReport() {
             <thead>
               <tr className="text-slate-400 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200/60 bg-white/60 sticky top-0">
                 <th className="py-2.5 px-3">Tanggal & Outlet</th>
-                <th className="py-2.5 px-3">Kategori</th>
+                <th className="py-2.5 px-3">Sumber / Vendor</th>
                 <th className="py-2.5 px-3">Rincian Barang / Catatan Nota</th>
                 <th className="py-2.5 px-3 text-right">Nominal (Rp)</th>
               </tr>
@@ -770,15 +789,14 @@ export default function BranchPnLReport() {
                       <div className="text-[10px] text-slate-400">{log.date}</div>
                     </td>
                     <td className="py-2 px-3">
-                      {log.category === 'RUMAH_PRODUKSI' ? (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1 w-fit">
-                          <ShoppingBag className="w-3 h-3" /> Rumah Produksi
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-black bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1 w-fit">
-                          <Truck className="w-3 h-3" /> Vendor Luar
-                        </span>
-                      )}
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-black border flex items-center gap-1 w-fit ${
+                        log.vendorName === 'Rumah Produksi' 
+                          ? 'bg-rose-50 text-rose-700 border-rose-200' 
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}>
+                        {log.vendorName === 'Rumah Produksi' ? <ShoppingBag className="w-3 h-3" /> : <Truck className="w-3 h-3" />}
+                        {log.vendorName}
+                      </span>
                     </td>
                     <td className="py-2 px-3 text-slate-700 font-bold">
                       {log.notes}
