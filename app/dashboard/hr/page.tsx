@@ -14,19 +14,21 @@ import {
   UserX,
   RefreshCw,
   BookOpen,
-  DollarSign
+  DollarSign,
+  Megaphone
 } from 'lucide-react';
 import LiveExecutiveSummary from '@/components/hr/LiveExecutiveSummary';
 import OperationalKnowledgeBase from '@/components/shared/OperationalKnowledgeBase';
 import StorePayrollForm from '@/components/hr/StorePayrollForm';
+import HrOperationalExpensesForm from '@/components/hr/HrOperationalExpensesForm';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function HRDashboardPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
 
-  // Navigasi Tab Utama HR: 'presensi' | 'payroll' | 'panduan'
-  const [activeTab, setActiveTab] = useState<'presensi' | 'payroll' | 'panduan'>('presensi');
+  // Navigasi Tab Utama HR: 'presensi' | 'payroll' | 'hr_expense' | 'panduan'
+  const [activeTab, setActiveTab] = useState<'presensi' | 'payroll' | 'hr_expense' | 'panduan'>('presensi');
 
   // State Presensi Mandiri HR
   const [attendance, setAttendance] = useState<any>(null);
@@ -359,17 +361,17 @@ export default function HRDashboardPage() {
               </span>
             </div>
             <p className="text-[11px] font-semibold text-slate-400 mt-1">
-              Bakso Ibu • Presensi Mandiri, Rekap Kehadiran, Job Desk & SOP
+              Bakso Ibu • Presensi Mandiri, Rekap Kehadiran, Gaji & Iklan Loker
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
           {/* Tombol Tab Navigasi */}
-          <div className="flex bg-slate-50 p-1 rounded-2xl border border-slate-200/80 text-xs font-bold">
+          <div className="flex bg-slate-50 p-1 rounded-2xl border border-slate-200/80 text-xs font-bold overflow-x-auto">
             <button
               onClick={() => setActiveTab('presensi')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'presensi' 
                   ? 'bg-indigo-600 text-white shadow-xs' 
                   : 'text-slate-500 hover:text-slate-800'
@@ -382,7 +384,7 @@ export default function HRDashboardPage() {
             {/* TAB FORM PENGGAJIAN KRU TOKO */}
             <button
               onClick={() => setActiveTab('payroll')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'payroll' 
                   ? 'bg-indigo-600 text-white shadow-xs' 
                   : 'text-slate-500 hover:text-slate-800'
@@ -392,9 +394,22 @@ export default function HRDashboardPage() {
               Penggajian & Bonus
             </button>
 
+            {/* TAB BIAYA OPERASIONAL HR & IKLAN LOKER */}
+            <button
+              onClick={() => setActiveTab('hr_expense')}
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                activeTab === 'hr_expense' 
+                  ? 'bg-indigo-600 text-white shadow-xs' 
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Megaphone className="w-3.5 h-3.5" />
+              Biaya Operasional HR
+            </button>
+
             <button
               onClick={() => setActiveTab('panduan')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 whitespace-nowrap ${
                 activeTab === 'panduan' 
                   ? 'bg-indigo-600 text-white shadow-xs' 
                   : 'text-slate-500 hover:text-slate-800'
@@ -443,7 +458,14 @@ export default function HRDashboardPage() {
           </div>
         )}
 
-        {/* TAB 3: PRESENSI & DISIPLIN KRU */}
+        {/* TAB 3: BIAYA OPERASIONAL HR & IKLAN LOKER */}
+        {activeTab === 'hr_expense' && (
+          <div>
+            <HrOperationalExpensesForm />
+          </div>
+        )}
+
+        {/* TAB 4: PRESENSI & DISIPLIN KRU */}
         {activeTab === 'presensi' && (
           <div className="space-y-6">
             {/* 1. PRESENSI MANDIRI HR */}
@@ -464,7 +486,7 @@ export default function HRDashboardPage() {
                 <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
                   attendanceMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'
                 }`}>
-                  {attendanceMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                  {attendanceMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" /> : <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />}
                   <span>{attendanceMsg.text}</span>
                 </div>
               )}
