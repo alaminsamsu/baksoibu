@@ -12,7 +12,6 @@ import {
   AlertCircle, 
   DollarSign,
   Gift,
-  UserCheck,
   CheckSquare,
   Square
 } from 'lucide-react';
@@ -20,10 +19,10 @@ import {
 interface StaffPayrollRow {
   staff_name: string;
   role: string;
-  is_selected: boolean; // Menandai apakah staf ini berhak menerima pencairan
+  is_selected: boolean;
   days_worked: number;
-  take_home_pay: number; // Untuk Siklus Gaji (Tgl 28)
-  bonus_nominal: number; // Untuk Siklus Bonus (Tgl 10)
+  take_home_pay: number;
+  bonus_nominal: number;
   notes: string;
   is_saved: boolean;
 }
@@ -62,7 +61,7 @@ export default function StorePayrollForm() {
     return `Outlet ${name.replace(/^outlet\s+/i, '').trim()}`;
   };
 
-  // 1. Ambil daftar cabang
+  // 1. Ambil daftar cabang outlet
   useEffect(() => {
     async function fetchLocations() {
       const { data } = await supabase.from('locations').select('id, name').order('name');
@@ -76,14 +75,14 @@ export default function StorePayrollForm() {
     fetchLocations();
   }, []);
 
-  // 2. Tarik daftar kru dan rekaman data sesuai siklus
+  // 2. Tarik daftar kru & hari masuk murni dari tabel presensi HR (staff_attendances)
   const loadPayrollData = async () => {
     if (!selectedLocation) return;
     setLoading(true);
     setMessage(null);
 
     try {
-      // Ambil data yang sudah tersimpan untuk siklus & periode ini
+      // Ambil data yang sudah pernah disimpan di store_payroll untuk siklus ini
       const { data: existingRecords } = await supabase
         .from('store_payroll')
         .select('*')
@@ -96,57 +95,64 @@ export default function StorePayrollForm() {
         existingMap.set(r.staff_name.toUpperCase(), r);
       });
 
-      // Hitung akumulasi kehadiran kru dari daily_closings
+      // TARIK DARI DATABASE HR: staff_attendances
+      const [year, month] = selectedMonth.split('-');
+      const lastDay = new Date(Number(year), Number(month), 0).getDate();
       const startDate = `${selectedMonth}-01`;
-      const endDate = `${selectedMonth}-31`;
+      const endDate = `${selectedMonth}-${String(lastDay).padStart(2, '0')}`;
 
-      const { data: attendanceData } = await supabase
-        .from('daily_closings')
-        .select('reported_by, closing_date')
+      const { data: attendanceData, error: attError } = await supabase
+        .from('staff_attendances')
+        .select('staff_name, role, attendance_date, location_id')
         .eq('location_id', selectedLocation)
-        .gte('closing_date', startDate)
-        .lte('closing_date', endDate);
+        .gte('attendance_date', startDate)
+        .lte('attendance_date', endDate);
 
+      if (attError) throw attError;
+
+      // Hitung total kehadiran unik per kru dan catat jabatannya dari DB HR
       const workDaysMap = new Map<string, Set<string>>();
+      const staffRoleMap = new Map<string, string>();
+
       (attendanceData || []).forEach((att) => {
-        const staff = (att.reported_by || '').trim().toUpperCase();
-        if (staff && !staff.includes('SISTEM') && !staff.includes('KOREKSI')) {
+        const staff = (att.staff_name || '').trim().toUpperCase();
+        // Lewati akun sistem / HR pusat
+        if (staff && !staff.includes('SISTEM') && !staff.includes('ADMIN') && att.role !== 'HR') {
           if (!workDaysMap.has(staff)) {
             workDaysMap.set(staff, new Set());
           }
-          workDaysMap.get(staff)?.add(att.closing_date);
+          if (att.attendance_date) {
+            workDaysMap.get(staff)?.add(att.attendance_date);
+          }
+          if (att.role && !staffRoleMap.has(staff)) {
+            staffRoleMap.set(staff, att.role);
+          }
         }
       });
 
-      // Ambil seluruh staf yang terdaftar di user/staff cabang
-      const { data: staffUsers } = await supabase
-        .from('users')
-        .select('username, active_staff_name, role_name, location_id')
-        .eq('location_id', selectedLocation);
-
-      const staffList = new Set<string>();
-      (staffUsers || []).forEach((u) => {
-        const name = (u.active_staff_name || u.username || '').trim().toUpperCase();
-        if (name) staffList.add(name);
-      });
-      workDaysMap.forEach((_, staff) => staffList.add(staff));
-      existingMap.forEach((_, staff) => staffList.add(staff));
+      // Gabungkan nama kru yang ada di presensi HR dengan kru yang sebelumnya sudah tersimpan di payroll
+      const allStaffNames = new Set<string>();
+      workDaysMap.forEach((_, staff) => allStaffNames.add(staff));
+      existingMap.forEach((_, staff) => allStaffNames.add(staff));
 
       // Susun baris penggajian
-      const rows: StaffPayrollRow[] = Array.from(staffList).map((staffName) => {
+      const rows: StaffPayrollRow[] = Array.from(allStaffNames).map((staffName) => {
         const exist = existingMap.get(staffName);
-        const daysFromAttendance = workDaysMap.get(staffName)?.size || 0;
+        const daysFromHRDB = workDaysMap.get(staffName)?.size || 0;
         
-        const daysWorked = exist ? exist.days_worked : daysFromAttendance;
+        const daysWorked = exist ? exist.days_worked : daysFromHRDB;
         const thp = exist ? Number(exist.total_net_salary || 0) : 0;
         const bonus = exist ? Number(exist.bonus_omzet || 0) : 0;
+        const role = exist?.role || staffRoleMap.get(staffName) || 'CREW';
 
-        // Default terpilih jika sudah pernah disimpan, atau jika ada hari kerja
-        const isSelected = exist ? true : (disbursementType === 'GAJI' ? daysFromAttendance > 0 : false);
+        // Logika default centang:
+        // - Untuk GAJI (Tgl 28): Otomatis centang jika memiliki presensi kerja di bulan tersebut
+        // - Untuk BONUS (Tgl 10): Default tidak dicentang (HR tinggal centang yang dapat bonus saja)
+        const isSelected = exist ? true : (disbursementType === 'GAJI' ? daysFromHRDB > 0 : false);
 
         return {
           staff_name: staffName,
-          role: exist?.role || 'CREW',
+          role: role,
           is_selected: isSelected,
           days_worked: daysWorked,
           take_home_pay: thp,
@@ -156,11 +162,11 @@ export default function StorePayrollForm() {
         };
       });
 
-      // Urutkan staf aktif terlebih dahulu, lalu sesuai abjad
+      // Urutkan alfabetis
       rows.sort((a, b) => a.staff_name.localeCompare(b.staff_name));
       setPayrollRows(rows);
     } catch (err: any) {
-      console.error('Gagal mengambil data payroll:', err.message);
+      console.error('Gagal mengambil data presensi HR:', err.message);
     } finally {
       setLoading(false);
     }
@@ -199,7 +205,6 @@ export default function StorePayrollForm() {
         throw new Error('Pilih minimal satu staf yang akan dicairkan.');
       }
 
-      // Siapkan payload sesuai siklus
       const payloads = targetRows.map((r) => {
         const isGaji = disbursementType === 'GAJI';
         const totalNet = isGaji ? Number(r.take_home_pay || 0) : Number(r.bonus_nominal || 0);
@@ -233,7 +238,7 @@ export default function StorePayrollForm() {
       if (error) throw error;
 
       setMessage({
-        text: `Berhasil menyimpan ${disbursementType === 'GAJI' ? 'Gaji Kru (Tgl 28)' : 'Bonus Kru (Tgl 10)'} untuk periode ${selectedMonth}! (${payloads.length} kru terdata)`,
+        text: `Berhasil menyimpan data ${disbursementType === 'GAJI' ? 'Gaji Kru (Tgl 28)' : 'Bonus Kru (Tgl 10)'} berbasis database presensi HR! (${payloads.length} kru tersimpan)`,
         type: 'success'
       });
 
@@ -269,7 +274,7 @@ export default function StorePayrollForm() {
               Input Penggajian & Bonus Kru Cabang
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Pencatatan dipisah: Gaji Pokok (Tgl 28) & Bonus Omzet (Tgl 10). Staf dapat dipilih secara selektif.
+              Daftar nama kru & akumulasi kehadiran ditarik langsung dari database presensi HR (<code className="text-indigo-600 font-bold">staff_attendances</code>).
             </p>
           </div>
         </div>
@@ -304,7 +309,7 @@ export default function StorePayrollForm() {
           <button
             onClick={loadPayrollData}
             className="p-2.5 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl text-slate-500"
-            title="Segarkan Data"
+            title="Segarkan Data Presensi HR"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -332,7 +337,7 @@ export default function StorePayrollForm() {
             </span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1 font-medium leading-relaxed">
-            Input hanya <b>Hari Masuk</b> & <b>Take Home Pay (THP)</b> bersih staf. Kru resign tidak perlu dicentang.
+            Menampilkan kru yang hadir di DB presensi bulan ini. Cukup input <b>Take Home Pay (THP)</b>. Kru resign di tengah jalan hari masuknya otomatis terpotong sesuai tanggal terakhir absen.
           </p>
         </button>
 
@@ -348,14 +353,14 @@ export default function StorePayrollForm() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 font-black text-xs text-amber-950">
               <Gift className="w-4 h-4 text-amber-600" />
-              <span>2. Bonus Omzet / Performa (Setiap Tanggal 10)</span>
+              <span>2. Bonus Cabang (Setiap Tanggal 10)</span>
             </div>
             <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800">
               Bulan Berikutnya
             </span>
           </div>
           <p className="text-[11px] text-slate-500 mt-1 font-medium leading-relaxed">
-            Hanya input <b>Nominal Bonus</b> untuk kru yang berhak. Kru yang tidak mendapat bonus cukup dinonaktifkan.
+            Hanya input <b>Nominal Bonus</b> untuk staf yang berhak. Kru yang resign atau tidak lolos kualifikasi bonus tinggal di-uncheck (tidak dicentang).
           </p>
         </button>
       </div>
@@ -388,7 +393,7 @@ export default function StorePayrollForm() {
         </div>
       )}
 
-      {/* TABEL FORM INPUT FLEKSIBEL */}
+      {/* TABEL FORM INPUT */}
       <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
         <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
           <table className="w-full text-left text-xs border-collapse">
@@ -399,7 +404,7 @@ export default function StorePayrollForm() {
                 
                 {disbursementType === 'GAJI' ? (
                   <>
-                    <th className="py-3 px-3 text-center w-28">Hari Masuk</th>
+                    <th className="py-3 px-3 text-center w-32">Hari Masuk (Presensi HR)</th>
                     <th className="py-3 px-4 text-right min-w-[160px] font-black text-indigo-900 bg-indigo-50/50">
                       Take Home Pay (THP) Bersih (Rp)
                     </th>
@@ -417,13 +422,13 @@ export default function StorePayrollForm() {
               {loading ? (
                 <tr>
                   <td colSpan={disbursementType === 'GAJI' ? 5 : 4} className="py-16 text-center text-slate-400 font-bold">
-                    Memuat daftar kru...
+                    Mengambil rekapan presensi staf dari database HR...
                   </td>
                 </tr>
               ) : payrollRows.length === 0 ? (
                 <tr>
                   <td colSpan={disbursementType === 'GAJI' ? 5 : 4} className="py-16 text-center text-slate-400 font-bold">
-                    Tidak ada kru terdaftar untuk cabang ini pada periode {selectedMonth}.
+                    Belum ada presensi staf tercatat di database HR untuk cabang ini pada periode {selectedMonth}.
                   </td>
                 </tr>
               ) : (
@@ -448,7 +453,7 @@ export default function StorePayrollForm() {
                       </button>
                     </td>
 
-                    {/* Nama Kru */}
+                    {/* Nama Kru & Role */}
                     <td className="py-2.5 px-4 font-black text-slate-900 uppercase">
                       <div className="flex items-center gap-1.5">
                         <span>{row.staff_name}</span>
@@ -506,14 +511,14 @@ export default function StorePayrollForm() {
                       </td>
                     )}
 
-                    {/* Catatan Tambahan (Misal: Resign 15 Okt, Bonus Target Lolos) */}
+                    {/* Catatan / Alasan */}
                     <td className="py-2 px-4">
                       <input
                         type="text"
                         disabled={!row.is_selected}
                         value={row.notes}
                         onChange={(e) => handleValueChange(idx, 'notes', e.target.value)}
-                        placeholder="Contoh: Resign tgl 15 / Bonus omzet..."
+                        placeholder="Contoh: Resign tgl 14 / Bonus omzet tembus..."
                         className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 placeholder-slate-400 focus:outline-none focus:border-indigo-500 disabled:bg-slate-100 disabled:text-slate-300"
                       />
                     </td>
