@@ -90,17 +90,19 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
     fetchOrders();
   }, [selectedDate, selectedLocation]);
 
+  // Fungsi Cetak / Download PDF (Support HP & Desktop)
   const handleDownloadPdf = () => {
     const originalTitle = document.title;
     const [year, month, day] = selectedDate.split('-');
     const formattedDate = `${day}-${month}-${year}`;
     
+    // Nama file otomatis saat save PDF di HP / Laptop
     document.title = `Order Bakso Ibu (${formattedDate})`;
     window.print();
 
     setTimeout(() => {
       document.title = originalTitle;
-    }, 1500);
+    }, 2000);
   };
 
   const handleStatusChange = async (orderId: string, newStatus: string) => {
@@ -209,54 +211,67 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans print:p-0 print:m-0 print:border-none print:shadow-none">
+    <div className="bg-white rounded-3xl border border-slate-100 p-4 sm:p-8 shadow-xs space-y-6 font-sans print:p-0 print:m-0 print:border-none print:shadow-none">
       
-      {/* CSS PRINT DENGAN MARGIN MINIMUM & WARNA ASLI */}
+      {/* CSS SCALING KHUSUS PRINT & MOBILE PDF */}
       <style jsx global>{`
         @media print {
           @page {
             size: A4 portrait;
-            margin: 0mm !important;
+            margin: 5mm !important;
           }
           * {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             color-adjust: exact !important;
           }
-          body {
+          html, body {
             background-color: #ffffff !important;
-            padding: 8mm 6mm !important;
+            width: 100% !important;
+            font-size: 11px !important;
           }
           .no-print {
             display: none !important;
           }
           .print-header {
             display: block !important;
-            margin-bottom: 10px;
-            padding-bottom: 6px;
+            margin-bottom: 8px;
+            padding-bottom: 5px;
             border-bottom: 2px solid #0f172a;
           }
           .print-vendor-box {
             page-break-inside: avoid !important;
             margin-bottom: 8px !important;
             border: 1px solid #cbd5e1 !important;
-            border-radius: 4px !important;
+            border-radius: 6px !important;
+            overflow: hidden !important;
           }
           .print-vendor-header {
             background-color: #f1f5f9 !important;
             font-weight: 900 !important;
+            padding: 4px 8px !important;
+          }
+          .print-table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            table-layout: fixed !important;
           }
           .print-table th {
             background-color: #f8fafc !important;
             border-bottom: 1px solid #cbd5e1 !important;
+            padding: 4px 6px !important;
+            font-size: 9px !important;
           }
           .print-table td {
-            border-bottom: 1px solid #e2e8f0 !important;
+            border-bottom: 1px solid #f1f5f9 !important;
+            padding: 4px 6px !important;
+            font-size: 9.5px !important;
+            word-wrap: break-word !important;
           }
         }
       `}</style>
 
-      {/* HEADER CETAK */}
+      {/* HEADER CETAK PDF */}
       <div className="hidden print:block print-header">
         <div className="flex justify-between items-center">
           <div>
@@ -282,7 +297,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
         </div>
       )}
 
-      {/* HEADER KONTROL */}
+      {/* HEADER KONTROL (RESPONSIF HP) */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-5 border-b border-slate-100 gap-4 no-print">
         <div className="flex items-center gap-3">
           {onBack && (
@@ -294,36 +309,36 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
               <ArrowLeft className="w-4 h-4" />
             </button>
           )}
-          <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
             <ShoppingBag className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-base font-black text-slate-900 tracking-tight">
+            <h2 className="text-sm sm:text-base font-black text-slate-900 tracking-tight leading-snug">
               Rekap Permintaan Belanja Masuk
             </h2>
-            <p className="text-xs font-medium text-slate-400">
-              Kelola status pengadaan & unduh rekap PDF per vendor.
+            <p className="text-[11px] font-medium text-slate-400">
+              Revisi status pengadaan & simpan berkas PDF.
             </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="relative flex items-center">
+        <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+          <div className="relative flex-1 sm:flex-initial flex items-center min-w-[130px]">
             <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="pl-8 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+              className="w-full pl-8 pr-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
             />
           </div>
 
-          <div className="relative">
+          <div className="relative flex-1 sm:flex-initial min-w-[130px]">
             <Store className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
             <select
               value={selectedLocation}
               onChange={(e) => setSelectedLocation(e.target.value)}
-              className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+              className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
             >
               <option value="all">Semua Outlet</option>
               {locations.map((loc) => (
@@ -344,7 +359,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
 
           <button
             onClick={handleDownloadPdf}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-md shadow-indigo-600/20"
+            className="w-full sm:w-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all shadow-md shadow-indigo-600/20"
           >
             <FileDown className="w-4 h-4" />
             <span>Download PDF</span>
@@ -373,7 +388,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
           Tidak ada permintaan belanja masuk pada tanggal ini.
         </div>
       ) : (
-        <div className="space-y-4 print:space-y-2.5">
+        <div className="space-y-4 print:space-y-2">
           {Object.entries(groupedOrders).map(([supplierName, list]) => (
             <div key={supplierName} className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs print-vendor-box">
               <div className="bg-slate-100 px-3.5 py-1.5 border-b border-slate-200/80 flex justify-between items-center print-vendor-header">
@@ -390,21 +405,20 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
                 <table className="w-full text-left text-xs border-collapse print-table">
                   <thead>
                     <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 bg-slate-50/60 print:text-[9px]">
-                      <th className="py-2 px-3 min-w-[160px] print:w-[32%]">NAMA BARANG</th>
-                      <th className="py-2 px-3 min-w-[110px] print:w-[15%]">OUTLET</th>
-                      <th className="py-2 px-3 text-right min-w-[90px] print:w-[15%]">KUANTITAS</th>
-                      <th className="py-2 px-3 min-w-[170px] print:w-[22%]">STATUS PEMESANAN</th>
-                      <th className="py-2 px-3 min-w-[140px] print:w-[16%]">CATATAN</th>
+                      <th className="py-2 px-3 min-w-[150px] print:w-[32%]">NAMA BARANG</th>
+                      <th className="py-2 px-3 min-w-[100px] print:w-[15%]">OUTLET</th>
+                      <th className="py-2 px-3 text-right min-w-[85px] print:w-[14%]">KUANTITAS</th>
+                      <th className="py-2 px-3 min-w-[160px] print:w-[22%]">STATUS</th>
+                      <th className="py-2 px-3 min-w-[130px] print:w-[17%]">CATATAN</th>
                       <th className="py-2 px-2 text-center w-10 no-print">AKSI</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-semibold text-xs print:text-[10px]">
+                  <tbody className="divide-y divide-slate-100 font-semibold text-xs print:text-[9.5px]">
                     {list.map((item) => {
                       const isUpdating = updatingId === item.id;
                       const badge = getStatusBadge(item.status);
                       const isBtp = (item.locations?.name || '').toLowerCase().includes('btp');
                       
-                      // Tampilkan catatan hanya jika diisi teks non-kosong, jika tidak maka '-'
                       const hasNote = item.notes && item.notes.trim() !== '' && !item.notes.includes('Mohon dikirim');
                       const displayNote = hasNote ? item.notes : '-';
 
@@ -414,7 +428,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
                             {item.item_name}
                           </td>
                           <td className="py-1.5 px-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                            <span className={`px-2 py-0.5 rounded text-[10px] print:text-[9px] font-black ${
                               isBtp 
                                 ? 'bg-blue-50 text-blue-700 border border-blue-200 print:bg-blue-100 print:text-blue-900' 
                                 : 'bg-purple-50 text-purple-700 border border-purple-200 print:bg-purple-100 print:text-purple-900'
@@ -424,7 +438,7 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
                           </td>
                           <td className="py-1.5 px-3 text-right font-black text-indigo-700 print:text-indigo-900">
                             {item.quantity}{' '}
-                            <span className="text-[10px] text-slate-500 font-normal">{item.unit}</span>
+                            <span className="text-[10px] print:text-[9px] text-slate-500 font-normal">{item.unit}</span>
                           </td>
                           
                           <td className="py-1.5 px-3">
@@ -442,13 +456,12 @@ export default function AdminOrderSummaryView({ user, onBack }: Props) {
                               </select>
                             </div>
 
-                            <span className={`hidden print:inline-block px-2 py-0.5 rounded border text-[9px] font-black ${badge.colorClass}`}>
+                            <span className={`hidden print:inline-block px-1.5 py-0.5 rounded border text-[8.5px] font-black leading-tight ${badge.colorClass}`}>
                               {badge.label}
                             </span>
                           </td>
 
-                          {/* KOLOM CATATAN BERSIH */}
-                          <td className={`py-1.5 px-3 text-[10px] truncate max-w-[140px] print:max-w-none print:whitespace-normal ${hasNote ? 'text-slate-700 font-bold' : 'text-slate-400 font-normal'}`}>
+                          <td className={`py-1.5 px-3 text-[10px] print:text-[9px] truncate max-w-[130px] print:max-w-none print:whitespace-normal ${hasNote ? 'text-slate-700 font-bold' : 'text-slate-400 font-normal'}`}>
                             {displayNote}
                           </td>
 
