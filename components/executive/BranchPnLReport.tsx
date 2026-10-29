@@ -3,19 +3,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { 
-  DollarSign, 
-  TrendingUp, 
-  TrendingDown, 
   Building2, 
   Store, 
   Calendar, 
   FileDown, 
   RefreshCw, 
-  PieChart, 
-  ArrowUpRight, 
-  ArrowDownRight,
-  ShieldCheck,
-  Receipt
+  PieChart
 } from 'lucide-react';
 
 interface LocationItem {
@@ -50,7 +43,6 @@ export default function BranchPnLReport() {
   const [selectedLocation, setSelectedLocation] = useState<string>('all');
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Data Keuangan Mentah
   const [pnlList, setPnlList] = useState<PnLData[]>([]);
   const [totalHqSharedPool, setTotalHqSharedPool] = useState<number>(0);
 
@@ -59,7 +51,6 @@ export default function BranchPnLReport() {
     return `Outlet ${name.replace(/^outlet\s+/i, '').trim()}`;
   };
 
-  // 1. Ambil Lokasi
   useEffect(() => {
     async function fetchLocations() {
       const { data } = await supabase.from('locations').select('id, name').order('name');
@@ -68,7 +59,6 @@ export default function BranchPnLReport() {
     fetchLocations();
   }, []);
 
-  // 2. Agregasi PnL Bulanan
   const fetchPnLAnalytics = async () => {
     setLoading(true);
     try {
@@ -86,7 +76,7 @@ export default function BranchPnLReport() {
       let sharedPool = 0;
       const utilityDirectMap: Record<string, number> = {};
 
-      (hqExpenses || []).forEach((exp) => {
+      (hqExpenses || []).forEach((exp: any) => {
         const val = Number(exp.amount || 0);
         if (exp.is_shared_to_all_branches) {
           sharedPool += val;
@@ -103,7 +93,7 @@ export default function BranchPnLReport() {
         .eq('period_month', selectedMonth);
 
       const payrollMap: Record<string, number> = {};
-      (payrollData || []).forEach((pay) => {
+      (payrollData || []).forEach((pay: any) => {
         if (pay.location_id) {
           payrollMap[pay.location_id] = (payrollMap[pay.location_id] || 0) + Number(pay.total_net_salary || 0);
         }
@@ -116,16 +106,15 @@ export default function BranchPnLReport() {
         .gte('created_at', startDateTime)
         .lte('created_at', endDateTime);
 
-      // Ambil master harga beli items untuk valuasi HPP
       const { data: itemsMeta } = await supabase.from('items').select('name, cost_price, price');
       const itemCostMap: Record<string, number> = {};
-      (itemsMeta || []).forEach((itm) => {
+      (itemsMeta || []).forEach((itm: any) => {
         const clean = (itm.name || '').trim().toUpperCase().replace(/\s+/g, ' ');
         itemCostMap[clean] = Number(itm.cost_price || itm.price || 0);
       });
 
       const cogsMap: Record<string, number> = {};
-      (orderData || []).forEach((ord) => {
+      (orderData || []).forEach((ord: any) => {
         if (ord.location_id) {
           const cName = (ord.item_name || '').trim().toUpperCase().replace(/\s+/g, ' ');
           const cost = itemCostMap[cName] || 0;
@@ -134,23 +123,20 @@ export default function BranchPnLReport() {
         }
       });
 
-      // D. Ambil Pendapatan Penjualan & Pengeluaran Kasir dari Closing Harian
+      // D. Ambil Pendapatan Penjualan dari Daily Closings (Pastikan item_name di-select)
       const { data: closingData } = await supabase
         .from('daily_closings')
-        .select('location_id, terpakai, closing_date')
+        .select('location_id, item_name, terpakai, closing_date')
         .gte('closing_date', startDate)
         .lte('closing_date', endDate);
 
-      // Simulasi estimasi omzet cabang jika settlement table belum terpisah
-      // Menghitung omzet berbasis konsumsi mangkok bakso/item terpakai
       const revenueMap: Record<string, number> = {};
       const cashierExpMap: Record<string, number> = {};
 
-      (closingData || []).forEach((c) => {
+      (closingData || []).forEach((c: any) => {
         if (c.location_id) {
           const cName = (c.item_name || '').trim().toUpperCase().replace(/\s+/g, ' ');
           if (cName.includes('BAKSO') || cName.includes('MIE') || cName.includes('AYAM')) {
-            // Est. nilai jual retail porsi
             revenueMap[c.location_id] = (revenueMap[c.location_id] || 0) + (Number(c.terpakai || 0) * 18000);
           }
         }
@@ -205,7 +191,6 @@ export default function BranchPnLReport() {
     fetchPnLAnalytics();
   }, [selectedMonth, locations]);
 
-  // Konsolidasi (Semua Cabang)
   const consolidated = useMemo(() => {
     const targetRows = selectedLocation === 'all' 
       ? pnlList 
@@ -377,7 +362,7 @@ export default function BranchPnLReport() {
         </div>
       </div>
 
-      {/* TABEL ANATOMI PnL RESMI (PER CABANG & TOTAL) */}
+      {/* TABEL ANATOMI PnL */}
       <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
         <table className="w-full text-left text-xs border-collapse font-sans">
           <thead>
@@ -554,7 +539,7 @@ export default function BranchPnLReport() {
                       </td>
                     </>
                   ) : (
-                    <td className="py-2 px-4 text-right font-black text-slate-900 bg-indigo-50/40">
+                    <td className="py-2.5 px-4 text-right font-black text-slate-900 bg-indigo-50/40">
                       Rp {consolidated.totalStoreProfit.toLocaleString('id-ID')}
                     </td>
                   )}
