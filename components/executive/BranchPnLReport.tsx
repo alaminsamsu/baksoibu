@@ -11,7 +11,11 @@ import {
   PieChart,
   Layers,
   ShoppingBag,
-  Truck
+  Truck,
+  PlusCircle,
+  X,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 
 interface LocationItem {
@@ -34,8 +38,8 @@ interface PnLData {
   locationId: string;
   locationName: string;
   revenue: number;
-  vendorBreakdown: Record<string, number>; // Rincian per vendor (RP, Pasar, Hamdalah, dll)
-  totalCogs: number;                       // Total HPP
+  vendorBreakdown: Record<string, number>;
+  totalCogs: number;
   grossProfit: number;
   grossMarginPct: number;
   cashierExpenses: number;
@@ -53,6 +57,10 @@ export default function BranchPnLReport() {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date()).substring(0, 7);
   };
 
+  const getTodayWita = () => {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
+  };
+
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthStr());
   const [locations, setLocations] = useState<LocationItem[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<string>('all');
@@ -63,12 +71,25 @@ export default function BranchPnLReport() {
   const [allVendorNames, setAllVendorNames] = useState<string[]>([]);
   const [totalHqSharedPool, setTotalHqSharedPool] = useState<number>(0);
 
+  // State Modal Tambah Pengeluaran Susulan Owner
+  const [showModal, setShowModal] = useState<boolean>(false);
+  const [targetScope, setTargetScope] = useState<'SINGLE' | 'SHARED'>('SINGLE');
+  const [modalLocationId, setModalLocationId] = useState<string>('');
+  const [componentType, setComponentType] = useState<'COGS_VENDOR' | 'STORE_OPEX' | 'STORE_UTILITY'>('COGS_VENDOR');
+  const [selectedVendorCategory, setSelectedVendorCategory] = useState<string>('Vendor Pasar');
+  const [customVendorName, setCustomVendorName] = useState<string>('');
+  const [expenseTitle, setExpenseTitle] = useState<string>('');
+  const [modalAmount, setModalAmount] = useState<string>('');
+  const [modalDate, setModalDate] = useState<string>(getTodayWita());
+  const [modalNotes, setModalNotes] = useState<string>('');
+  const [submittingExpense, setSubmittingExpense] = useState<boolean>(false);
+  const [modalMessage, setModalMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
   const cleanLocationName = (name?: string) => {
     if (!name) return 'Outlet';
     return `Outlet ${name.replace(/^outlet\s+/i, '').trim()}`;
   };
 
-  // Standarisasi Nama Vendor agar rapi di tabel PnL
   const normalizeVendorName = (rawName?: string) => {
     if (!rawName) return 'Rumah Produksi';
     const clean = rawName.trim();
@@ -83,27 +104,29 @@ export default function BranchPnLReport() {
     if (upper.includes('HAMDALAH')) {
       return 'Vendor Hamdalah';
     }
-    // Huruf kapital awal tiap kata untuk vendor umum
     return clean.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase());
   };
 
-  // 1. Ambil Data Lokasi
   useEffect(() => {
     async function fetchLocations() {
       const { data } = await supabase.from('locations').select('id, name').order('name');
-      if (data) setLocations(data);
+      if (data && data.length > 0) {
+        setLocations(data);
+        if (!modalLocationId) {
+          setModalLocationId(String(data[0].id));
+        }
+      }
     }
     fetchLocations();
   }, []);
 
-  // 2. Agregasi PnL Bulanan dengan Breakdown Dinamis Per Vendor
   const fetchPnLAnalytics = async () => {
     setLoading(true);
     try {
       const startDate = `${selectedMonth}-01`;
       const endDate = `${selectedMonth}-31`;
 
-      // A. Beban Manajemen Pusat (HQ Shared) & Utilitas Transfer Bank
+      // 1. Ambil Beban HQ & Beban Susulan Owner dari hq_and_overhead_expenses
       const { data: hqExpenses } = await supabase
         .from('hq_and_overhead_expenses')
         .select('*')
@@ -111,18 +134,45 @@ export default function BranchPnLReport() {
 
       let sharedPool = 0;
       const utilityDirectMap: Record<string, number> = {};
+      const ownerManualOpexMap: Record<string, number> = {};
+      const ownerManualCogsVendorMap: Record<string, Record<string, number>> = {};
+      const ownerSharedCogsVendorMap: Record<string, number> = {};
 
       (hqExpenses || []).forEach((exp: any) => {
         const val = Number(exp.amount || 0);
-        if (exp.is_shared_to_all_branches) {
-          sharedPool += val;
-        } else if (exp.location_id) {
+        const cat = exp.expense_category || '';
+
+        // Jika beban HPP susulan (COGS / Vendor)
+        if (cat.startsWith('COGS_') || cat === 'COGS_VENDOR') {
+          const vName = normalizeVendorName(exp.expense_name?.replace(/^\[COGS - /i, '').replace(/\].*$/, ''));
+          if (exp.is_shared_to_all_branches) {
+            ownerSharedCogsVendorMap[vName] = (ownerSharedCogsVendorMap[vName] || 0) + val;
+          } else if (exp.location_id) {
+            if (!ownerManualCogsVendorMap[exp.location_id]) ownerManualCogsVendorMap[exp.location_id] = {};
+            ownerManualCogsVendorMap[exp.location_id][vName] = (ownerManualCogsVendorMap[exp.location_id][vName] || 0) + val;
+          }
+        }
+        // Jika beban operasional toko susulan
+        else if (cat === 'STORE_OPEX') {
+          if (exp.is_shared_to_all_branches) {
+            sharedPool += val;
+          } else if (exp.location_id) {
+            ownerManualOpexMap[exp.location_id] = (ownerManualOpexMap[exp.location_id] || 0) + val;
+          }
+        }
+        // Jika utilitas transfer bank
+        else if (cat === 'STORE_UTILITY' && exp.location_id && !exp.is_shared_to_all_branches) {
           utilityDirectMap[exp.location_id] = (utilityDirectMap[exp.location_id] || 0) + val;
         }
+        // Beban manajemen pusat / kantor pusat
+        else if (exp.is_shared_to_all_branches) {
+          sharedPool += val;
+        }
       });
+
       setTotalHqSharedPool(sharedPool);
 
-      // B. Penggajian Kru Cabang (Store Payroll)
+      // 2. Penggajian Kru Cabang
       const { data: payrollData } = await supabase
         .from('store_payroll')
         .select('location_id, total_net_salary')
@@ -135,7 +185,7 @@ export default function BranchPnLReport() {
         }
       });
 
-      // C. Ambil Omzet, Pengeluaran Laci & Beban RP/Vendor dari cash_settlements
+      // 3. Omzet, Pengeluaran Kasir & Beban Non-Kasir dari cash_settlements
       const { data: settlements } = await supabase
         .from('cash_settlements')
         .select('id, location_id, settlement_date, total_omset, expense_nominal, non_cash_expense_nominal, non_cash_expense_category, non_cash_expense_notes, reported_by, locations(name)')
@@ -145,14 +195,13 @@ export default function BranchPnLReport() {
       const revenueMap: Record<string, number> = {};
       const cashierExpMap: Record<string, number> = {};
       const vendorPerLocMap: Record<string, Record<string, number>> = {};
-      const discoveredVendors = new Set<string>(['Rumah Produksi']); // Rumah Produksi selalu tampil di urutan awal
+      const discoveredVendors = new Set<string>(['Rumah Produksi']);
       const logs: BreakdownLog[] = [];
 
       (settlements || []).forEach((s: any) => {
         const locId = s.location_id;
         if (!locId) return;
 
-        // Omzet & Pengeluaran Kasir
         revenueMap[locId] = (revenueMap[locId] || 0) + Number(s.total_omset || 0);
         cashierExpMap[locId] = (cashierExpMap[locId] || 0) + Number(s.expense_nominal || 0);
 
@@ -160,7 +209,6 @@ export default function BranchPnLReport() {
           vendorPerLocMap[locId] = {};
         }
 
-        // Parse Beban Non-Kasir (Rumah Produksi & Vendor)
         if (Number(s.non_cash_expense_nominal || 0) > 0) {
           let parsedItems: any[] = [];
           if (s.non_cash_expense_notes && s.non_cash_expense_notes.startsWith('[')) {
@@ -211,7 +259,37 @@ export default function BranchPnLReport() {
         }
       });
 
-      // Susun urutan vendor: Rumah Produksi di paling atas, diikuti vendor lain sesuai abjad
+      // Tambahkan vendor dari input susulan owner ke discoveredVendors
+      Object.keys(ownerSharedCogsVendorMap).forEach((v) => discoveredVendors.add(v));
+      Object.values(ownerManualCogsVendorMap).forEach((m) => Object.keys(m).forEach((v) => discoveredVendors.add(v)));
+
+      // Masukkan juga entri susulan owner ke logs audit
+      (hqExpenses || []).forEach((exp: any) => {
+        if (exp.expense_category?.startsWith('COGS_') || exp.expense_category === 'STORE_OPEX') {
+          const vName = exp.expense_category?.startsWith('COGS_')
+            ? normalizeVendorName(exp.expense_name?.replace(/^\[COGS - /i, '').replace(/\].*$/, ''))
+            : 'Biaya Operasional (Susulan Owner)';
+
+          const locLabel = exp.is_shared_to_all_branches 
+            ? 'Bagi Rata Seluruh Cabang' 
+            : cleanLocationName(locations.find(l => l.id === exp.location_id)?.name);
+
+          logs.push({
+            id: exp.id,
+            date: exp.expense_date,
+            locationId: exp.location_id || 'shared',
+            locationName: locLabel,
+            vendorName: vName,
+            nominal: Number(exp.amount || 0),
+            notes: `[Input Owner] ${exp.notes || exp.expense_name}`,
+            reporter: exp.created_by || 'Owner'
+          });
+        }
+      });
+
+      const branchCount = Math.max(1, locations.length);
+      const sharedPerBranch = Math.round(sharedPool / branchCount);
+
       const vendorArray = Array.from(discoveredVendors).sort((a, b) => {
         if (a === 'Rumah Produksi') return -1;
         if (b === 'Rumah Produksi') return 1;
@@ -220,14 +298,24 @@ export default function BranchPnLReport() {
       setAllVendorNames(vendorArray);
       setExpenseBreakdownLogs(logs);
 
-      // D. Hitung PnL per Cabang
-      const branchCount = Math.max(1, locations.length);
-      const sharedPerBranch = Math.round(sharedPool / branchCount);
-
+      // 4. Hitung PnL per Cabang
       const computedList: PnLData[] = locations.map((loc) => {
         const rev = revenueMap[loc.id] || 0;
-        const vBreakdown = vendorPerLocMap[loc.id] || {};
-        
+        const vBreakdown: Record<string, number> = { ...(vendorPerLocMap[loc.id] || {}) };
+
+        // Tambahkan beban HPP susulan khusus cabang ini
+        if (ownerManualCogsVendorMap[loc.id]) {
+          Object.entries(ownerManualCogsVendorMap[loc.id]).forEach(([v, amt]) => {
+            vBreakdown[v] = (vBreakdown[v] || 0) + amt;
+          });
+        }
+
+        // Tambahkan beban HPP susulan yang dibagi rata
+        Object.entries(ownerSharedCogsVendorMap).forEach(([v, totalAmt]) => {
+          const splitAmt = Math.round(totalAmt / branchCount);
+          vBreakdown[v] = (vBreakdown[v] || 0) + splitAmt;
+        });
+
         let totalCogs = 0;
         vendorArray.forEach((v) => {
           totalCogs += Number(vBreakdown[v] || 0);
@@ -236,7 +324,7 @@ export default function BranchPnLReport() {
         const grossProfit = rev - totalCogs;
         const grossMarginPct = rev > 0 ? (grossProfit / rev) * 100 : 0;
 
-        const cashierExp = cashierExpMap[loc.id] || 0;
+        const cashierExp = (cashierExpMap[loc.id] || 0) + (ownerManualOpexMap[loc.id] || 0);
         const payroll = payrollMap[loc.id] || 0;
         const utilityBank = utilityDirectMap[loc.id] || 0;
 
@@ -284,7 +372,6 @@ export default function BranchPnLReport() {
 
     const totalRev = targetRows.reduce((sum, p) => sum + p.revenue, 0);
     
-    // Total per masing-masing vendor
     const totalPerVendor: Record<string, number> = {};
     allVendorNames.forEach((v) => {
       totalPerVendor[v] = targetRows.reduce((sum, p) => sum + Number(p.vendorBreakdown[v] || 0), 0);
@@ -322,10 +409,68 @@ export default function BranchPnLReport() {
     };
   }, [pnlList, selectedLocation, allVendorNames, totalHqSharedPool]);
 
-  // Log Rincian Nota
+  // Submit Pengeluaran Susulan Owner
+  const handleSaveOwnerExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modalAmount || parseFloat(modalAmount) <= 0) {
+      alert('Masukkan nominal pengeluaran yang valid.');
+      return;
+    }
+
+    setSubmittingExpense(true);
+    setModalMessage(null);
+
+    try {
+      const isShared = targetScope === 'SHARED';
+      const locId = isShared ? null : modalLocationId;
+
+      let finalCategory = componentType;
+      let vendorTarget = selectedVendorCategory === 'CUSTOM' ? (customVendorName.trim() || 'Vendor Lainnya') : selectedVendorCategory;
+      let finalExpenseName = expenseTitle.trim() || 'Pengeluaran Susulan Owner';
+
+      if (componentType === 'COGS_VENDOR') {
+        finalExpenseName = `[COGS - ${vendorTarget}] ${expenseTitle.trim() || 'Belanja Bahan'}`;
+      }
+
+      const payload = {
+        period_month: selectedMonth,
+        expense_date: modalDate,
+        expense_category: finalCategory,
+        expense_name: finalExpenseName,
+        amount: parseFloat(modalAmount),
+        location_id: locId,
+        is_shared_to_all_branches: isShared,
+        payment_method: 'TRANSFER_BANK',
+        notes: modalNotes.trim() || 'Input susulan oleh Owner di modul PnL',
+        created_by: 'Owner (Susulan PnL)',
+        created_at: new Date().toISOString()
+      };
+
+      const { error } = await supabase.from('hq_and_overhead_expenses').insert([payload]);
+      if (error) throw error;
+
+      setModalMessage({ text: 'Pengeluaran susulan berhasil ditambahkan ke laporan!', type: 'success' });
+      setExpenseTitle('');
+      setModalAmount('');
+      setModalNotes('');
+      setCustomVendorName('');
+
+      setTimeout(() => {
+        setShowModal(false);
+        setModalMessage(null);
+      }, 1200);
+
+      await fetchPnLAnalytics();
+    } catch (err: any) {
+      setModalMessage({ text: err.message || 'Gagal menyimpan beban susulan.', type: 'error' });
+    } finally {
+      setSubmittingExpense(false);
+    }
+  };
+
   const filteredBreakdownLogs = useMemo(() => {
     if (selectedLocation === 'all') return expenseBreakdownLogs;
-    return expenseBreakdownLogs.filter(l => l.locationId === selectedLocation);
+    return expenseBreakdownLogs.filter(l => l.locationId === selectedLocation || l.locationId === 'shared');
   }, [expenseBreakdownLogs, selectedLocation]);
 
   const handlePrint = () => {
@@ -382,12 +527,22 @@ export default function BranchPnLReport() {
               Laporan Laba Rugi Eksekutif (PnL Bulanan)
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Breakdown rinci pengeluaran Rumah Produksi, Vendor Pasar, Hamdalah, dll.
+              Breakdown rinci pengeluaran Rumah Produksi, Vendor Pasar, Hamdalah, dan Input Susulan Owner.
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* TOMBOL SUSULAN OWNER */}
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="px-3.5 py-2 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs"
+          >
+            <PlusCircle className="w-4 h-4 text-indigo-600" />
+            <span>+ Tambah Beban Susulan</span>
+          </button>
+
           <div className="relative flex items-center">
             <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-3 pointer-events-none" />
             <input
@@ -471,7 +626,7 @@ export default function BranchPnLReport() {
         </div>
       </div>
 
-      {/* TABEL ANATOMI PnL RESMI (DENGAN BARIS DINAMIS PER VENDOR) */}
+      {/* TABEL ANATOMI PnL RESMI */}
       <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
         <table className="w-full text-left text-xs border-collapse font-sans">
           <thead>
@@ -527,7 +682,7 @@ export default function BranchPnLReport() {
                   )}
                 </tr>
 
-                {/* 2. BREAKDOWN HPP / BEBAN POKOK (DINAMIS PER VENDOR) */}
+                {/* 2. BREAKDOWN HPP / BEBAN POKOK */}
                 <tr className="bg-slate-50/20">
                   <td colSpan={selectedLocation === 'all' ? pnlList.length + 2 : 2} className="py-2 px-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Beban Pokok Penjualan / Bahan Masuk (HPP)
@@ -605,7 +760,7 @@ export default function BranchPnLReport() {
                 </tr>
                 <tr>
                   <td className="py-1.5 px-4 text-slate-600 pl-8">
-                    (-) Pengeluaran Kasir / Petty Cash Laci
+                    (-) Pengeluaran Kasir / Petty Cash Laci & Susulan
                   </td>
                   {selectedLocation === 'all' ? (
                     <>
@@ -690,7 +845,7 @@ export default function BranchPnLReport() {
                   )}
                 </tr>
 
-                {/* 4. BEBAN KANTOR PUSAT (BAGI RATA) */}
+                {/* 4. BEBAN KANTOR PUSAT */}
                 <tr>
                   <td className="py-2 px-4 text-indigo-900 font-bold pl-8">
                     (-) Alokasi Manajemen HQ (Bagi Rata: Gaji HR, Admin, Owner)
@@ -750,17 +905,17 @@ export default function BranchPnLReport() {
         </table>
       </div>
 
-      {/* RINCIAN NOTA PENGELUARAN PER VENDOR */}
+      {/* RINCIAN NOTA PENGELUARAN PER VENDOR & SUSULAN */}
       <div className="bg-slate-50/60 p-5 rounded-3xl border border-slate-100 space-y-3 no-print">
         <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
           <div className="flex items-center gap-2">
             <Layers className="w-4 h-4 text-indigo-600" />
             <h3 className="text-xs font-black uppercase text-slate-800">
-              Audit Rincian Belanja Bahan: Rumah Produksi & Vendor ({filteredBreakdownLogs.length} Nota)
+              Audit Rincian Belanja Bahan: Rumah Produksi, Vendor & Susulan Owner ({filteredBreakdownLogs.length} Nota)
             </h3>
           </div>
           <span className="text-[10px] font-bold text-slate-400">
-            Ditarik dari Laporan Kasir Non-Kasir
+            Ditarik dari Kasir & Input Susulan Owner
           </span>
         </div>
 
@@ -771,13 +926,14 @@ export default function BranchPnLReport() {
                 <th className="py-2.5 px-3">Tanggal & Outlet</th>
                 <th className="py-2.5 px-3">Sumber / Vendor</th>
                 <th className="py-2.5 px-3">Rincian Barang / Catatan Nota</th>
+                <th className="py-2.5 px-3">Pelapor</th>
                 <th className="py-2.5 px-3 text-right">Nominal (Rp)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200/60 font-medium">
               {filteredBreakdownLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="py-8 text-center text-slate-400 font-bold">
+                  <td colSpan={5} className="py-8 text-center text-slate-400 font-bold">
                     Belum ada rekaman pengeluaran RP atau Vendor pada periode {selectedMonth}.
                   </td>
                 </tr>
@@ -801,6 +957,9 @@ export default function BranchPnLReport() {
                     <td className="py-2 px-3 text-slate-700 font-bold">
                       {log.notes}
                     </td>
+                    <td className="py-2 px-3 text-slate-400 text-[11px]">
+                      {log.reporter}
+                    </td>
                     <td className="py-2 px-3 text-right font-black text-rose-800">
                       Rp {log.nominal.toLocaleString('id-ID')}
                     </td>
@@ -811,6 +970,201 @@ export default function BranchPnLReport() {
           </table>
         </div>
       </div>
+
+      {/* MODAL POPUP: TAMBAH BEBAN SUSULAN OWNER */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-3xl p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-5 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black">
+                  <PlusCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">Tambah Pengeluaran Susulan Owner</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">Beban yang tidak terinput di kasir outlet</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowModal(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {modalMessage && (
+              <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                modalMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
+              }`}>
+                {modalMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" /> : <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />}
+                <span>{modalMessage.text}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveOwnerExpense} className="space-y-4">
+              
+              {/* 1. Alokasi Cabang: Khusus 1 Cabang vs Bagi Rata */}
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5">
+                  1. Alokasi Beban ke Cabang
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTargetScope('SINGLE')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                      targetScope === 'SINGLE'
+                        ? 'bg-indigo-50 border-indigo-600 text-indigo-900 ring-2 ring-indigo-500/20'
+                        : 'bg-slate-50 border-slate-200 text-slate-600'
+                    }`}
+                  >
+                    Khusus 1 Cabang
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTargetScope('SHARED')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all ${
+                      targetScope === 'SHARED'
+                        ? 'bg-indigo-50 border-indigo-600 text-indigo-900 ring-2 ring-indigo-500/20'
+                        : 'bg-slate-50 border-slate-200 text-slate-600'
+                    }`}
+                  >
+                    Bagi Rata Semua Cabang
+                  </button>
+                </div>
+              </div>
+
+              {targetScope === 'SINGLE' && (
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5">
+                    Pilih Cabang Tertuju
+                  </label>
+                  <select
+                    value={modalLocationId}
+                    onChange={(e) => setModalLocationId(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                  >
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>
+                        {cleanLocationName(loc.name)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* 2. Pilihan Komponen PnL */}
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5">
+                  2. Komponen Laba Rugi (PnL)
+                </label>
+                <select
+                  value={componentType}
+                  onChange={(e: any) => setComponentType(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                >
+                  <option value="COGS_VENDOR">HPP / Belanja Bahan (Masuk ke Baris Vendor)</option>
+                  <option value="STORE_OPEX">Beban Operasional Cabang (Direct OPEX Toko)</option>
+                  <option value="STORE_UTILITY">Utilitas / Maintenance Cabang (Listrik/WiFi)</option>
+                </select>
+              </div>
+
+              {/* Jika memilih HPP/Vendor, tampilkan pilihan vendor */}
+              {componentType === 'COGS_VENDOR' && (
+                <div className="space-y-2 p-3 bg-amber-50/50 rounded-2xl border border-amber-200/60">
+                  <label className="block text-[10px] font-black uppercase text-amber-800">
+                    Pilih Baris Vendor Terkait
+                  </label>
+                  <select
+                    value={selectedVendorCategory}
+                    onChange={(e) => setSelectedVendorCategory(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-amber-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                  >
+                    <option value="Rumah Produksi">Rumah Produksi (RP)</option>
+                    <option value="Vendor Pasar">Vendor Pasar</option>
+                    <option value="Vendor Hamdalah">Vendor Hamdalah</option>
+                    <option value="CUSTOM">+ Tulis Nama Vendor Lain...</option>
+                  </select>
+
+                  {selectedVendorCategory === 'CUSTOM' && (
+                    <input
+                      type="text"
+                      placeholder="Masukkan nama vendor baru..."
+                      value={customVendorName}
+                      onChange={(e) => setCustomVendorName(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-amber-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* 3. Detail Nominal & Tanggal */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5">
+                    Nominal Beban (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    required
+                    placeholder="0"
+                    value={modalAmount}
+                    onChange={(e) => setModalAmount(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black text-indigo-900 focus:outline-none focus:border-indigo-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5">
+                    Tanggal Transaksi
+                  </label>
+                  <input
+                    type="date"
+                    value={modalDate}
+                    onChange={(e) => setModalDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Keterangan */}
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1.5">
+                  Keterangan / Keperluan (Opsional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Misal: Nota sayur darurat / Beli sparepart kompor..."
+                  value={modalNotes}
+                  onChange={(e) => setModalNotes(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="w-1/3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition-all"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingExpense}
+                  className="w-2/3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-indigo-600/20 transition-all disabled:opacity-40"
+                >
+                  {submittingExpense ? 'Menyimpan...' : 'Simpan ke Laporan PnL'}
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );
