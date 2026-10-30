@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { getRandomCheckInQuote } from '@/lib/attendanceQuotes';
 import { 
   Clock, 
   LogOut, 
@@ -10,7 +11,8 @@ import {
   Navigation,
   Camera,
   X,
-  RotateCw
+  RotateCw,
+  Sparkles
 } from 'lucide-react';
 
 interface Props {
@@ -30,6 +32,9 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
   const [shift, setShift] = useState<'SHIFT_1' | 'SHIFT_2' | 'FULL_DAY'>('SHIFT_1');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  
+  // State untuk Menampung Quote Motivasi Acak saat Check-In
+  const [motivationQuote, setMotivationQuote] = useState<string | null>(null);
 
   // State Modal Kamera Selfie
   const [showCamera, setShowCamera] = useState(false);
@@ -131,6 +136,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
     setActiveStaffProfile(profile || null);
     checkTodayAttendance(nick);
     setMessage(null);
+    setMotivationQuote(null);
   };
 
   const getCurrentCoordinates = (): Promise<{ lat: number; lng: number }> => {
@@ -214,6 +220,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
   const handleClockInWithSelfie = async () => {
     setLoading(true);
     setMessage(null);
+    setMotivationQuote(null);
     try {
       if (!activeLocationId) throw new Error('Lokasi tugas outlet belum terdeteksi.');
 
@@ -259,6 +266,10 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
       setActiveAttendance(data);
       setIsSessionExpired(false);
 
+      // 4. Ambil 1 quote acak dari attendanceQuotes.ts
+      const randomQuote = getRandomCheckInQuote();
+      setMotivationQuote(randomQuote);
+
       const hasGps = coords.lat !== 0;
       setMessage({
         text: `Berhasil Check-In pada ${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA.${hasGps ? ' (GPS Terverifikasi)' : ''} Foto selfie tervalidasi.`,
@@ -279,6 +290,7 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
 
     setLoading(true);
     setMessage(null);
+    setMotivationQuote(null);
     try {
       const coords = await getCurrentCoordinates();
       const clockOutIso = new Date().toISOString();
@@ -374,6 +386,19 @@ export default function StaffAttendanceWidget({ currentUser, locationId }: Props
             <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-600" />
           )}
           <span>{message.text}</span>
+        </div>
+      )}
+
+      {/* KARTU QUOTE MOTIVASI RANDOM SAAT CHECK-IN BERHASIL */}
+      {motivationQuote && (
+        <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50/80 border border-amber-200/80 text-center space-y-1.5 animate-in fade-in zoom-in-95 duration-200">
+          <div className="flex items-center justify-center gap-1.5 text-amber-700 font-black text-[10px] tracking-wider uppercase">
+            <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+            <span>Pesan Semangat Shift Ini</span>
+          </div>
+          <p className="text-xs font-bold text-slate-800 italic leading-relaxed">
+            "{motivationQuote}"
+          </p>
         </div>
       )}
 
