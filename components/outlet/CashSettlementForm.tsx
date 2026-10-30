@@ -36,8 +36,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const effectiveLocationId = propLocId || user?.location_id || user?.id || '';
   const effectiveStaffName = propStaff || user?.active_staff_name || user?.username || 'Kasir Outlet';
 
-  // LOGIKA BISNIS: Cut-off jam 06:00 WITA.
-  // Untuk shift malam (SHIFT_2), jika kasir closing jam 00:00 - 05:59 WITA, otomatis dianggap tanggal kemarin (H-1).
+  // Cut-off jam 06:00 WITA untuk shift malam (SHIFT_2)
   const getOperationalDateForShift = (targetShift: 'SHIFT_1' | 'SHIFT_2') => {
     const now = new Date();
     const witaHour = parseInt(
@@ -66,7 +65,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const [expenseNominal, setExpenseNominal] = useState<number | string>('');
   const [expenseNotes, setExpenseNotes] = useState<string>('');
 
-  // 2. Daftar Pengeluaran Non-Kasir Dinamis
+  // 2. Pengeluaran Non-Kasir (Rumah Produksi & Vendor)
   const [nonCashList, setNonCashList] = useState<NonCashItem[]>([
     { id: '1', category: 'RUMAH_PRODUKSI', nominal: '', notes: '' }
   ]);
@@ -99,7 +98,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const expectedCashInDrawer = numOpeningCash + numCash - numExpense;
   const cashDifference = actualCashDeposited === '' ? 0 : numActualCash - expectedCashInDrawer;
 
-  // Tangani perpindahan shift secara cerdas
   const handleShiftChange = (newShift: 'SHIFT_1' | 'SHIFT_2') => {
     setShift(newShift);
     setSettlementDate(getOperationalDateForShift(newShift));
@@ -326,13 +324,13 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               Rekap Omset & Kas Kasir
             </h3>
             <p className="text-[10px] text-slate-400">
-              Input rincian omset shift, pengeluaran kasir & beban non-kasir.[cite: 2]
+              Input rincian omset shift, pengeluaran kasir & beban non-kasir.
             </p>
           </div>
         </div>
 
         <div className="text-right">
-          <span className="text-[10px] font-bold text-slate-400 uppercase block">Petugas[cite: 2]</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase block">Petugas</span>
           <span className="text-xs font-black text-slate-800">{effectiveStaffName}</span>
         </div>
       </div>
@@ -351,7 +349,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-slate-400" /> Tanggal Operasional[cite: 2]
+              <Calendar className="w-3.5 h-3.5 text-slate-400" /> Tanggal Operasional
             </label>
             <input
               type="date"
@@ -364,7 +362,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-slate-400" /> Pilihan Shift[cite: 2]
+              <Clock className="w-3.5 h-3.5 text-slate-400" /> Pilihan Shift
             </label>
             <div className="grid grid-cols-2 gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200">
               <button
@@ -374,7 +372,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                   shift === 'SHIFT_1' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Shift 1 (Siang)[cite: 2]
+                Shift 1 (Siang)
               </button>
               <button
                 type="button"
@@ -383,7 +381,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                   shift === 'SHIFT_2' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Shift 2 (Malam)[cite: 2]
+                Shift 2 (Malam)
               </button>
             </div>
           </div>
@@ -393,7 +391,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1">
-              Modal Awal Laci Kasir (Rp)[cite: 2]
+              Modal Awal Laci Kasir (Rp)
             </label>
             <input
               type="number"
@@ -407,7 +405,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1">
-              Total Transaksi / Bill (Struk)[cite: 2]
+              Total Transaksi / Bill (Struk)
             </label>
             <input
               type="number"
@@ -424,7 +422,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         <div className="p-4 bg-slate-50/70 rounded-2xl border border-slate-100 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">
-              Rincian Omset Penjualan Shift[cite: 2]
+              Rincian Omset Penjualan Shift
             </span>
             <div className="flex items-center gap-2 text-[10px] font-bold">
               <span className="text-emerald-700">Dine In: Rp {omsetDineIn.toLocaleString('id-ID')}</span>
@@ -436,7 +434,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                <Banknote className="w-3.5 h-3.5 text-emerald-600" /> Penjualan Tunai / Cash (Rp)[cite: 2]
+                <Banknote className="w-3.5 h-3.5 text-emerald-600" /> Penjualan Tunai / Cash (Rp)
               </label>
               <input
                 type="number"
@@ -450,7 +448,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
             <div>
               <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                <QrCode className="w-3.5 h-3.5 text-indigo-600" /> QRIS / Transfer (Rp)[cite: 2]
+                <QrCode className="w-3.5 h-3.5 text-indigo-600" /> QRIS / Transfer (Rp)
               </label>
               <input
                 type="number"
@@ -464,7 +462,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
             <div>
               <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                <ShoppingBag className="w-3.5 h-3.5 text-emerald-600" /> GrabFood (Rp)[cite: 2]
+                <ShoppingBag className="w-3.5 h-3.5 text-emerald-600" /> GrabFood (Rp)
               </label>
               <input
                 type="number"
@@ -478,7 +476,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
             <div>
               <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                <ShoppingBag className="w-3.5 h-3.5 text-red-600" /> GoFood (Rp)[cite: 2]
+                <ShoppingBag className="w-3.5 h-3.5 text-red-600" /> GoFood (Rp)
               </label>
               <input
                 type="number"
@@ -492,7 +490,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
             <div className="sm:col-span-2">
               <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                <ShoppingBag className="w-3.5 h-3.5 text-orange-600" /> ShopeeFood (Rp)[cite: 2]
+                <ShoppingBag className="w-3.5 h-3.5 text-orange-600" /> ShopeeFood (Rp)
               </label>
               <input
                 type="number"
@@ -506,9 +504,9 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           </div>
 
           <div className="flex justify-between items-center pt-2 border-t border-slate-200/60">
-            <span className="text-xs font-bold text-slate-500">Total Omset Shift:[cite: 2]</span>
+            <span className="text-xs font-bold text-slate-500">Total Omset Shift:</span>
             <span className="text-base font-black text-emerald-600">
-              Rp {totalOmset.toLocaleString('id-ID')}[cite: 2]
+              Rp {totalOmset.toLocaleString('id-ID')}
             </span>
           </div>
         </div>
@@ -517,17 +515,17 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         <div className="p-4 bg-rose-50/50 rounded-2xl border border-rose-100 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black uppercase text-rose-500 block tracking-wider flex items-center gap-1.5">
-              <Wallet className="w-3.5 h-3.5" /> 1. Pengeluaran Kasir (Uang Laci)[cite: 2]
+              <Wallet className="w-3.5 h-3.5" /> 1. Pengeluaran Kasir (Uang Laci)
             </span>
             <span className="text-[9px] font-bold text-rose-400 bg-rose-100/60 px-2 py-0.5 rounded-md">
-              Memotong Fisik Kasir[cite: 2]
+              Memotong Fisik Kasir
             </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-[11px] font-bold text-rose-800 mb-1">
-                Nominal Keluar (Rp)[cite: 2]
+                Nominal Keluar (Rp)
               </label>
               <input
                 type="number"
@@ -541,7 +539,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
             <div className="sm:col-span-2">
               <label className="block text-[11px] font-bold text-rose-800 mb-1">
-                Catatan Pengeluaran / Keperluan[cite: 2]
+                Catatan Pengeluaran / Keperluan
               </label>
               <input
                 type="text"
@@ -559,10 +557,10 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-black uppercase text-indigo-700 block tracking-wider flex items-center gap-1.5">
-                <Building2 className="w-3.5 h-3.5" /> 2. Pengeluaran Rumah Produksi & Vendor[cite: 2]
+                <Building2 className="w-3.5 h-3.5" /> 2. Pengeluaran Rumah Produksi & Vendor
               </span>
               <span className="text-[9px] font-bold text-indigo-600 bg-indigo-100/60 px-2 py-0.5 rounded-md">
-                TIDAK Memotong Laci[cite: 2]
+                TIDAK Memotong Laci
               </span>
             </div>
 
@@ -572,7 +570,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all"
             >
               <Plus className="w-3 h-3" />
-              <span>+ Tambah Beban[cite: 2]</span>
+              <span>+ Tambah Beban</span>
             </button>
           </div>
 
@@ -585,7 +583,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                     onChange={(e) => handleUpdateNonCashRow(item.id, 'category', e.target.value)}
                     className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-indigo-900 focus:outline-none"
                   >
-                    <option value="RUMAH_PRODUKSI">Rumah Produksi[cite: 2]</option>
+                    <option value="RUMAH_PRODUKSI">Rumah Produksi</option>
                     <option value="VENDOR_PASAR">Vendor Pasar</option>
                     <option value="VENDOR_HAMDALAH">Vendor Hamdalah</option>
                     <option value="KARYA_HARAPAN">Karya Harapan</option>
@@ -614,7 +612,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                     type="text"
                     value={item.notes}
                     onChange={(e) => handleUpdateNonCashRow(item.id, 'notes', e.target.value)}
-                    placeholder="Keperluan / Catatan"[cite: 2]
+                    placeholder="Keperluan / Catatan"
                     className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none"
                   />
                 </div>
