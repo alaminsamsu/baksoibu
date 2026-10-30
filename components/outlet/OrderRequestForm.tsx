@@ -10,7 +10,10 @@ import {
   Search, 
   Send, 
   Store, 
-  PackageCheck
+  PackageCheck,
+  Calendar,
+  X,
+  Clock
 } from 'lucide-react';
 
 interface Props {
@@ -55,27 +58,26 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   const activeLocationId = locationId || user?.location_id;
   const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
 
-  const getEffectiveOrderDate = () => {
-    const now = new Date();
-    const witaHour = parseInt(
-      new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar', hour: 'numeric', hour12: false }).format(now)
-    );
+  // Default otomatis H+1 (karena biasanya diorder malam untuk kebutuhan besok)
+  const getDefaultTargetDate = () => {
     const d = new Date();
-    if (witaHour < 6) {
-      d.setDate(d.getDate() - 1);
-    }
+    d.setDate(d.getDate() + 1);
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(d);
   };
 
+  const [targetDate, setTargetDate] = useState<string>(getDefaultTargetDate());
   const [items, setItems] = useState<MasterItem[]>([]);
   const [currentStocks, setCurrentStocks] = useState<Record<string, number>>({});
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [orderStatuses, setOrderStatuses] = useState<Record<string, string>>({});
   const [activeSupplier, setActiveSupplier] = useState<string>('Semua Supplier');
   const [searchTerm, setSearchTerm] = useState('');
-  const [notes, setNotes] = useState(''); // Murni kosong tanpa teks default
+  const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // State Modal Konfirmasi Tanggal sebelum Submit
+  const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
 
   const cleanName = (name?: string) => {
     return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
@@ -209,6 +211,14 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
       ...prev,
       [itemName]: val,
     }));
+
+    // Otomatis default ke ORDERED_LEADER tanpa status menunggu
+    if (parseFloat(val) > 0 && !orderStatuses[itemName]) {
+      setOrderStatuses((prev) => ({
+        ...prev,
+        [itemName]: 'ORDERED_LEADER',
+      }));
+    }
   };
 
   const handleStatusChange = (itemName: string, statusVal: string) => {
@@ -222,30 +232,42 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     return Object.values(quantities).filter((q) => parseFloat(q) > 0).length;
   }, [quantities]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Tahap 1: Ketika tombol kirim ditekan di form utama, munculkan konfirmasi tanggal
+  const handlePreSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (totalFilled === 0) {
+      alert('Isi minimal satu barang dengan jumlah lebih dari 0.');
+      return;
+    }
+    // Update ulang default tanggal ke H+1 saat tombol ditekan agar tetap fresh jika proses input lewat tengah malam
+    setTargetDate(getDefaultTargetDate());
+    setShowConfirmModal(true);
+  };
+
+  // Tahap 2: Eksekusi kirim ke Supabase setelah tanggal dipastikan di modal
+  const handleFinalSubmit = async () => {
     setLoading(true);
     setMessage(null);
 
     try {
-      const orderDate = getEffectiveOrderDate();
       const orderPayload = Object.entries(quantities)
         .filter(([_, qty]) => parseFloat(qty) > 0)
         .map(([itemName, qty]) => {
           const itemMeta = items.find((i) => i.name === itemName);
-          const chosenStatus = orderStatuses[itemName] || 'PENDING';
+          const chosenStatus = orderStatuses[itemName] || 'ORDERED_LEADER';
           const isDirectLeader = chosenStatus === 'ORDERED_LEADER';
           const supName = itemMeta?.supplier || 'RUMAH PRODUKSI';
           
           return {
             location_id: activeLocationId,
+            order_date: targetDate, // Tanggal yang sudah dikonfirmasi di modal
             item_name: itemName,
             quantity: parseFloat(qty),
             unit: itemMeta?.uom || 'Pcs',
             source_type: supName === 'RUMAH PRODUKSI' ? 'PRODUCTION' : 'VENDOR',
             target_type: supName,
             supplier: supName,
-            notes: notes.trim() ? notes.trim() : null, // Tersimpan null jika tidak diisi
+            notes: notes.trim() ? notes.trim() : null,
             requested_by: activeStaffName,
             status: chosenStatus,
             is_ordered_by_leader: isDirectLeader,
@@ -254,19 +276,21 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         });
 
       if (orderPayload.length === 0) {
-        throw new Error('Isi minimal satu barang dengan jumlah lebih dari 0.');
+        throw new Error('Tidak ada barang yang dipesan.');
       }
 
       const { error } = await supabase.from('order_requests').insert(orderPayload);
       if (error) throw error;
 
       setMessage({
-        text: `Berhasil mengirim ${orderPayload.length} permintaan belanja untuk tanggal ${orderDate}!`,
+        text: `Berhasil mengirim ${orderPayload.length} permintaan belanja untuk operasional tanggal ${targetDate}!`,
         type: 'success',
       });
+
       setQuantities({});
       setOrderStatuses({});
       setNotes('');
+      setShowConfirmModal(false);
     } catch (err: any) {
       setMessage({ text: err.message || 'Gagal mengirim order.', type: 'error' });
     } finally {
@@ -287,6 +311,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </button>
       )}
 
+      {/* Header Form */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-slate-100 gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-[#ff6f3c] text-white flex items-center justify-center shadow-md shadow-orange-500/20">
@@ -299,6 +324,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             </p>
           </div>
         </div>
+
         <div className="flex items-center gap-2">
           <div className="text-xs font-black px-3.5 py-1.5 bg-orange-50 text-[#ff6f3c] border border-orange-200/60 rounded-full">
             {totalFilled} barang diisi
@@ -367,7 +393,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handlePreSubmit} className="space-y-6">
         <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-[32rem] overflow-y-auto shadow-2xs">
           <table className="w-full text-left border-collapse text-xs">
             <thead className="bg-slate-50/90 sticky top-0 border-b border-slate-100 z-10 backdrop-blur-xs">
@@ -405,7 +431,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                     {groupList.map((item) => {
                       const val = quantities[item.name] || '';
                       const isSelected = parseFloat(val) > 0;
-                      const currentStatus = orderStatuses[item.name] || 'PENDING';
+                      const currentStatus = orderStatuses[item.name] || 'ORDERED_LEADER';
                       const stockVal = currentStocks[cleanName(item.name)] ?? 0;
                       const isLowStock = stockVal <= 2;
 
@@ -456,6 +482,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                             </div>
                           </td>
 
+                          {/* Dropdown status pemesanan (HANYA 3 STATUS TANPA Menunggu Pembelian) */}
                           <td className="py-2 px-4 text-center">
                             <select
                               value={currentStatus}
@@ -468,12 +495,9 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                                   ? 'bg-emerald-50 text-emerald-700 border-emerald-300 font-black'
                                   : currentStatus === 'BOUGHT_CASHIER'
                                   ? 'bg-blue-50 text-blue-700 border-blue-300 font-black'
-                                  : currentStatus === 'PROCESSED_LOGISTICS'
-                                  ? 'bg-purple-50 text-purple-700 border-purple-300 font-black'
-                                  : 'bg-orange-50 text-orange-700 border-orange-300 font-black'
+                                  : 'bg-purple-50 text-purple-700 border-purple-300 font-black'
                               }`}
                             >
-                              <option value="PENDING">⏳ Menunggu Pembelian</option>
                               <option value="ORDERED_LEADER">✓ Diorder Leader</option>
                               <option value="BOUGHT_CASHIER">💵 Dibeli Kasir</option>
                               <option value="PROCESSED_LOGISTICS">🚚 Diproses Logistik</option>
@@ -489,7 +513,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           </table>
         </div>
 
-        {/* INPUT CATATAN MURNI KOSONG TANPA VALUE BAWAAN */}
+        {/* Input Catatan Tambahan */}
         <div>
           <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
             Catatan Tambahan untuk Pengadaan / Dapur
@@ -503,15 +527,94 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           />
         </div>
 
+        {/* Tombol Buka Konfirmasi */}
         <button
           type="submit"
           disabled={loading || totalFilled === 0}
           className="w-full py-3.5 bg-gradient-to-r from-[#ff6f3c] to-orange-500 hover:from-orange-600 hover:to-orange-500 text-white text-xs font-black rounded-2xl shadow-lg shadow-orange-500/25 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
         >
           <Send className="w-4 h-4" />
-          {loading ? 'Mengirim Permintaan...' : `Kirim Permintaan Belanja (${totalFilled} Item Terpilih)`}
+          <span>Kirim Permintaan Belanja ({totalFilled} Item Terpilih)</span>
         </button>
       </form>
+
+      {/* MODAL POPUP: KONFIRMASI TANGGAL SEBELUM MENGIRIM */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-orange-50 text-[#ff6f3c] flex items-center justify-center font-black">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">Konfirmasi Tanggal Operasional</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">Pastikan tanggal kebutuhan belanja sudah benar</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowConfirmModal(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-3.5 bg-amber-50/70 border border-amber-200/60 rounded-2xl flex items-start gap-2.5 text-xs text-amber-900">
+                <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  Karena penginputan sering lewat tengah malam, pastikan tanggal di bawah sesuai dengan <b>hari operasional penggunaan bahan</b>.
+                </span>
+              </div>
+
+              {/* Pemilihan Tanggal Tepat Sebelum Kirim */}
+              <div>
+                <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
+                  Tanggal Kebutuhan Operasional:
+                </label>
+                <input
+                  type="date"
+                  value={targetDate}
+                  onChange={(e) => setTargetDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-[#ff6f3c] cursor-pointer"
+                />
+              </div>
+
+              {/* Rangkuman Singkat Item yang Dipesan */}
+              <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl space-y-1">
+                <div className="flex justify-between text-xs font-bold text-slate-700">
+                  <span>Total Barang:</span>
+                  <span className="text-[#ff6f3c] font-black">{totalFilled} Barang</span>
+                </div>
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>Pelapor / Pengirim:</span>
+                  <span className="font-semibold text-slate-700">{activeStaffName}</span>
+                </div>
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmModal(false)}
+                  className="w-1/3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition-all"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={handleFinalSubmit}
+                  className="w-2/3 py-2.5 bg-gradient-to-r from-[#ff6f3c] to-orange-500 hover:from-orange-600 hover:to-orange-500 text-white font-black text-xs rounded-xl shadow-md shadow-orange-500/20 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{loading ? 'Mengirim...' : 'Kirim Sekarang'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
