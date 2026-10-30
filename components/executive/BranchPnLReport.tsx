@@ -38,6 +38,8 @@ interface PnLData {
   locationId: string;
   locationName: string;
   revenue: number;
+  omsetDineIn: number;
+  omsetOnline: number;
   vendorBreakdown: Record<string, number>;
   totalCogs: number;
   grossProfit: number;
@@ -142,7 +144,6 @@ export default function BranchPnLReport() {
         const val = Number(exp.amount || 0);
         const cat = exp.expense_category || '';
 
-        // Jika beban HPP susulan (COGS / Vendor)
         if (cat.startsWith('COGS_') || cat === 'COGS_VENDOR') {
           const vName = normalizeVendorName(exp.expense_name?.replace(/^\[COGS - /i, '').replace(/\].*$/, ''));
           if (exp.is_shared_to_all_branches) {
@@ -152,7 +153,6 @@ export default function BranchPnLReport() {
             ownerManualCogsVendorMap[exp.location_id][vName] = (ownerManualCogsVendorMap[exp.location_id][vName] || 0) + val;
           }
         }
-        // Jika beban operasional toko susulan
         else if (cat === 'STORE_OPEX') {
           if (exp.is_shared_to_all_branches) {
             sharedPool += val;
@@ -160,11 +160,9 @@ export default function BranchPnLReport() {
             ownerManualOpexMap[exp.location_id] = (ownerManualOpexMap[exp.location_id] || 0) + val;
           }
         }
-        // Jika utilitas transfer bank
         else if (cat === 'STORE_UTILITY' && exp.location_id && !exp.is_shared_to_all_branches) {
           utilityDirectMap[exp.location_id] = (utilityDirectMap[exp.location_id] || 0) + val;
         }
-        // Beban manajemen pusat / kantor pusat
         else if (exp.is_shared_to_all_branches) {
           sharedPool += val;
         }
@@ -185,14 +183,16 @@ export default function BranchPnLReport() {
         }
       });
 
-      // 3. Omzet, Pengeluaran Kasir & Beban Non-Kasir dari cash_settlements
+      // 3. Omzet (Termasuk Dine In & Online), Pengeluaran Kasir & Beban Non-Kasir dari cash_settlements
       const { data: settlements } = await supabase
         .from('cash_settlements')
-        .select('id, location_id, settlement_date, total_omset, expense_nominal, non_cash_expense_nominal, non_cash_expense_category, non_cash_expense_notes, reported_by, locations(name)')
+        .select('id, location_id, settlement_date, total_omset, omset_dine_in, omset_online, expense_nominal, non_cash_expense_nominal, non_cash_expense_category, non_cash_expense_notes, reported_by, locations(name)')
         .gte('settlement_date', startDate)
         .lte('settlement_date', endDate);
 
       const revenueMap: Record<string, number> = {};
+      const omsetDineInMap: Record<string, number> = {};
+      const omsetOnlineMap: Record<string, number> = {};
       const cashierExpMap: Record<string, number> = {};
       const vendorPerLocMap: Record<string, Record<string, number>> = {};
       const discoveredVendors = new Set<string>(['Rumah Produksi']);
@@ -202,7 +202,20 @@ export default function BranchPnLReport() {
         const locId = s.location_id;
         if (!locId) return;
 
-        revenueMap[locId] = (revenueMap[locId] || 0) + Number(s.total_omset || 0);
+        // Ambil nilai per kategori omzet
+        let dineIn = Number(s.omset_dine_in || 0);
+        let online = Number(s.omset_online || 0);
+        const total = Number(s.total_omset || 0);
+
+        // Fallback backward-compatible: jika input kasir lama belum memecah kolomnya
+        if (dineIn === 0 && online === 0 && total > 0) {
+          dineIn = total;
+        }
+
+        omsetDineInMap[locId] = (omsetDineInMap[locId] || 0) + dineIn;
+        omsetOnlineMap[locId] = (omsetOnlineMap[locId] || 0) + online;
+        revenueMap[locId] = (revenueMap[locId] || 0) + (dineIn + online > 0 ? (dineIn + online) : total);
+        
         cashierExpMap[locId] = (cashierExpMap[locId] || 0) + Number(s.expense_nominal || 0);
 
         if (!vendorPerLocMap[locId]) {
@@ -259,11 +272,10 @@ export default function BranchPnLReport() {
         }
       });
 
-      // Tambahkan vendor dari input susulan owner ke discoveredVendors
+      // Tambahkan vendor dari susulan owner
       Object.keys(ownerSharedCogsVendorMap).forEach((v) => discoveredVendors.add(v));
       Object.values(ownerManualCogsVendorMap).forEach((m) => Object.keys(m).forEach((v) => discoveredVendors.add(v)));
 
-      // Masukkan juga entri susulan owner ke logs audit
       (hqExpenses || []).forEach((exp: any) => {
         if (exp.expense_category?.startsWith('COGS_') || exp.expense_category === 'STORE_OPEX') {
           const vName = exp.expense_category?.startsWith('COGS_')
@@ -301,16 +313,17 @@ export default function BranchPnLReport() {
       // 4. Hitung PnL per Cabang
       const computedList: PnLData[] = locations.map((loc) => {
         const rev = revenueMap[loc.id] || 0;
+        const dineIn = omsetDineInMap[loc.id] || 0;
+        const online = omsetOnlineMap[loc.id] || 0;
+
         const vBreakdown: Record<string, number> = { ...(vendorPerLocMap[loc.id] || {}) };
 
-        // Tambahkan beban HPP susulan khusus cabang ini
         if (ownerManualCogsVendorMap[loc.id]) {
           Object.entries(ownerManualCogsVendorMap[loc.id]).forEach(([v, amt]) => {
             vBreakdown[v] = (vBreakdown[v] || 0) + amt;
           });
         }
 
-        // Tambahkan beban HPP susulan yang dibagi rata
         Object.entries(ownerSharedCogsVendorMap).forEach(([v, totalAmt]) => {
           const splitAmt = Math.round(totalAmt / branchCount);
           vBreakdown[v] = (vBreakdown[v] || 0) + splitAmt;
@@ -337,6 +350,8 @@ export default function BranchPnLReport() {
           locationId: loc.id,
           locationName: cleanLocationName(loc.name),
           revenue: rev,
+          omsetDineIn: dineIn,
+          omsetOnline: online,
           vendorBreakdown: vBreakdown,
           totalCogs: totalCogs,
           grossProfit: grossProfit,
@@ -371,6 +386,8 @@ export default function BranchPnLReport() {
       : pnlList.filter(p => p.locationId === selectedLocation);
 
     const totalRev = targetRows.reduce((sum, p) => sum + p.revenue, 0);
+    const totalDineIn = targetRows.reduce((sum, p) => sum + p.omsetDineIn, 0);
+    const totalOnline = targetRows.reduce((sum, p) => sum + p.omsetOnline, 0);
     
     const totalPerVendor: Record<string, number> = {};
     allVendorNames.forEach((v) => {
@@ -392,8 +409,15 @@ export default function BranchPnLReport() {
 
     const totalNet = totalStoreProfit - totalHq;
 
+    const dineInPct = totalRev > 0 ? Math.round((totalDineIn / totalRev) * 1000) / 10 : 0;
+    const onlinePct = totalRev > 0 ? Math.round((totalOnline / totalRev) * 1000) / 10 : 0;
+
     return {
       totalRev,
+      totalDineIn,
+      totalOnline,
+      dineInPct,
+      onlinePct,
       totalPerVendor,
       totalCogs,
       totalGross,
@@ -594,7 +618,9 @@ export default function BranchPnLReport() {
           <div className="text-xl font-black text-slate-900 mt-1">
             Rp {consolidated.totalRev.toLocaleString('id-ID')}
           </div>
-          <span className="text-[10px] text-slate-400 font-semibold mt-0.5 block">100% Basis Omzet Toko</span>
+          <span className="text-[10px] text-slate-500 font-semibold mt-0.5 block">
+            Dine In: {consolidated.dineInPct}% • Online: {consolidated.onlinePct}%
+          </span>
         </div>
 
         <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-100">
@@ -659,25 +685,73 @@ export default function BranchPnLReport() {
               </tr>
             ) : (
               <>
-                {/* 1. REVENUE */}
-                <tr className="bg-slate-50/40">
+                {/* 1. REVENUE TOTAL */}
+                <tr className="bg-slate-50/60 font-black">
                   <td className="py-2.5 px-4 font-black text-slate-900 uppercase">
                     1. PENDAPATAN PENJUALAN (OMZET)
                   </td>
                   {selectedLocation === 'all' ? (
                     <>
                       {pnlList.map((p) => (
-                        <td key={p.locationId} className="py-2.5 px-3 text-right font-black">
+                        <td key={p.locationId} className="py-2.5 px-3 text-right font-black text-slate-900">
                           Rp {p.revenue.toLocaleString('id-ID')}
                         </td>
                       ))}
-                      <td className="py-2.5 px-4 text-right font-black bg-indigo-50/40 text-indigo-950">
+                      <td className="py-2.5 px-4 text-right font-black bg-indigo-50/60 text-indigo-950">
                         Rp {consolidated.totalRev.toLocaleString('id-ID')}
                       </td>
                     </>
                   ) : (
                     <td className="py-2.5 px-4 text-right font-black text-indigo-950">
                       Rp {consolidated.totalRev.toLocaleString('id-ID')}
+                    </td>
+                  )}
+                </tr>
+
+                {/* SUB-BARIS 1A: OMZET DINE IN */}
+                <tr className="text-slate-600 bg-white/50">
+                  <td className="py-2 px-4 pl-8 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    <span className="text-[11px] font-bold">↳ Omzet Dine In (Offline / Kasir)</span>
+                  </td>
+                  {selectedLocation === 'all' ? (
+                    <>
+                      {pnlList.map((p) => (
+                        <td key={`dine-${p.locationId}`} className="py-2 px-3 text-right font-bold text-slate-700 text-[11px]">
+                          Rp {p.omsetDineIn.toLocaleString('id-ID')}
+                        </td>
+                      ))}
+                      <td className="py-2 px-4 text-right font-bold bg-indigo-50/20 text-slate-800 text-[11px]">
+                        Rp {consolidated.totalDineIn.toLocaleString('id-ID')}
+                      </td>
+                    </>
+                  ) : (
+                    <td className="py-2 px-4 text-right font-bold text-slate-800 text-[11px]">
+                      Rp {consolidated.totalDineIn.toLocaleString('id-ID')}
+                    </td>
+                  )}
+                </tr>
+
+                {/* SUB-BARIS 1B: OMZET ONLINE */}
+                <tr className="text-slate-600 bg-white/50 border-b border-slate-200/60">
+                  <td className="py-2 px-4 pl-8 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                    <span className="text-[11px] font-bold">↳ Omzet Online (Grab / Gojek / Shopee)</span>
+                  </td>
+                  {selectedLocation === 'all' ? (
+                    <>
+                      {pnlList.map((p) => (
+                        <td key={`online-${p.locationId}`} className="py-2 px-3 text-right font-bold text-orange-700 text-[11px]">
+                          Rp {p.omsetOnline.toLocaleString('id-ID')}
+                        </td>
+                      ))}
+                      <td className="py-2 px-4 text-right font-bold bg-indigo-50/20 text-orange-800 text-[11px]">
+                        Rp {consolidated.totalOnline.toLocaleString('id-ID')}
+                      </td>
+                    </>
+                  ) : (
+                    <td className="py-2 px-4 text-right font-bold text-orange-800 text-[11px]">
+                      Rp {consolidated.totalOnline.toLocaleString('id-ID')}
                     </td>
                   )}
                 </tr>
