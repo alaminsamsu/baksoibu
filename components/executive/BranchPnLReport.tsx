@@ -183,7 +183,7 @@ export default function BranchPnLReport() {
         }
       });
 
-      // 3. Omzet, Pengeluaran Kasir & Beban Non-Kasir dari cash_settlements
+      // 3. Omzet, Pengeluaran Kasir & Beban Non-Kasir
       const { data: settlements } = await supabase
         .from('cash_settlements')
         .select('*')
@@ -202,7 +202,6 @@ export default function BranchPnLReport() {
         const locId = s.location_id;
         if (!locId) return;
 
-        // Dine In = Cash + QRIS
         let dineIn = 0;
         if (s.cash_nominal !== undefined || s.qris_nominal !== undefined) {
           dineIn = (Number(s.cash_nominal) || 0) + (Number(s.qris_nominal) || 0);
@@ -210,7 +209,6 @@ export default function BranchPnLReport() {
           dineIn = Number(s.omset_dine_in || 0);
         }
 
-        // Online = GrabFood + GoFood + ShopeeFood
         let online = 0;
         if (s.grab_nominal !== undefined || s.gofood_nominal !== undefined || s.shopee_nominal !== undefined) {
           online = (Number(s.grab_nominal) || 0) + (Number(s.gofood_nominal) || 0) + (Number(s.shopee_nominal) || 0);
@@ -221,7 +219,6 @@ export default function BranchPnLReport() {
         const totalNominal = Number(s.total_omset || 0);
         let finalRev = dineIn + online;
 
-        // Fallback backward-compatibility jika data historis belum terpisah
         if (finalRev === 0 && totalNominal > 0) {
           dineIn = totalNominal;
           finalRev = totalNominal;
@@ -547,7 +544,7 @@ export default function BranchPnLReport() {
       {/* Header Cetak */}
       <div className="hidden print:block print-header">
         <h1 className="text-base font-black text-slate-900 tracking-tight">
-          BAKSO IBU • LAPORAN LABA RUGI EKSEKUTIF (PnL)[cite: 1]
+          BAKSO IBU • LAPORAN LABA RUGI EKSEKUTIF (PnL)
         </h1>
         <p className="text-[11px] text-slate-600 font-semibold mt-0.5">
           Periode Bulan: {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(`${selectedMonth}-01`))}
@@ -562,10 +559,10 @@ export default function BranchPnLReport() {
           </div>
           <div>
             <h2 className="text-base font-black text-slate-900 tracking-tight">
-              Laporan Laba Rugi Eksekutif (PnL Bulanan)[cite: 1]
+              Laporan Laba Rugi Eksekutif (PnL Bulanan)
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Breakdown rinci pengeluaran Rumah Produksi, Vendor Pasar, Hamdalah, dan Input Susulan Owner.[cite: 1]
+              Breakdown rinci pengeluaran Rumah Produksi, Vendor Pasar, Hamdalah, dan Input Susulan Owner.
             </p>
           </div>
         </div>
@@ -577,7 +574,7 @@ export default function BranchPnLReport() {
             className="px-3.5 py-2 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs"
           >
             <PlusCircle className="w-4 h-4 text-indigo-600" />
-            <span>+ Tambah Beban Susulan[cite: 1]</span>
+            <span>+ Tambah Beban Susulan</span>
           </button>
 
           <div className="relative flex items-center">
@@ -597,7 +594,7 @@ export default function BranchPnLReport() {
               onChange={(e) => setSelectedLocation(e.target.value)}
               className="pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
             >
-              <option value="all">Semua Cabang (Konsolidasi)[cite: 1]</option>
+              <option value="all">Semua Cabang (Konsolidasi)</option>
               {locations.map((loc) => (
                 <option key={loc.id} value={loc.id}>
                   {cleanLocationName(loc.name)}
@@ -619,7 +616,7 @@ export default function BranchPnLReport() {
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-md shadow-indigo-600/20"
           >
             <FileDown className="w-4 h-4" />
-            <span>Cetak / Download PDF[cite: 1]</span>
+            <span>Cetak / Download PDF</span>
           </button>
         </div>
       </div>
@@ -627,7 +624,7 @@ export default function BranchPnLReport() {
       {/* METRIK KARTU RINGKASAN FINANSIAL */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5 no-print">
         <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-100">
-          <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Total Omzet Penjualan[cite: 1]</span>
+          <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Total Omzet Penjualan</span>
           <div className="text-xl font-black text-slate-900 mt-1">
             Rp {consolidated.totalRev.toLocaleString('id-ID')}
           </div>
@@ -637,30 +634,30 @@ export default function BranchPnLReport() {
         </div>
 
         <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-100">
-          <span className="text-[10px] uppercase font-black tracking-wider text-rose-500">Total Belanja Bahan (HPP)[cite: 1]</span>
+          <span className="text-[10px] uppercase font-black tracking-wider text-rose-500">Total Belanja Bahan (HPP)</span>
           <div className="text-xl font-black text-rose-800 mt-1">
             Rp {consolidated.totalCogs.toLocaleString('id-ID')}
           </div>
           <span className="text-[10px] text-slate-400 font-semibold mt-0.5 block">
-            {allVendorNames.length} Vendor / Sumber Pasokan[cite: 1]
+            {allVendorNames.length} Vendor / Sumber Pasokan
           </span>
         </div>
 
         <div className="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-100">
-          <span className="text-[10px] uppercase font-black tracking-wider text-emerald-600">Laba Operasional Toko[cite: 1]</span>
+          <span className="text-[10px] uppercase font-black tracking-wider text-emerald-600">Laba Operasional Toko</span>
           <div className="text-xl font-black text-emerald-800 mt-1">
             Rp {consolidated.totalStoreProfit.toLocaleString('id-ID')}
           </div>
-          <span className="text-[10px] text-emerald-600 font-semibold mt-0.5 block">Setelah HPP & Beban Toko[cite: 1]</span>
+          <span className="text-[10px] text-emerald-600 font-semibold mt-0.5 block">Setelah HPP & Beban Toko</span>
         </div>
 
         <div className="bg-indigo-50/70 p-4 rounded-2xl border border-indigo-100">
-          <span className="text-[10px] uppercase font-black tracking-wider text-indigo-600">Laba Bersih Akhir (Net)[cite: 1]</span>
+          <span className="text-[10px] uppercase font-black tracking-wider text-indigo-600">Laba Bersih Akhir (Net)</span>
           <div className="text-xl font-black text-indigo-900 mt-1">
             Rp {consolidated.totalNet.toLocaleString('id-ID')}
           </div>
           <span className="text-[10px] text-indigo-600 font-bold mt-0.5 block">
-            Net Margin: {consolidated.netPct}%[cite: 1]
+            Net Margin: {consolidated.netPct}%
           </span>
         </div>
       </div>
@@ -670,7 +667,7 @@ export default function BranchPnLReport() {
         <table className="w-full text-left text-xs border-collapse font-sans">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200/80 text-[10px] font-black uppercase tracking-wider text-slate-500">
-              <th className="py-3 px-4 min-w-[260px]">Komponen Laba Rugi (PnL)[cite: 1]</th>
+              <th className="py-3 px-4 min-w-[260px]">Komponen Laba Rugi (PnL)</th>
               {selectedLocation === 'all' ? (
                 <>
                   {pnlList.map((p) => (
@@ -679,7 +676,7 @@ export default function BranchPnLReport() {
                     </th>
                   ))}
                   <th className="py-3 px-4 text-right min-w-[140px] font-black bg-indigo-50 text-indigo-900">
-                    KONSOLIDASI (TOTAL)[cite: 1]
+                    KONSOLIDASI (TOTAL)
                   </th>
                 </>
               ) : (
@@ -701,7 +698,7 @@ export default function BranchPnLReport() {
                 {/* 1. REVENUE TOTAL */}
                 <tr className="bg-slate-50/60 font-black">
                   <td className="py-2.5 px-4 font-black text-slate-900 uppercase">
-                    1. PENDAPATAN PENJUALAN (OMZET)[cite: 1]
+                    1. PENDAPATAN PENJUALAN (OMZET)
                   </td>
                   {selectedLocation === 'all' ? (
                     <>
@@ -725,7 +722,7 @@ export default function BranchPnLReport() {
                 <tr className="text-slate-600 bg-white/50">
                   <td className="py-2 px-4 pl-8 flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                    <span className="text-[11px] font-bold">↳ Omzet Dine In (Offline / Kasir)</span>
+                    <span className="text-[11px] font-bold">↳ Omzet Dine In (Cash + QRIS)</span>
                   </td>
                   {selectedLocation === 'all' ? (
                     <>
@@ -772,7 +769,7 @@ export default function BranchPnLReport() {
                 {/* 2. BREAKDOWN HPP / BEBAN POKOK */}
                 <tr className="bg-slate-50/20">
                   <td colSpan={selectedLocation === 'all' ? pnlList.length + 2 : 2} className="py-2 px-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Beban Pokok Penjualan / Bahan Masuk (HPP)[cite: 1]
+                    Beban Pokok Penjualan / Bahan Masuk (HPP)
                   </td>
                 </tr>
 
@@ -810,7 +807,7 @@ export default function BranchPnLReport() {
                 {/* LABA KOTOR */}
                 <tr className="bg-emerald-50/30 border-y border-emerald-100">
                   <td className="py-2.5 px-4 font-black text-emerald-900 uppercase">
-                    = LABA KOTOR (GROSS PROFIT)[cite: 1]
+                    = LABA KOTOR (GROSS PROFIT)
                   </td>
                   {selectedLocation === 'all' ? (
                     <>
@@ -842,7 +839,7 @@ export default function BranchPnLReport() {
                 {/* 3. BEBAN OPERASIONAL TOKO */}
                 <tr className="bg-slate-50/40">
                   <td colSpan={selectedLocation === 'all' ? pnlList.length + 2 : 2} className="py-2 px-4 font-black text-slate-800 uppercase text-[10px] tracking-wider">
-                    2. BEBAN OPERASIONAL LANGSUNG CABANG (DIRECT OPEX)[cite: 1]
+                    2. BEBAN OPERASIONAL LANGSUNG CABANG (DIRECT OPEX)
                   </td>
                 </tr>
                 <tr>
