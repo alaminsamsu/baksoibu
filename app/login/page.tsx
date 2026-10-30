@@ -153,9 +153,13 @@ export default function LoginPage() {
         
         {/* Header Logo Toko Asli */}
         <div className="text-center space-y-2">
-          <div className="inline-flex w-16 h-16 rounded-2xl bg-[#5252ea] text-white items-center justify-center shadow-lg shadow-indigo-500/20">
-            <Store className="w-8 h-8" />
-          </div>
+         <div className="flex justify-center mb-2">
+  <img 
+    src="/logo.png" 
+    alt="Logo Bakso Ibu" 
+    className="w-20 h-20 object-contain drop-shadow-sm" 
+  />
+</div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">
             Bakso Ibu ERP
           </h1>
