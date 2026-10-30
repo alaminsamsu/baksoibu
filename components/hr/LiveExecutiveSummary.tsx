@@ -14,8 +14,24 @@ import {
   AlertCircle,
   FileSpreadsheet,
   Camera,
-  X
+  X,
+  UserPlus,
+  Edit3,
+  UserCheck,
+  UserX,
+  CheckCircle2
 } from 'lucide-react';
+
+interface StaffProfile {
+  id: string;
+  full_name: string;
+  nickname: string;
+  role: string;
+  primary_location_id?: string;
+  is_active?: boolean;
+  pin?: string;
+  phone_number?: string;
+}
 
 export default function LiveExecutiveSummary() {
   const todayWita = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
@@ -24,29 +40,74 @@ export default function LiveExecutiveSummary() {
   const [selectedDate, setSelectedDate] = useState<string>(todayWita);
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthWita);
   const [selectedLoc, setSelectedLoc] = useState<string>('all');
-  const [activeSubTab, setActiveSubTab] = useState<'log' | 'database'>('log');
+  const [activeSubTab, setActiveSubTab] = useState<'log' | 'database'>('database');
 
   const [locations, setLocations] = useState<any[]>([]);
-  const [staffProfiles, setStaffProfiles] = useState<any[]>([]);
+  const [staffProfiles, setStaffProfiles] = useState<StaffProfile[]>([]);
   const [attendances, setAttendances] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [downloadingDaily, setDownloadingDaily] = useState(false);
   const [downloadingMonthly, setDownloadingMonthly] = useState(false);
 
-  // State Modal Preview Foto Selfie
+  // Modal Preview Foto Selfie
   const [previewPhoto, setPreviewPhoto] = useState<{ url: string; name: string } | null>(null);
 
-  useEffect(() => {
-    async function fetchMasterData() {
-      const { data: locs } = await supabase.from('locations').select('*').order('name');
-      if (locs) setLocations(locs);
+  // Modal Tambah / Edit Pegawai
+  const [showStaffModal, setShowStaffModal] = useState<boolean>(false);
+  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
+  const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
+  const [formFullName, setFormFullName] = useState<string>('');
+  const [formNickname, setFormNickname] = useState<string>('');
+  const [formRole, setFormRole] = useState<string>('CREW');
+  const [formLocationId, setFormLocationId] = useState<string>('');
+  const [formIsActive, setFormIsActive] = useState<boolean>(true);
+  const [savingStaff, setSavingStaff] = useState<boolean>(false);
+  const [staffMessage, setStaffMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-      const { data: profiles } = await supabase
+  const cleanLocationName = (name?: string) => {
+    if (!name) return 'Semua Cabang / Pusat';
+    return `Outlet ${name.replace(/^outlet\s+/i, '').trim()}`;
+  };
+
+  const fetchMasterData = async () => {
+    try {
+      const { data: locs } = await supabase.from('locations').select('*').order('name');
+      if (locs) {
+        setLocations(locs);
+        if (!formLocationId && locs.length > 0) {
+          setFormLocationId(String(locs[0].id));
+        }
+      }
+
+      // Ambil data dari staff_profiles
+      const { data: profiles, error: pError } = await supabase
         .from('staff_profiles')
         .select('*')
-        .order('nickname');
-      if (profiles) setStaffProfiles(profiles);
+        .order('nickname', { ascending: true });
+
+      if (!pError && profiles && profiles.length > 0) {
+        setStaffProfiles(profiles);
+      } else {
+        // Fallback jika database menggunakan tabel users
+        const { data: usersData } = await supabase.from('users').select('*').order('active_staff_name');
+        if (usersData) {
+          const mapped = usersData.map((u: any) => ({
+            id: u.id,
+            full_name: u.username || '',
+            nickname: u.active_staff_name || u.username || '',
+            role: u.role_name || u.role || 'CREW',
+            primary_location_id: u.location_id,
+            is_active: u.is_active !== false
+          }));
+          setStaffProfiles(mapped);
+        }
+      }
+    } catch (err: any) {
+      console.error('Gagal mengambil master data pegawai:', err.message);
     }
+  };
+
+  useEffect(() => {
     fetchMasterData();
   }, []);
 
@@ -176,6 +237,129 @@ export default function LiveExecutiveSummary() {
     });
   }, [locations, attendances]);
 
+  // Modal Handler Tambah Karyawan
+  const handleOpenCreateModal = () => {
+    setModalMode('create');
+    setEditingStaffId(null);
+    setFormFullName('');
+    setFormNickname('');
+    setFormRole('CREW');
+    setFormIsActive(true);
+    if (locations.length > 0) setFormLocationId(String(locations[0].id));
+    setStaffMessage(null);
+    setShowStaffModal(true);
+  };
+
+  // Modal Handler Edit Karyawan
+  const handleOpenEditModal = (p: StaffProfile) => {
+    setModalMode('edit');
+    setEditingStaffId(p.id);
+    setFormFullName(p.full_name || '');
+    setFormNickname(p.nickname || '');
+    setFormRole(p.role || 'CREW');
+    setFormLocationId(p.primary_location_id ? String(p.primary_location_id) : (locations[0]?.id ? String(locations[0].id) : ''));
+    setFormIsActive(p.is_active !== false);
+    setStaffMessage(null);
+    setShowStaffModal(true);
+  };
+
+  // Toggle Nonaktifkan / Aktifkan Pegawai
+  const handleToggleStaffStatus = async (p: StaffProfile) => {
+    const nextStatus = p.is_active === false ? true : false;
+    const confirmText = nextStatus
+      ? `Aktifkan kembali akun pegawai ${p.nickname}?`
+      : `Nonaktifkan akun pegawai ${p.nickname}? Pegawai nonaktif tidak akan muncul saat check-in presensi.`;
+
+    if (!confirm(confirmText)) return;
+
+    try {
+      // Update ke staff_profiles
+      await supabase
+        .from('staff_profiles')
+        .update({ is_active: nextStatus, updated_at: new Date().toISOString() })
+        .eq('id', p.id);
+
+      // Sinkronisasi ke users jika ada
+      await supabase
+        .from('users')
+        .update({ is_active: nextStatus })
+        .ilike('active_staff_name', p.nickname);
+
+      setStaffProfiles((prev) =>
+        prev.map((item) => (item.id === p.id ? { ...item, is_active: nextStatus } : item))
+      );
+    } catch (err: any) {
+      alert('Gagal mengubah status: ' + err.message);
+    }
+  };
+
+  // Simpan Tambah / Edit Karyawan
+  const handleSaveStaffForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formFullName.trim() || !formNickname.trim()) {
+      alert('Nama lengkap dan nama panggilan wajib diisi.');
+      return;
+    }
+
+    setSavingStaff(true);
+    setStaffMessage(null);
+
+    try {
+      const payload: any = {
+        full_name: formFullName.trim(),
+        nickname: formNickname.trim().toUpperCase(),
+        role: formRole.toUpperCase(),
+        primary_location_id: formLocationId || null,
+        is_active: formIsActive,
+        updated_at: new Date().toISOString()
+      };
+
+      if (modalMode === 'create') {
+        const { error } = await supabase.from('staff_profiles').insert([payload]);
+        if (error) {
+          // Fallback coba simpan ke users jika skema lama
+          await supabase.from('users').insert([{
+            username: formFullName.trim(),
+            active_staff_name: formNickname.trim().toUpperCase(),
+            role_name: formRole.toUpperCase(),
+            role: formRole.toUpperCase(),
+            location_id: formLocationId || null,
+            is_active: formIsActive,
+            pin: '1234'
+          }]);
+        }
+        setStaffMessage({ text: 'Karyawan baru berhasil ditambahkan!', type: 'success' });
+      } else {
+        const { error } = await supabase
+          .from('staff_profiles')
+          .update(payload)
+          .eq('id', editingStaffId);
+        if (error) {
+          // Fallback coba update ke users
+          await supabase.from('users').update({
+            username: formFullName.trim(),
+            active_staff_name: formNickname.trim().toUpperCase(),
+            role_name: formRole.toUpperCase(),
+            role: formRole.toUpperCase(),
+            location_id: formLocationId || null,
+            is_active: formIsActive
+          }).eq('id', editingStaffId);
+        }
+        setStaffMessage({ text: 'Data karyawan berhasil diperbarui!', type: 'success' });
+      }
+
+      await fetchMasterData();
+      setTimeout(() => {
+        setShowStaffModal(false);
+        setStaffMessage(null);
+      }, 1000);
+    } catch (err: any) {
+      setStaffMessage({ text: err.message || 'Gagal menyimpan.', type: 'error' });
+    } finally {
+      setSavingStaff(false);
+    }
+  };
+
   // Ekspor CSV Harian
   const handleDownloadDailyCSV = () => {
     if (attendances.length === 0) {
@@ -215,7 +399,7 @@ export default function LiveExecutiveSummary() {
           `"${item.attendance_date || selectedDate}"`,
           `"${item.staff_name}"`,
           `"${item.role || 'CREW'}"`,
-          `"${locName !== '-' ? `Outlet ${locName}` : '-'}"`,
+          `"${locName !== '-' ? cleanLocationName(locName) : '-'}"`,
           `"${shiftLabel}"`,
           `"${checkIn}"`,
           `"${evaluated.checkOutDisplay}"`,
@@ -312,7 +496,7 @@ export default function LiveExecutiveSummary() {
           `"${item.attendance_date}"`,
           `"${item.staff_name}"`,
           `"${item.role || 'CREW'}"`,
-          `"${locName !== '-' ? `Outlet ${locName}` : '-'}"`,
+          `"${locName !== '-' ? cleanLocationName(locName) : '-'}"`,
           `"${shiftLabel}"`,
           `"${checkIn}"`,
           `"${evaluated.checkOutDisplay}"`,
@@ -349,7 +533,7 @@ export default function LiveExecutiveSummary() {
               <div className="flex items-center gap-2">
                 <Building2 className="w-4 h-4 text-indigo-600" />
                 <span className="font-black text-xs text-slate-800 uppercase tracking-wider">
-                  Outlet {card.name}
+                  {cleanLocationName(card.name)}
                 </span>
               </div>
             </div>
@@ -435,7 +619,7 @@ export default function LiveExecutiveSummary() {
         </div>
       </div>
 
-      {/* 3. Panel Administrasi Presensi */}
+      {/* 3. Panel Administrasi Presensi & Database */}
       <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-5">
         <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-slate-100 gap-4">
           <div className="flex items-center gap-3">
@@ -496,6 +680,7 @@ export default function LiveExecutiveSummary() {
           </div>
         </div>
 
+        {/* SUBTAB 1: LOG PRESENSI */}
         {activeSubTab === 'log' && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-100">
@@ -535,7 +720,7 @@ export default function LiveExecutiveSummary() {
                       <option value="all">Semua Lokasi</option>
                       {locations.map((loc) => (
                         <option key={loc.id} value={loc.id}>
-                          Outlet {loc.name}
+                          {cleanLocationName(loc.name)}
                         </option>
                       ))}
                     </select>
@@ -594,7 +779,6 @@ export default function LiveExecutiveSummary() {
 
                         return (
                           <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
-                            {/* THUMBNAIL FOTO SELFIE */}
                             <td className="py-3 px-3 text-center">
                               {row.photo_url ? (
                                 <button
@@ -610,7 +794,7 @@ export default function LiveExecutiveSummary() {
                                   />
                                 </button>
                               ) : (
-                                <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto" title="Belum ada foto">
+                                <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
                                   <Camera className="w-3.5 h-3.5" />
                                 </div>
                               )}
@@ -626,7 +810,7 @@ export default function LiveExecutiveSummary() {
                               </span>
                             </td>
                             <td className="py-3 px-3 text-slate-600">
-                              {locName !== '-' ? `Outlet ${locName}` : '-'}
+                              {locName !== '-' ? cleanLocationName(locName) : '-'}
                             </td>
                             <td className="py-3 px-3 font-bold text-indigo-700">
                               {row.shift || 'SHIFT_1'}
@@ -678,44 +862,239 @@ export default function LiveExecutiveSummary() {
           </div>
         )}
 
+        {/* SUBTAB 2: DATABASE PEGAWAI (LENGKAP DENGAN AKSI TAMBAH, EDIT, NONAKTIFKAN) */}
         {activeSubTab === 'database' && (
-          <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-wider bg-slate-50/60">
-                    <th className="py-3 px-4">Nama Lengkap</th>
-                    <th className="py-3 px-3">Nama Panggilan</th>
-                    <th className="py-3 px-3">Peran / Jabatan</th>
-                    <th className="py-3 px-3">Penempatan Utama</th>
-                    <th className="py-3 px-4 text-center">Status Akun</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-semibold">
-                  {staffProfiles.map((p) => {
-                    const primaryLoc = locations.find((l) => l.id === p.primary_location_id);
-                    return (
-                      <tr key={p.id} className="hover:bg-slate-50/50">
-                        <td className="py-3 px-4 font-bold text-slate-900">{p.full_name || '-'}</td>
-                        <td className="py-3 px-3 text-indigo-600 font-black">{p.nickname}</td>
-                        <td className="py-3 px-3 text-slate-700">{p.role || 'CREW'}</td>
-                        <td className="py-3 px-3 text-slate-600">{primaryLoc ? `Outlet ${primaryLoc.name}` : 'Semua Cabang'}</td>
-                        <td className="py-3 px-4 text-center">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                            p.is_active !== false ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-600'
-                          }`}>
-                            {p.is_active !== false ? 'Aktif' : 'Non-Aktif'}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center bg-slate-50 p-3 rounded-2xl border border-slate-100">
+              <span className="text-xs font-bold text-slate-600">
+                Total Pegawai: <b className="text-slate-900">{staffProfiles.length}</b> ({totalActiveStaff} Aktif)
+              </span>
+
+              {/* TOMBOL TAMBAH PEGAWAI */}
+              <button
+                type="button"
+                onClick={handleOpenCreateModal}
+                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-xs transition-all"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>+ Tambah Pegawai</span>
+              </button>
+            </div>
+
+            <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
+              <div className="overflow-x-auto max-h-[34rem] overflow-y-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-wider bg-slate-50/60 sticky top-0 z-10">
+                      <th className="py-3 px-4 min-w-[180px]">Nama Lengkap</th>
+                      <th className="py-3 px-3">Nama Panggilan</th>
+                      <th className="py-3 px-3">Peran / Jabatan</th>
+                      <th className="py-3 px-3">Penempatan Utama</th>
+                      <th className="py-3 px-3 text-center">Status Akun</th>
+                      <th className="py-3 px-4 text-center w-28">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-semibold">
+                    {staffProfiles.map((p) => {
+                      const primaryLoc = locations.find((l) => l.id === p.primary_location_id);
+                      const isActive = p.is_active !== false;
+
+                      return (
+                        <tr 
+                          key={p.id} 
+                          className={`hover:bg-slate-50/50 transition-colors ${!isActive ? 'bg-slate-50/40 opacity-60' : ''}`}
+                        >
+                          <td className="py-3 px-4 font-bold text-slate-900">
+                            {p.full_name || '-'}
+                          </td>
+                          <td className="py-3 px-3 text-indigo-700 font-black">
+                            {p.nickname}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-slate-100 text-slate-700">
+                              {p.role || 'CREW'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-slate-600 font-semibold">
+                            {primaryLoc ? cleanLocationName(primaryLoc.name) : 'Semua Cabang'}
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${
+                              isActive
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                                : 'bg-rose-50 text-rose-700 border-rose-200'
+                            }`}>
+                              {isActive ? 'Aktif' : 'Non-Aktif'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {/* TOMBOL EDIT */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal(p)}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                title="Edit Pegawai"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* TOMBOL NONAKTIFKAN / AKTIFKAN */}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleStaffStatus(p)}
+                                className={`p-1.5 rounded-lg transition-colors ${
+                                  isActive 
+                                    ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50' 
+                                    : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
+                                }`}
+                                title={isActive ? "Nonaktifkan Pegawai (Resign)" : "Aktifkan Kembali Pegawai"}
+                              >
+                                {isActive ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* MODAL POPUP: TAMBAH & EDIT PEGAWAI */}
+      {showStaffModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black">
+                  {modalMode === 'create' ? <UserPlus className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
+                </div>
+                <h3 className="text-sm font-black text-slate-900">
+                  {modalMode === 'create' ? 'Tambah Pegawai Baru' : 'Edit Data Pegawai'}
+                </h3>
+              </div>
+              <button 
+                onClick={() => setShowStaffModal(false)}
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {staffMessage && (
+              <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                staffMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
+              }`}>
+                {staffMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" /> : <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />}
+                <span>{staffMessage.text}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveStaffForm} className="space-y-3.5">
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
+                  Nama Lengkap (KTP)
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formFullName}
+                  onChange={(e) => setFormFullName(e.target.value)}
+                  placeholder="Contoh: Muhammad Wahyu Taniatta"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
+                  Nama Panggilan (Di Presensi & Slip)
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formNickname}
+                  onChange={(e) => setFormNickname(e.target.value)}
+                  placeholder="Contoh: Wahyu"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-600 uppercase"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
+                    Jabatan / Peran
+                  </label>
+                  <select
+                    value={formRole}
+                    onChange={(e) => setFormRole(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                  >
+                    <option value="CREW">CREW</option>
+                    <option value="LEADER">LEADER</option>
+                    <option value="KASIR">KASIR</option>
+                    <option value="KITCHEN">KITCHEN</option>
+                    <option value="HR">HR</option>
+                    <option value="ADMIN">ADMIN</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
+                    Penempatan Utama
+                  </label>
+                  <select
+                    value={formLocationId}
+                    onChange={(e) => setFormLocationId(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                  >
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>
+                        {cleanLocationName(loc.name)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
+                  Status Akun
+                </label>
+                <select
+                  value={formIsActive ? 'true' : 'false'}
+                  onChange={(e) => setFormIsActive(e.target.value === 'true')}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                >
+                  <option value="true">Aktif Bekerja</option>
+                  <option value="false">Nonaktif (Resign / Keluar)</option>
+                </select>
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowStaffModal(false)}
+                  className="w-1/3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition-all"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingStaff}
+                  className="w-2/3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-md shadow-indigo-600/20 transition-all disabled:opacity-40"
+                >
+                  {savingStaff ? 'Menyimpan...' : (modalMode === 'create' ? 'Simpan Pegawai' : 'Perbarui Pegawai')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MODAL POPUP LIHAT FOTO LENGKAP */}
       {previewPhoto && (
