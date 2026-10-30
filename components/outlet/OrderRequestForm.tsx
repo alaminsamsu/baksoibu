@@ -58,7 +58,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   const activeLocationId = locationId || user?.location_id;
   const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
 
-  // Default otomatis H+1 (karena biasanya diorder malam untuk kebutuhan besok)
+  // Default otomatis besok hari (H+1)
   const getDefaultTargetDate = () => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -212,7 +212,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
       [itemName]: val,
     }));
 
-    // Otomatis default ke ORDERED_LEADER tanpa status menunggu
     if (parseFloat(val) > 0 && !orderStatuses[itemName]) {
       setOrderStatuses((prev) => ({
         ...prev,
@@ -232,19 +231,16 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     return Object.values(quantities).filter((q) => parseFloat(q) > 0).length;
   }, [quantities]);
 
-  // Tahap 1: Ketika tombol kirim ditekan di form utama, munculkan konfirmasi tanggal
   const handlePreSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (totalFilled === 0) {
       alert('Isi minimal satu barang dengan jumlah lebih dari 0.');
       return;
     }
-    // Update ulang default tanggal ke H+1 saat tombol ditekan agar tetap fresh jika proses input lewat tengah malam
     setTargetDate(getDefaultTargetDate());
     setShowConfirmModal(true);
   };
 
-  // Tahap 2: Eksekusi kirim ke Supabase setelah tanggal dipastikan di modal
   const handleFinalSubmit = async () => {
     setLoading(true);
     setMessage(null);
@@ -260,7 +256,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           
           return {
             location_id: activeLocationId,
-            order_date: targetDate, // Tanggal yang sudah dikonfirmasi di modal
+            order_date: targetDate,
             item_name: itemName,
             quantity: parseFloat(qty),
             unit: itemMeta?.uom || 'Pcs',
@@ -283,7 +279,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
       if (error) throw error;
 
       setMessage({
-        text: `Berhasil mengirim ${orderPayload.length} permintaan belanja untuk operasional tanggal ${targetDate}!`,
+        text: `Berhasil mengirim ${orderPayload.length} permintaan belanja untuk tanggal ${targetDate}!`,
         type: 'success',
       });
 
@@ -482,7 +478,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                             </div>
                           </td>
 
-                          {/* Dropdown status pemesanan (HANYA 3 STATUS TANPA Menunggu Pembelian) */}
                           <td className="py-2 px-4 text-center">
                             <select
                               value={currentStatus}
@@ -538,7 +533,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </button>
       </form>
 
-      {/* MODAL POPUP: KONFIRMASI TANGGAL SEBELUM MENGIRIM */}
+      {/* MODAL POPUP: KONFIRMASI TANGGAL SEBELUM MENGIRIM DENGAN BAHASA SEDERHANA */}
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-3xl p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-5 animate-in fade-in zoom-in-95 duration-150">
@@ -548,8 +543,8 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                   <Calendar className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-black text-slate-900">Konfirmasi Tanggal Operasional</h3>
-                  <p className="text-[11px] text-slate-400 font-medium">Pastikan tanggal kebutuhan belanja sudah benar</p>
+                  <h3 className="text-sm font-black text-slate-900">Cek Tanggal Belanja</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">Pastikan tanggal pemakaian barang sudah pas</p>
                 </div>
               </div>
               <button 
@@ -561,17 +556,18 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             </div>
 
             <div className="space-y-4">
-              <div className="p-3.5 bg-amber-50/70 border border-amber-200/60 rounded-2xl flex items-start gap-2.5 text-xs text-amber-900">
+              {/* Pesan Sederhana & Ramah untuk Kru */}
+              <div className="p-3.5 bg-amber-50/80 border border-amber-200/70 rounded-2xl flex items-start gap-2.5 text-xs text-amber-900">
                 <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <span>
-                  Karena penginputan sering lewat tengah malam, pastikan tanggal di bawah sesuai dengan <b>hari operasional penggunaan bahan</b>.
+                  Barang ini dipakai untuk <b>jualan tanggal berapa</b>? Pastikan tanggal di bawah sudah benar ya!
                 </span>
               </div>
 
-              {/* Pemilihan Tanggal Tepat Sebelum Kirim */}
+              {/* Pemilihan Tanggal */}
               <div>
                 <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
-                  Tanggal Kebutuhan Operasional:
+                  Dipakai untuk Tanggal:
                 </label>
                 <input
                   type="date"
@@ -588,7 +584,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                   <span className="text-[#ff6f3c] font-black">{totalFilled} Barang</span>
                 </div>
                 <div className="flex justify-between text-xs text-slate-500">
-                  <span>Pelapor / Pengirim:</span>
+                  <span>Yang Mengisi:</span>
                   <span className="font-semibold text-slate-700">{activeStaffName}</span>
                 </div>
               </div>
