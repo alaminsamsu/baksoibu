@@ -91,7 +91,11 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const totalNonCashExpense = nonCashList.reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
   const numActualCash = Number(actualCashDeposited) || 0;
 
-  const totalOmset = numCash + numQris + numGrab + numGofood + numShopee;
+  // Pemisahan Kanal Penjualan
+  const omsetDineIn = numCash + numQris;
+  const omsetOnline = numGrab + numGofood + numShopee;
+  const totalOmset = omsetDineIn + omsetOnline;
+
   const expectedCashInDrawer = numOpeningCash + numCash - numExpense;
   const cashDifference = actualCashDeposited === '' ? 0 : numActualCash - expectedCashInDrawer;
 
@@ -217,17 +221,30 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         shift: shift,
         opening_cash: numOpeningCash,
         total_bills: Number(totalBills) || 0,
+        
+        // Kanal Rinci
         cash_nominal: numCash,
         qris_nominal: numQris,
         grab_nominal: numGrab,
         gofood_nominal: numGofood,
         shopee_nominal: numShopee,
-        online_nominal: numGrab + numGofood + numShopee,
+        online_nominal: omsetOnline,
+
+        // Kolom Agregasi Resmi PnL
+        omset_dine_in: omsetDineIn,
+        omset_online: omsetOnline,
+        total_omset: totalOmset,
+
+        // Pengeluaran Kasir
         expense_nominal: numExpense,
         expense_notes: expenseNotes.trim() || null,
+
+        // Non-Kasir
         non_cash_expense_nominal: totalNonCash,
         non_cash_expense_category: validNonCashItems.length > 0 ? validNonCashItems.map(i => i.category).join(', ') : null,
         non_cash_expense_notes: validNonCashItems.length > 0 ? JSON.stringify(validNonCashItems) : null,
+        
+        // Kas Fisik
         actual_cash_deposited: numActualCash,
         cash_difference: cashDifference,
         notes: notes.trim() || null,
@@ -261,9 +278,11 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
             shift,
             reportedBy: effectiveStaffName,
             totalOmset,
+            omsetDineIn,
+            omsetOnline,
             cashNominal: numCash,
             qrisNominal: numQris,
-            onlineNominal: numGrab + numGofood + numShopee,
+            onlineNominal: omsetOnline,
             expenseNominal: numExpense,
             expenseNotes: expenseNotes.trim(),
             nonCashExpenseNominal: totalNonCash,
@@ -307,13 +326,13 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               Rekap Omset & Kas Kasir
             </h3>
             <p className="text-[10px] text-slate-400">
-              Input rincian omset shift, pengeluaran kasir & beban non-kasir.
+              Input rincian omset shift, pengeluaran kasir & beban non-kasir.[cite: 2]
             </p>
           </div>
         </div>
 
         <div className="text-right">
-          <span className="text-[10px] font-bold text-slate-400 uppercase block">Petugas</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase block">Petugas[cite: 2]</span>
           <span className="text-xs font-black text-slate-800">{effectiveStaffName}</span>
         </div>
       </div>
@@ -322,7 +341,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         <div className={`p-3 rounded-2xl text-xs font-bold flex items-center gap-2 ${
           msg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'
         }`}>
-          {msg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+          {msg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" /> : <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />}
           <span>{msg.text}</span>
         </div>
       )}
@@ -332,7 +351,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-slate-400" /> Tanggal Operasional
+              <Calendar className="w-3.5 h-3.5 text-slate-400" /> Tanggal Operasional[cite: 2]
             </label>
             <input
               type="date"
@@ -345,7 +364,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-slate-400" /> Pilihan Shift
+              <Clock className="w-3.5 h-3.5 text-slate-400" /> Pilihan Shift[cite: 2]
             </label>
             <div className="grid grid-cols-2 gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200">
               <button
@@ -355,7 +374,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                   shift === 'SHIFT_1' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Shift 1 (Siang)
+                Shift 1 (Siang)[cite: 2]
               </button>
               <button
                 type="button"
@@ -364,7 +383,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                   shift === 'SHIFT_2' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Shift 2 (Malam)
+                Shift 2 (Malam)[cite: 2]
               </button>
             </div>
           </div>
@@ -374,7 +393,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1">
-              Modal Awal Laci Kasir (Rp)
+              Modal Awal Laci Kasir (Rp)[cite: 2]
             </label>
             <input
               type="number"
@@ -388,7 +407,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1">
-              Total Transaksi / Bill (Struk)
+              Total Transaksi / Bill (Struk)[cite: 2]
             </label>
             <input
               type="number"
@@ -403,14 +422,21 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
         {/* Rincian Omset Penjualan */}
         <div className="p-4 bg-slate-50/70 rounded-2xl border border-slate-100 space-y-3">
-          <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">
-            Rincian Omset Penjualan Shift
-          </span>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">
+              Rincian Omset Penjualan Shift[cite: 2]
+            </span>
+            <div className="flex items-center gap-2 text-[10px] font-bold">
+              <span className="text-emerald-700">Dine In: Rp {omsetDineIn.toLocaleString('id-ID')}</span>
+              <span className="text-slate-300">•</span>
+              <span className="text-orange-700">Online: Rp {omsetOnline.toLocaleString('id-ID')}</span>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                <Banknote className="w-3.5 h-3.5 text-emerald-600" /> Penjualan Tunai / Cash (Rp)
+                <Banknote className="w-3.5 h-3.5 text-emerald-600" /> Penjualan Tunai / Cash (Rp)[cite: 2]
               </label>
               <input
                 type="number"
@@ -424,7 +450,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
             <div>
               <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                <QrCode className="w-3.5 h-3.5 text-indigo-600" /> QRIS / Transfer (Rp)
+                <QrCode className="w-3.5 h-3.5 text-indigo-600" /> QRIS / Transfer (Rp)[cite: 2]
               </label>
               <input
                 type="number"
@@ -438,7 +464,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
             <div>
               <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                <ShoppingBag className="w-3.5 h-3.5 text-emerald-600" /> GrabFood (Rp)
+                <ShoppingBag className="w-3.5 h-3.5 text-emerald-600" /> GrabFood (Rp)[cite: 2]
               </label>
               <input
                 type="number"
@@ -446,13 +472,13 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                 value={grabNominal}
                 onChange={(e) => setGrabNominal(e.target.value)}
                 placeholder="0"
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black text-slate-800 focus:outline-none"
               />
             </div>
 
             <div>
               <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                <ShoppingBag className="w-3.5 h-3.5 text-red-600" /> GoFood (Rp)
+                <ShoppingBag className="w-3.5 h-3.5 text-red-600" /> GoFood (Rp)[cite: 2]
               </label>
               <input
                 type="number"
@@ -460,13 +486,13 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                 value={gofoodNominal}
                 onChange={(e) => setGofoodNominal(e.target.value)}
                 placeholder="0"
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black text-slate-800 focus:outline-none"
               />
             </div>
 
             <div className="sm:col-span-2">
               <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1.5">
-                <ShoppingBag className="w-3.5 h-3.5 text-orange-600" /> ShopeeFood (Rp)
+                <ShoppingBag className="w-3.5 h-3.5 text-orange-600" /> ShopeeFood (Rp)[cite: 2]
               </label>
               <input
                 type="number"
@@ -474,15 +500,15 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                 value={shopeeNominal}
                 onChange={(e) => setShopeeNominal(e.target.value)}
                 placeholder="0"
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-black text-slate-800 focus:outline-none"
               />
             </div>
           </div>
 
           <div className="flex justify-between items-center pt-2 border-t border-slate-200/60">
-            <span className="text-xs font-bold text-slate-500">Total Omset Shift:</span>
+            <span className="text-xs font-bold text-slate-500">Total Omset Shift:[cite: 2]</span>
             <span className="text-base font-black text-emerald-600">
-              Rp {totalOmset.toLocaleString('id-ID')}
+              Rp {totalOmset.toLocaleString('id-ID')}[cite: 2]
             </span>
           </div>
         </div>
@@ -491,17 +517,17 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         <div className="p-4 bg-rose-50/50 rounded-2xl border border-rose-100 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black uppercase text-rose-500 block tracking-wider flex items-center gap-1.5">
-              <Wallet className="w-3.5 h-3.5" /> 1. Pengeluaran Kasir (Uang Laci)
+              <Wallet className="w-3.5 h-3.5" /> 1. Pengeluaran Kasir (Uang Laci)[cite: 2]
             </span>
             <span className="text-[9px] font-bold text-rose-400 bg-rose-100/60 px-2 py-0.5 rounded-md">
-              Memotong Fisik Kasir
+              Memotong Fisik Kasir[cite: 2]
             </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-[11px] font-bold text-rose-800 mb-1">
-                Nominal Keluar (Rp)
+                Nominal Keluar (Rp)[cite: 2]
               </label>
               <input
                 type="number"
@@ -515,7 +541,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
             <div className="sm:col-span-2">
               <label className="block text-[11px] font-bold text-rose-800 mb-1">
-                Catatan Pengeluaran / Keperluan
+                Catatan Pengeluaran / Keperluan[cite: 2]
               </label>
               <input
                 type="text"
@@ -533,10 +559,10 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-black uppercase text-indigo-700 block tracking-wider flex items-center gap-1.5">
-                <Building2 className="w-3.5 h-3.5" /> 2. Pengeluaran Rumah Produksi & Vendor
+                <Building2 className="w-3.5 h-3.5" /> 2. Pengeluaran Rumah Produksi & Vendor[cite: 2]
               </span>
               <span className="text-[9px] font-bold text-indigo-600 bg-indigo-100/60 px-2 py-0.5 rounded-md">
-                TIDAK Memotong Laci
+                TIDAK Memotong Laci[cite: 2]
               </span>
             </div>
 
@@ -546,7 +572,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all"
             >
               <Plus className="w-3 h-3" />
-              <span>Tambah Beban</span>
+              <span>+ Tambah Beban[cite: 2]</span>
             </button>
           </div>
 
@@ -559,7 +585,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                     onChange={(e) => handleUpdateNonCashRow(item.id, 'category', e.target.value)}
                     className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-indigo-900 focus:outline-none"
                   >
-                    <option value="RUMAH_PRODUKSI">Rumah Produksi</option>
+                    <option value="RUMAH_PRODUKSI">Rumah Produksi[cite: 2]</option>
                     <option value="VENDOR_PASAR">Vendor Pasar</option>
                     <option value="VENDOR_HAMDALAH">Vendor Hamdalah</option>
                     <option value="KARYA_HARAPAN">Karya Harapan</option>
@@ -588,7 +614,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                     type="text"
                     value={item.notes}
                     onChange={(e) => handleUpdateNonCashRow(item.id, 'notes', e.target.value)}
-                    placeholder="Keperluan / Catatan"
+                    placeholder="Keperluan / Catatan"[cite: 2]
                     className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none"
                   />
                 </div>
