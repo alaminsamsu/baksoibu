@@ -213,6 +213,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
       const validNonCashItems = nonCashList.filter((item) => Number(item.nominal) > 0);
       const totalNonCash = validNonCashItems.reduce((acc, curr) => acc + Number(curr.nominal || 0), 0);
 
+      // total_omset sengaja tidak disertakan di payload karena di-generate otomatis oleh database
       const payload: Record<string, any> = {
         location_id: effectiveLocationId,
         settlement_date: settlementDate,
@@ -231,7 +232,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         // Kolom Agregasi Resmi PnL
         omset_dine_in: omsetDineIn,
         omset_online: omsetOnline,
-        total_omset: totalOmset,
 
         // Pengeluaran Kasir
         expense_nominal: numExpense,
