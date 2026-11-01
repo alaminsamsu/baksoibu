@@ -58,6 +58,14 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
     return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
   };
 
+  const normalizeUnit = (itemName: string, rawUnit?: string) => {
+    const lower = (itemName || '').toLowerCase();
+    if (lower.includes('bihun') || lower.includes('kwetiau') || lower.includes('kwetiaw')) {
+      return 'kg';
+    }
+    return rawUnit || 'Pcs';
+  };
+
   const normalizeCategory = (rawCat?: string, itemName?: string) => {
     const cat = (rawCat || '').trim();
     const name = cleanName(itemName);
@@ -164,6 +172,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
       const rows: ClosingItem[] = (masterItems || []).map((m) => {
         const clean = cleanName(m.name);
         const normalizedCat = normalizeCategory(m.category, m.name);
+        const unit = normalizeUnit(m.name, m.uom);
 
         const prev = yesterdayClosings?.find((y) => cleanName(y.item_name) === clean);
         const inc = dateMoves
@@ -179,7 +188,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         return {
           item_name: clean,
           category: normalizedCat,
-          unit: m.uom || 'Pcs',
+          unit: unit,
           stok_awal: awalVal,
           stok_masuk: masukVal,
           sisa_fisik: sisaVal,
@@ -224,7 +233,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
           if (item[field] === '') {
             return { ...item, [field]: '0' };
           }
-          // Bulatkan input ke 1 desimal saat selesai mengetik
           const numVal = parseFloat(String(item[field]));
           if (!isNaN(numVal)) {
             return { ...item, [field]: round1Dec(numVal).toString() };
@@ -263,6 +271,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         const masuk = round1Dec(Number(row.stok_masuk || 0));
         const totalModal = round1Dec(awal + masuk);
         const terpakai = round1Dec(Math.max(0, totalModal - fisik - waste));
+        const unit = normalizeUnit(row.item_name, row.unit);
 
         return {
           location_id: effectiveLocationId,
@@ -274,21 +283,19 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
           terpakai: terpakai,
           waste_qty: waste,
           remaining_stock: fisik,
-          unit: row.unit,
+          unit: unit,
           reported_by: effectiveStaffName,
           is_locked: false,
           created_at: nowIso,
         };
       });
 
-      // Simpan ke daily_closings
       const { error: closingError } = await supabase
         .from('daily_closings')
         .upsert(payloads, { onConflict: 'location_id,closing_date,item_name' });
 
       if (closingError) throw closingError;
 
-      // Update remaining_stock di branch_stocks
       const branchPayloads = payloads.map((p) => ({
         location_id: p.location_id,
         item_name: p.item_name,
@@ -355,7 +362,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
 
   return (
     <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-xs space-y-4 max-w-4xl mx-auto font-sans">
-      {/* Header Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-3 border-b border-slate-100 gap-3">
         <div className="flex items-center gap-2">
           {onBack && (
@@ -412,7 +418,6 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         </div>
       </div>
 
-      {/* Filter Kategori & Pencarian */}
       <div className="space-y-3">
         <div className="relative">
           <Search className="absolute left-3.5 top-2.5 w-4 h-4 text-slate-400" />
@@ -485,7 +490,9 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
                     {list.map((row) => (
                       <tr key={row.item_name} className="hover:bg-slate-50/60 transition-colors">
                         <td className="py-2.5 px-3 text-slate-800 uppercase font-extrabold">{row.item_name}</td>
-                        <td className="py-2.5 px-3 text-center text-slate-400 font-normal">{row.unit}</td>
+                        <td className={`py-2.5 px-3 text-center ${row.unit === 'kg' ? 'text-amber-800 font-black' : 'text-slate-400 font-normal'}`}>
+                          {row.unit}
+                        </td>
                         <td className="py-2.5 px-3 text-center bg-indigo-50/20">
                           <input
                             type="number"

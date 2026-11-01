@@ -58,7 +58,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   const activeLocationId = locationId || user?.location_id;
   const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
 
-  // Default otomatis besok hari (H+1)
   const getDefaultTargetDate = () => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -75,12 +74,18 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-
-  // State Modal Konfirmasi Tanggal sebelum Submit
   const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
 
   const cleanName = (name?: string) => {
     return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  };
+
+  const normalizeUnit = (itemName: string, rawUnit?: string) => {
+    const lower = (itemName || '').toLowerCase();
+    if (lower.includes('bihun') || lower.includes('kwetiau') || lower.includes('kwetiaw')) {
+      return 'kg';
+    }
+    return rawUnit || 'Pcs';
   };
 
   const normalizeCategory = (rawCat?: string, itemName?: string) => {
@@ -146,7 +151,11 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
       if (itemsError) {
         console.error('Gagal mengambil master items:', itemsError);
       } else if (itemsData) {
-        setItems(itemsData);
+        const mapped = itemsData.map((item: any) => ({
+          ...item,
+          uom: normalizeUnit(item.name, item.uom)
+        }));
+        setItems(mapped);
       }
 
       if (activeLocationId) {
@@ -253,13 +262,14 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           const chosenStatus = orderStatuses[itemName] || 'ORDERED_LEADER';
           const isDirectLeader = chosenStatus === 'ORDERED_LEADER';
           const supName = itemMeta?.supplier || 'RUMAH PRODUKSI';
+          const unit = normalizeUnit(itemName, itemMeta?.uom);
           
           return {
             location_id: activeLocationId,
             order_date: targetDate,
             item_name: itemName,
             quantity: parseFloat(qty),
-            unit: itemMeta?.uom || 'Pcs',
+            unit: unit,
             source_type: supName === 'RUMAH PRODUKSI' ? 'PRODUCTION' : 'VENDOR',
             target_type: supName,
             supplier: supName,
@@ -307,7 +317,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </button>
       )}
 
-      {/* Header Form */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-6 border-b border-slate-100 gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-[#ff6f3c] text-white flex items-center justify-center shadow-md shadow-orange-500/20">
@@ -430,6 +439,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                       const currentStatus = orderStatuses[item.name] || 'ORDERED_LEADER';
                       const stockVal = currentStocks[cleanName(item.name)] ?? 0;
                       const isLowStock = stockVal <= 2;
+                      const displayUnit = normalizeUnit(item.name, item.uom);
 
                       return (
                         <tr
@@ -451,8 +461,8 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                               <span className={`font-black text-xs ${isLowStock ? 'text-rose-600' : 'text-slate-700'}`}>
                                 {stockVal}
                               </span>
-                              <span className="text-[10px] font-medium text-slate-400">
-                                {item.uom || 'Pcs'}
+                              <span className={`text-[10px] font-medium ${displayUnit === 'kg' ? 'text-amber-700 font-bold' : 'text-slate-400'}`}>
+                                {displayUnit}
                               </span>
                             </div>
                           </td>
@@ -472,8 +482,8 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                                     : 'bg-slate-50 border-slate-200 text-slate-800 focus:border-indigo-500'
                                 }`}
                               />
-                              <span className="text-[11px] text-slate-400 w-12 text-left font-semibold">
-                                {item.uom || 'Pcs'}
+                              <span className={`text-[11px] w-12 text-left font-semibold ${displayUnit === 'kg' ? 'text-amber-700 font-black' : 'text-slate-400'}`}>
+                                {displayUnit}
                               </span>
                             </div>
                           </td>
@@ -508,7 +518,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           </table>
         </div>
 
-        {/* Input Catatan Tambahan */}
         <div>
           <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
             Catatan Tambahan untuk Pengadaan / Dapur
@@ -522,7 +531,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
           />
         </div>
 
-        {/* Tombol Buka Konfirmasi */}
         <button
           type="submit"
           disabled={loading || totalFilled === 0}
@@ -533,7 +541,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </button>
       </form>
 
-      {/* MODAL POPUP: KONFIRMASI TANGGAL SEBELUM MENGIRIM DENGAN BAHASA SEDERHANA */}
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-3xl p-6 sm:p-7 shadow-2xl border border-slate-100 space-y-5 animate-in fade-in zoom-in-95 duration-150">
@@ -556,7 +563,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             </div>
 
             <div className="space-y-4">
-              {/* Pesan Sederhana & Ramah untuk Kru */}
               <div className="p-3.5 bg-amber-50/80 border border-amber-200/70 rounded-2xl flex items-start gap-2.5 text-xs text-amber-900">
                 <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <span>
@@ -564,7 +570,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                 </span>
               </div>
 
-              {/* Pemilihan Tanggal */}
               <div>
                 <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
                   Dipakai untuk Tanggal:
@@ -577,7 +582,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                 />
               </div>
 
-              {/* Rangkuman Singkat Item yang Dipesan */}
               <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl space-y-1">
                 <div className="flex justify-between text-xs font-bold text-slate-700">
                   <span>Total Barang:</span>

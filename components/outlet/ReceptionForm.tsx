@@ -42,7 +42,14 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
     return (name || '').trim().toUpperCase().replace(/\s+/g, ' ');
   };
 
-  // Standarisasi ke 4 Kategori Baku
+  const normalizeUnit = (itemName: string, rawUnit?: string) => {
+    const lower = (itemName || '').toLowerCase();
+    if (lower.includes('bihun') || lower.includes('kwetiau') || lower.includes('kwetiaw')) {
+      return 'kg';
+    }
+    return rawUnit || 'Pcs';
+  };
+
   const normalizeCategory = (rawCat?: string, itemName?: string) => {
     const cat = (rawCat || '').trim();
     const name = cleanName(itemName);
@@ -103,7 +110,11 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
       if (error) {
         console.error('Gagal mengambil master items:', error);
       } else if (data) {
-        setItems(data);
+        const mapped = data.map((item: any) => ({
+          ...item,
+          uom: normalizeUnit(item.name, item.uom)
+        }));
+        setItems(mapped);
       }
     } catch (err: any) {
       console.error(err);
@@ -152,7 +163,6 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
     const ordered: { category: string; list: MasterItem[] }[] = [];
     CATEGORY_ORDER.forEach((cat) => {
       if (groups[cat] && groups[cat].length > 0) {
-        // Urutkan A-Z di setiap kategori
         groups[cat].sort((a, b) => a.name.localeCompare(b.name));
         ordered.push({ category: cat, list: groups[cat] });
       }
@@ -178,7 +188,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
       for (const [itemName, qtyStr] of validEntries) {
         const qtyNum = parseFloat(qtyStr);
         const itemMeta = items.find((i) => i.name === itemName);
-        const unit = itemMeta?.uom || 'Pcs';
+        const unit = normalizeUnit(itemName, itemMeta?.uom);
         const category = normalizeCategory(itemMeta?.category, itemName);
 
         await supabase.from('stock_movements').insert([
@@ -284,7 +294,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Cari barang diterima (misal: kuah, halus, minyak, gas)..."
+            placeholder="Cari barang diterima (misal: bihun, kwetiau, kuah, halus, minyak, gas)..."
             className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none"
           />
         </div>
@@ -329,7 +339,6 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
                 ) : (
                   groupedItems.map(({ category, list }) => (
                     <React.Fragment key={category}>
-                      {/* HEADER SEKAT KATEGORI */}
                       <tr className="bg-indigo-50/60 border-y border-indigo-100/90">
                         <td colSpan={2} className="py-2.5 px-4 font-black text-indigo-900 uppercase tracking-wider text-[11px]">
                           <div className="flex items-center justify-between">
@@ -347,6 +356,8 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
                       {list.map((item) => {
                         const val = quantities[item.name] || '';
                         const isSelected = parseFloat(val) > 0;
+                        const displayUnit = normalizeUnit(item.name, item.uom);
+
                         return (
                           <tr
                             key={item.id}
@@ -372,8 +383,8 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
                                       : 'bg-slate-50 border-slate-200 text-slate-800 focus:border-indigo-500'
                                   }`}
                                 />
-                                <span className="text-[11px] text-slate-400 w-10 text-left font-semibold">
-                                  {item.uom || 'Pcs'}
+                                <span className={`text-[11px] w-10 text-left font-semibold ${displayUnit === 'kg' ? 'text-amber-700 font-black' : 'text-slate-400'}`}>
+                                  {displayUnit}
                                 </span>
                               </div>
                             </td>
