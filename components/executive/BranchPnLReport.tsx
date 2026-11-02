@@ -106,12 +106,10 @@ export default function BranchPnLReport() {
 
   const [activeDrillDown, setActiveDrillDown] = useState<ActiveDrillDown | null>(null);
 
-  // State Pilihan Menu Cetak / Unduh
   const [showDownloadMenu, setShowDownloadMenu] = useState<boolean>(false);
   const [includePrintDetails, setIncludePrintDetails] = useState<boolean>(false);
   const downloadMenuRef = useRef<HTMLDivElement>(null);
 
-  // State Modal Tambah Pengeluaran Susulan Owner / Admin
   const [showModal, setShowModal] = useState<boolean>(false);
   const [targetScope, setTargetScope] = useState<'SINGLE' | 'SHARED'>('SINGLE');
   const [modalLocationId, setModalLocationId] = useState<string>('');
@@ -529,35 +527,33 @@ export default function BranchPnLReport() {
     fetchPnLAnalytics();
   }, [selectedMonth, locations]);
 
-  const consolidated = useMemo(() => {
-    const targetRows = selectedLocation === 'all' 
-      ? pnlList 
-      : pnlList.filter(p => p.locationId === selectedLocation);
+  const displayedBranches = useMemo(() => {
+    if (selectedLocation === 'all') return pnlList;
+    return pnlList.filter(p => p.locationId === selectedLocation);
+  }, [pnlList, selectedLocation]);
 
-    const totalRev = targetRows.reduce((sum, p) => sum + p.revenue, 0);
-    const totalDineIn = targetRows.reduce((sum, p) => sum + p.omsetDineIn, 0);
-    const totalOnline = targetRows.reduce((sum, p) => sum + p.omsetOnline, 0);
+  const consolidated = useMemo(() => {
+    const totalRev = pnlList.reduce((sum, p) => sum + p.revenue, 0);
+    const totalDineIn = pnlList.reduce((sum, p) => sum + p.omsetDineIn, 0);
+    const totalOnline = pnlList.reduce((sum, p) => sum + p.omsetOnline, 0);
     
     const totalPerVendor: Record<string, number> = {};
     allVendorNames.forEach((v) => {
-      totalPerVendor[v] = targetRows.reduce((sum, p) => sum + Number(p.vendorBreakdown[v] || 0), 0);
+      totalPerVendor[v] = pnlList.reduce((sum, p) => sum + Number(p.vendorBreakdown[v] || 0), 0);
     });
 
-    const totalCogs = targetRows.reduce((sum, p) => sum + p.totalCogs, 0);
+    const totalCogs = pnlList.reduce((sum, p) => sum + p.totalCogs, 0);
     const totalGross = totalRev - totalCogs;
     
-    const totalCashierExp = targetRows.reduce((sum, p) => sum + p.cashierExpenses, 0);
-    const totalPayroll = targetRows.reduce((sum, p) => sum + p.storePayroll, 0);
-    const totalUtilityBank = targetRows.reduce((sum, p) => sum + p.storeUtilityBank, 0);
-    const totalDirectOpex = targetRows.reduce((sum, p) => sum + p.directOpexTotal, 0);
+    const totalCashierExp = pnlList.reduce((sum, p) => sum + p.cashierExpenses, 0);
+    const totalPayroll = pnlList.reduce((sum, p) => sum + p.storePayroll, 0);
+    const totalUtilityBank = pnlList.reduce((sum, p) => sum + p.storeUtilityBank, 0);
+    const totalDirectOpex = pnlList.reduce((sum, p) => sum + p.directOpexTotal, 0);
     const totalStoreProfit = totalGross - totalDirectOpex;
     
-    const totalHq = selectedLocation === 'all' 
-      ? totalHqSharedPool 
-      : (targetRows[0]?.hqSharedAllocation || 0);
-
-    const totalFinancing = targetRows.reduce((sum, p) => sum + p.financingExpense, 0);
-    const totalOtherExp = targetRows.reduce((sum, p) => sum + p.otherExpense, 0);
+    const totalHq = totalHqSharedPool;
+    const totalFinancing = pnlList.reduce((sum, p) => sum + p.financingExpense, 0);
+    const totalOtherExp = pnlList.reduce((sum, p) => sum + p.otherExpense, 0);
 
     const totalNet = totalStoreProfit - totalHq - totalFinancing - totalOtherExp;
 
@@ -585,7 +581,7 @@ export default function BranchPnLReport() {
       totalNet,
       netPct: totalRev > 0 ? Math.round((totalNet / totalRev) * 1000) / 10 : 0
     };
-  }, [pnlList, selectedLocation, allVendorNames, totalHqSharedPool]);
+  }, [pnlList, allVendorNames, totalHqSharedPool]);
 
   const handleSaveOwnerExpense = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -816,10 +812,10 @@ export default function BranchPnLReport() {
           </div>
           <div>
             <h2 className="text-base font-black text-slate-900 tracking-tight">
-              Laporan Laba Rugi Eksekutif (PnL Bulanan)[cite: 10]
+              Laporan Laba Rugi Eksekutif (PnL Bulanan)
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Breakdown rinci pengeluaran Rumah Produksi, Vendor Pasar, Hamdalah, dan Input Susulan Owner.[cite: 10]
+              Breakdown rinci pengeluaran Rumah Produksi, Vendor Pasar, Hamdalah, dan Input Susulan Owner.
             </p>
           </div>
         </div>
@@ -831,7 +827,7 @@ export default function BranchPnLReport() {
             className="px-3.5 py-2 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs"
           >
             <PlusCircle className="w-4 h-4 text-indigo-600" />
-            <span>+ Input Pengeluaran / Financing</span>[cite: 10]
+            <span>+ Input Pengeluaran / Financing</span>
           </button>
 
           <div className="relative flex items-center">
@@ -851,7 +847,7 @@ export default function BranchPnLReport() {
               onChange={(e) => setSelectedLocation(e.target.value)}
               className="pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
             >
-              <option value="all">Semua Cabang (Konsolidasi)</option>[cite: 10]
+              <option value="all">Semua Cabang (Konsolidasi)</option>
               {locations.map((loc) => (
                 <option key={loc.id} value={loc.id}>
                   {cleanLocationName(loc.name)}
@@ -876,7 +872,7 @@ export default function BranchPnLReport() {
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-md shadow-indigo-600/20"
             >
               <FileDown className="w-4 h-4" />
-              <span>Cetak / Download</span>[cite: 10]
+              <span>Cetak / Download</span>
               <ChevronDown className="w-3.5 h-3.5" />
             </button>
 
@@ -953,74 +949,66 @@ export default function BranchPnLReport() {
           className="bg-slate-50/70 p-4 rounded-2xl border border-slate-100 hover:border-indigo-300 hover:bg-white cursor-pointer transition-all group"
         >
           <div className="flex justify-between items-center">
-            <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Total Omzet Penjualan</span>[cite: 10]
+            <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Total Omzet Penjualan</span>
             <Eye className="w-3.5 h-3.5 text-slate-300 group-hover:text-indigo-600 transition-colors" />
           </div>
           <div className="text-xl font-black text-slate-900 mt-1">
-            Rp {consolidated.totalRev.toLocaleString('id-ID')}[cite: 10]
+            Rp {consolidated.totalRev.toLocaleString('id-ID')}
           </div>
           <span className="text-[10px] text-slate-500 font-semibold mt-0.5 block">
-            Dine In: {consolidated.dineInPct}% • Online: {consolidated.onlinePct}%[cite: 10]
+            Dine In: {consolidated.dineInPct}% • Online: {consolidated.onlinePct}%
           </span>
         </div>
 
         <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-100">
-          <span className="text-[10px] uppercase font-black tracking-wider text-rose-500">Total Belanja Bahan (HPP)</span>[cite: 10]
+          <span className="text-[10px] uppercase font-black tracking-wider text-rose-500">Total Belanja Bahan (HPP)</span>
           <div className="text-xl font-black text-rose-800 mt-1">
-            Rp {consolidated.totalCogs.toLocaleString('id-ID')}[cite: 10]
+            Rp {consolidated.totalCogs.toLocaleString('id-ID')}
           </div>
           <span className="text-[10px] text-slate-400 font-semibold mt-0.5 block">
-            {allVendorNames.length} Vendor / Sumber Pasokan[cite: 10]
+            {allVendorNames.length} Vendor / Sumber Pasokan
           </span>
         </div>
 
         <div className="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-100">
-          <span className="text-[10px] uppercase font-black tracking-wider text-emerald-600">Laba Operasional Toko</span>[cite: 10]
+          <span className="text-[10px] uppercase font-black tracking-wider text-emerald-600">Laba Operasional Toko</span>
           <div className="text-xl font-black text-emerald-800 mt-1">
-            Rp {consolidated.totalStoreProfit.toLocaleString('id-ID')}[cite: 10]
+            Rp {consolidated.totalStoreProfit.toLocaleString('id-ID')}
           </div>
-          <span className="text-[10px] text-emerald-600 font-semibold mt-0.5 block">Setelah HPP & Beban Toko</span>[cite: 10]
+          <span className="text-[10px] text-emerald-600 font-semibold mt-0.5 block">Setelah HPP & Beban Toko</span>
         </div>
 
         <div className="bg-indigo-50/70 p-4 rounded-2xl border border-indigo-100">
-          <span className="text-[10px] uppercase font-black tracking-wider text-indigo-600">Laba Bersih Akhir (Net)</span>[cite: 10]
+          <span className="text-[10px] uppercase font-black tracking-wider text-indigo-600">Laba Bersih Akhir (Net)</span>
           <div className="text-xl font-black text-indigo-900 mt-1">
-            Rp {consolidated.totalNet.toLocaleString('id-ID')}[cite: 10]
+            Rp {consolidated.totalNet.toLocaleString('id-ID')}
           </div>
           <span className="text-[10px] text-indigo-600 font-bold mt-0.5 block">
-            Net Margin: {consolidated.netPct}%[cite: 10]
+            Net Margin: {consolidated.netPct}%
           </span>
         </div>
       </div>
 
-      {/* TABEL ANATOMI PnL RESMI */}
+      {/* TABEL ANATOMI PnL RESMI (KOLOM KONSOLIDASI SELALU MUNCUL DI UJUNG KANAN) */}
       <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
         <table className="w-full text-left text-xs border-collapse font-sans">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200/80 text-[10px] font-black uppercase tracking-wider text-slate-500">
-              <th className="py-3 px-4 min-w-[260px]">Komponen Laba Rugi (PnL)</th>[cite: 10]
-              {selectedLocation === 'all' ? (
-                <>
-                  {pnlList.map((p) => (
-                    <th key={p.locationId} className="py-3 px-3 text-right min-w-[130px]">
-                      {p.locationName}[cite: 10]
-                    </th>
-                  ))}
-                  <th className="py-3 px-4 text-right min-w-[140px] font-black bg-indigo-50 text-indigo-900">
-                    KONSOLIDASI (TOTAL)[cite: 10]
-                  </th>
-                </>
-              ) : (
-                <th className="py-3 px-4 text-right font-black bg-indigo-50 text-indigo-900">
-                  {pnlList.find(p => p.locationId === selectedLocation)?.locationName}
+              <th className="py-3 px-4 min-w-[260px]">Komponen Laba Rugi (PnL)</th>
+              {displayedBranches.map((p) => (
+                <th key={p.locationId} className="py-3 px-3 text-right min-w-[130px]">
+                  {p.locationName}
                 </th>
-              )}
+              ))}
+              <th className="py-3 px-4 text-right min-w-[140px] font-black bg-indigo-50 text-indigo-900">
+                KONSOLIDASI (TOTAL)
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 font-semibold text-slate-800">
             {loading ? (
               <tr>
-                <td colSpan={pnlList.length + 2} className="py-16 text-center text-slate-400 font-bold">
+                <td colSpan={displayedBranches.length + 2} className="py-16 text-center text-slate-400 font-bold">
                   Mengalkulasi angka PnL dari database...
                 </td>
               </tr>
@@ -1028,150 +1016,102 @@ export default function BranchPnLReport() {
               <>
                 <tr className="bg-slate-50/60 font-black">
                   <td className="py-2.5 px-4 font-black text-slate-900 uppercase">
-                    1. PENDAPATAN PENJUALAN (OMZET)[cite: 10]
+                    1. PENDAPATAN PENJUALAN (OMZET)
                   </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td 
-                          key={p.locationId} 
-                          onClick={() => setActiveDrillDown({
-                            title: `Omzet Penjualan • ${p.locationName}`,
-                            componentType: 'REVENUE_TOTAL',
-                            targetLocationId: p.locationId,
-                            targetLocationName: p.locationName
-                          })}
-                          className="py-2.5 px-3 text-right font-black text-slate-900 hover:text-indigo-600 hover:underline cursor-pointer"
-                        >
-                          Rp {p.revenue.toLocaleString('id-ID')}[cite: 10]
-                        </td>
-                      ))}
-                      <td 
-                        onClick={() => setActiveDrillDown({
-                          title: 'Omzet Penjualan • Konsolidasi Seluruh Cabang',
-                          componentType: 'REVENUE_TOTAL',
-                          targetLocationId: 'all',
-                          targetLocationName: 'Semua Cabang (Konsolidasi)'
-                        })}
-                        className="py-2.5 px-4 text-right font-black bg-indigo-50/60 text-indigo-950 hover:underline cursor-pointer"
-                      >
-                        Rp {consolidated.totalRev.toLocaleString('id-ID')}[cite: 10]
-                      </td>
-                    </>
-                  ) : (
+                  {displayedBranches.map((p) => (
                     <td 
+                      key={p.locationId} 
                       onClick={() => setActiveDrillDown({
-                        title: `Omzet Penjualan • ${pnlList.find(p => p.locationId === selectedLocation)?.locationName}`,
+                        title: `Omzet Penjualan • ${p.locationName}`,
                         componentType: 'REVENUE_TOTAL',
-                        targetLocationId: selectedLocation,
-                        targetLocationName: cleanLocationName(locations.find(l => l.id === selectedLocation)?.name)
+                        targetLocationId: p.locationId,
+                        targetLocationName: p.locationName
                       })}
-                      className="py-2.5 px-4 text-right font-black text-indigo-950 hover:underline cursor-pointer"
+                      className="py-2.5 px-3 text-right font-black text-slate-900 hover:text-indigo-600 hover:underline cursor-pointer"
                     >
-                      Rp {consolidated.totalRev.toLocaleString('id-ID')}
+                      Rp {p.revenue.toLocaleString('id-ID')}
                     </td>
-                  )}
+                  ))}
+                  <td 
+                    onClick={() => setActiveDrillDown({
+                      title: 'Omzet Penjualan • Konsolidasi Seluruh Cabang',
+                      componentType: 'REVENUE_TOTAL',
+                      targetLocationId: 'all',
+                      targetLocationName: 'Semua Cabang (Konsolidasi)'
+                    })}
+                    className="py-2.5 px-4 text-right font-black bg-indigo-50/60 text-indigo-950 hover:underline cursor-pointer"
+                  >
+                    Rp {consolidated.totalRev.toLocaleString('id-ID')}
+                  </td>
                 </tr>
 
                 <tr className="text-slate-600 bg-white/50">
                   <td className="py-2 px-4 pl-8 flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                    <span className="text-[11px] font-bold">↳ Omzet Dine In (Cash + QRIS)</span>[cite: 10]
+                    <span className="text-[11px] font-bold">↳ Omzet Dine In (Cash + QRIS)</span>
                   </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td 
-                          key={`dine-${p.locationId}`} 
-                          onClick={() => setActiveDrillDown({
-                            title: `Omzet Dine In (Cash + QRIS) • ${p.locationName}`,
-                            componentType: 'REVENUE_DINE_IN',
-                            targetLocationId: p.locationId,
-                            targetLocationName: p.locationName
-                          })}
-                          className="py-2 px-3 text-right font-bold text-slate-700 text-[11px] hover:text-emerald-700 hover:underline cursor-pointer"
-                        >
-                          Rp {p.omsetDineIn.toLocaleString('id-ID')}[cite: 10]
-                        </td>
-                      ))}
-                      <td 
-                        onClick={() => setActiveDrillDown({
-                          title: 'Omzet Dine In (Cash + QRIS) • Konsolidasi Seluruh Cabang',
-                          componentType: 'REVENUE_DINE_IN',
-                          targetLocationId: 'all',
-                          targetLocationName: 'Semua Cabang (Konsolidasi)'
-                        })}
-                        className="py-2 px-4 text-right font-bold bg-indigo-50/20 text-slate-800 text-[11px] hover:underline cursor-pointer"
-                      >
-                        Rp {consolidated.totalDineIn.toLocaleString('id-ID')}[cite: 10]
-                      </td>
-                    </>
-                  ) : (
+                  {displayedBranches.map((p) => (
                     <td 
+                      key={`dine-${p.locationId}`} 
                       onClick={() => setActiveDrillDown({
-                        title: `Omzet Dine In (Cash + QRIS) • ${pnlList.find(p => p.locationId === selectedLocation)?.locationName}`,
+                        title: `Omzet Dine In (Cash + QRIS) • ${p.locationName}`,
                         componentType: 'REVENUE_DINE_IN',
-                        targetLocationId: selectedLocation,
-                        targetLocationName: cleanLocationName(locations.find(l => l.id === selectedLocation)?.name)
+                        targetLocationId: p.locationId,
+                        targetLocationName: p.locationName
                       })}
-                      className="py-2 px-4 text-right font-bold text-slate-800 text-[11px] hover:underline cursor-pointer"
+                      className="py-2 px-3 text-right font-bold text-slate-700 text-[11px] hover:text-emerald-700 hover:underline cursor-pointer"
                     >
-                      Rp {consolidated.totalDineIn.toLocaleString('id-ID')}
+                      Rp {p.omsetDineIn.toLocaleString('id-ID')}
                     </td>
-                  )}
+                  ))}
+                  <td 
+                    onClick={() => setActiveDrillDown({
+                      title: 'Omzet Dine In (Cash + QRIS) • Konsolidasi Seluruh Cabang',
+                      componentType: 'REVENUE_DINE_IN',
+                      targetLocationId: 'all',
+                      targetLocationName: 'Semua Cabang (Konsolidasi)'
+                    })}
+                    className="py-2 px-4 text-right font-bold bg-indigo-50/20 text-slate-800 text-[11px] hover:underline cursor-pointer"
+                  >
+                    Rp {consolidated.totalDineIn.toLocaleString('id-ID')}
+                  </td>
                 </tr>
 
                 <tr className="text-slate-600 bg-white/50 border-b border-slate-200/60">
                   <td className="py-2 px-4 pl-8 flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
-                    <span className="text-[11px] font-bold">↳ Omzet Online (Grab / Gojek / Shopee)</span>[cite: 10]
+                    <span className="text-[11px] font-bold">↳ Omzet Online (Grab / Gojek / Shopee)</span>
                   </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td 
-                          key={`online-${p.locationId}`} 
-                          onClick={() => setActiveDrillDown({
-                            title: `Omzet Online (Ojol) • ${p.locationName}`,
-                            componentType: 'REVENUE_ONLINE',
-                            targetLocationId: p.locationId,
-                            targetLocationName: p.locationName
-                          })}
-                          className="py-2 px-3 text-right font-bold text-orange-700 text-[11px] hover:underline cursor-pointer"
-                        >
-                          Rp {p.omsetOnline.toLocaleString('id-ID')}[cite: 10]
-                        </td>
-                      ))}
-                      <td 
-                        onClick={() => setActiveDrillDown({
-                          title: 'Omzet Online (Ojol) • Konsolidasi Seluruh Cabang',
-                          componentType: 'REVENUE_ONLINE',
-                          targetLocationId: 'all',
-                          targetLocationName: 'Semua Cabang (Konsolidasi)'
-                        })}
-                        className="py-2 px-4 text-right font-bold bg-indigo-50/20 text-orange-800 text-[11px] hover:underline cursor-pointer"
-                      >
-                        Rp {consolidated.totalOnline.toLocaleString('id-ID')}[cite: 10]
-                      </td>
-                    </>
-                  ) : (
+                  {displayedBranches.map((p) => (
                     <td 
+                      key={`online-${p.locationId}`} 
                       onClick={() => setActiveDrillDown({
-                        title: `Omzet Online (Ojol) • ${pnlList.find(p => p.locationId === selectedLocation)?.locationName}`,
+                        title: `Omzet Online (Ojol) • ${p.locationName}`,
                         componentType: 'REVENUE_ONLINE',
-                        targetLocationId: selectedLocation,
-                        targetLocationName: cleanLocationName(locations.find(l => l.id === selectedLocation)?.name)
+                        targetLocationId: p.locationId,
+                        targetLocationName: p.locationName
                       })}
-                      className="py-2 px-4 text-right font-bold text-orange-800 text-[11px] hover:underline cursor-pointer"
+                      className="py-2 px-3 text-right font-bold text-orange-700 text-[11px] hover:underline cursor-pointer"
                     >
-                      Rp {consolidated.totalOnline.toLocaleString('id-ID')}
+                      Rp {p.omsetOnline.toLocaleString('id-ID')}
                     </td>
-                  )}
+                  ))}
+                  <td 
+                    onClick={() => setActiveDrillDown({
+                      title: 'Omzet Online (Ojol) • Konsolidasi Seluruh Cabang',
+                      componentType: 'REVENUE_ONLINE',
+                      targetLocationId: 'all',
+                      targetLocationName: 'Semua Cabang (Konsolidasi)'
+                    })}
+                    className="py-2 px-4 text-right font-bold bg-indigo-50/20 text-orange-800 text-[11px] hover:underline cursor-pointer"
+                  >
+                    Rp {consolidated.totalOnline.toLocaleString('id-ID')}
+                  </td>
                 </tr>
 
                 <tr className="bg-slate-50/20">
-                  <td colSpan={selectedLocation === 'all' ? pnlList.length + 2 : 2} className="py-2 px-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Beban Pokok Penjualan / Bahan Masuk (HPP)[cite: 10]
+                  <td colSpan={displayedBranches.length + 2} className="py-2 px-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Beban Pokok Penjualan / Bahan Masuk (HPP)
                   </td>
                 </tr>
 
@@ -1181,55 +1121,38 @@ export default function BranchPnLReport() {
                     <tr key={vendor} className="hover:bg-amber-50/30 transition-colors">
                       <td className="py-2 px-4 text-slate-700 pl-8 flex items-center gap-2">
                         <span className={`w-1.5 h-1.5 rounded-full ${isRP ? 'bg-rose-500' : 'bg-amber-500'}`}></span>
-                        <span>(-) {vendor}</span>[cite: 10]
+                        <span>(-) {vendor}</span>
                       </td>
-                      {selectedLocation === 'all' ? (
-                        <>
-                          {pnlList.map((p) => {
-                            const val = Number(p.vendorBreakdown[vendor] || 0);
-                            return (
-                              <td 
-                                key={p.locationId} 
-                                onClick={() => setActiveDrillDown({
-                                  title: `Belanja ${vendor} • ${p.locationName}`,
-                                  componentType: 'COGS_VENDOR',
-                                  vendorOrChannel: vendor,
-                                  targetLocationId: p.locationId,
-                                  targetLocationName: p.locationName
-                                })}
-                                className={`py-2 px-3 text-right cursor-pointer hover:underline ${isRP ? 'text-rose-700' : 'text-amber-800'}`}
-                              >
-                                (Rp {val.toLocaleString('id-ID')})[cite: 10]
-                              </td>
-                            );
-                          })}
+                      {displayedBranches.map((p) => {
+                        const val = Number(p.vendorBreakdown[vendor] || 0);
+                        return (
                           <td 
+                            key={p.locationId} 
                             onClick={() => setActiveDrillDown({
-                              title: `Belanja ${vendor} • Konsolidasi Seluruh Cabang`,
+                              title: `Belanja ${vendor} • ${p.locationName}`,
                               componentType: 'COGS_VENDOR',
                               vendorOrChannel: vendor,
-                              targetLocationId: 'all',
-                              targetLocationName: 'Semua Cabang (Konsolidasi)'
+                              targetLocationId: p.locationId,
+                              targetLocationName: p.locationName
                             })}
-                            className={`py-2 px-4 text-right font-bold bg-indigo-50/20 cursor-pointer hover:underline ${isRP ? 'text-rose-800' : 'text-amber-900'}`}
+                            className={`py-2 px-3 text-right cursor-pointer hover:underline ${isRP ? 'text-rose-700' : 'text-amber-800'}`}
                           >
-                            (Rp {Number(consolidated.totalPerVendor[vendor] || 0).toLocaleString('id-ID')})[cite: 10]
+                            (Rp {val.toLocaleString('id-ID')})
                           </td>
-                        </>
-                      ) : (
-                        <td 
-                          onClick={() => setActiveDrillDown({
-                            title: `Belanja ${vendor} • ${pnlList.find(p => p.locationId === selectedLocation)?.locationName}`,
-                            componentType: 'COGS_VENDOR',
-                            vendorOrChannel: vendor,
-                            targetLocationId: selectedLocation,
-                            targetLocationName: cleanLocationName(locations.find(l => l.id === selectedLocation)?.name)
-                          })}
-                          className={`py-2 px-4 text-right font-bold cursor-pointer hover:underline ${isRP ? 'text-rose-800' : 'text-amber-900'}`}
-                        >
-                          (Rp {Number(consolidated.totalPerVendor[vendor] || 0).toLocaleString('id-ID')})
-                        </td>
-                      )}
+                        );
+                      })}
+                      <td 
+                        onClick={() => setActiveDrillDown({
+                          title: `Belanja ${vendor} • Konsolidasi Seluruh Cabang`,
+                          componentType: 'COGS_VENDOR',
+                          vendorOrChannel: vendor,
+                          targetLocationId: 'all',
+                          targetLocationName: 'Semua Cabang (Konsolidasi)'
+                        })}
+                        className={`py-2 px-4 text-right font-bold bg-indigo-50/20 cursor-pointer hover:underline ${isRP ? 'text-rose-800' : 'text-amber-900'}`}
+                      >
+                        (Rp {Number(consolidated.totalPerVendor[vendor] || 0).toLocaleString('id-ID')})
+                      </td>
                     </tr>
                   );
                 })}
@@ -1238,35 +1161,24 @@ export default function BranchPnLReport() {
                   <td className="py-2.5 px-4 font-black text-emerald-900 uppercase">
                     = LABA KOTOR (GROSS PROFIT)
                   </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td key={p.locationId} className="py-2.5 px-3 text-right font-black text-emerald-800">
-                          Rp {p.grossProfit.toLocaleString('id-ID')}
-                          <span className="block text-[10px] text-emerald-600 font-normal">
-                            {p.grossMarginPct}%
-                          </span>
-                        </td>
-                      ))}
-                      <td className="py-2.5 px-4 text-right font-black text-emerald-900 bg-emerald-100/40">
-                        Rp {consolidated.totalGross.toLocaleString('id-ID')}
-                        <span className="block text-[10px] text-emerald-700 font-normal">
-                          {consolidated.grossPct}%
-                        </span>
-                      </td>
-                    </>
-                  ) : (
-                    <td className="py-2.5 px-4 text-right font-black text-emerald-900 bg-emerald-100/40">
-                      Rp {consolidated.totalGross.toLocaleString('id-ID')}
-                      <span className="block text-[10px] text-emerald-700 font-normal">
-                        {consolidated.grossPct}%
+                  {displayedBranches.map((p) => (
+                    <td key={p.locationId} className="py-2.5 px-3 text-right font-black text-emerald-800">
+                      Rp {p.grossProfit.toLocaleString('id-ID')}
+                      <span className="block text-[10px] text-emerald-600 font-normal">
+                        {p.grossMarginPct}%
                       </span>
                     </td>
-                  )}
+                  ))}
+                  <td className="py-2.5 px-4 text-right font-black text-emerald-900 bg-emerald-100/40">
+                    Rp {consolidated.totalGross.toLocaleString('id-ID')}
+                    <span className="block text-[10px] text-emerald-700 font-normal">
+                      {consolidated.grossPct}%
+                    </span>
+                  </td>
                 </tr>
 
                 <tr className="bg-slate-50/40">
-                  <td colSpan={selectedLocation === 'all' ? pnlList.length + 2 : 2} className="py-2 px-4 font-black text-slate-800 uppercase text-[10px] tracking-wider">
+                  <td colSpan={displayedBranches.length + 2} className="py-2 px-4 font-black text-slate-800 uppercase text-[10px] tracking-wider">
                     2. BEBAN OPERASIONAL LANGSUNG CABANG (DIRECT OPEX)
                   </td>
                 </tr>
@@ -1274,140 +1186,91 @@ export default function BranchPnLReport() {
                   <td className="py-1.5 px-4 text-slate-600 pl-8">
                     (-) Pengeluaran Kasir / Petty Cash Laci & Susulan
                   </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td 
-                          key={p.locationId} 
-                          onClick={() => setActiveDrillDown({
-                            title: `Pengeluaran Kasir Laci • ${p.locationName}`,
-                            componentType: 'CASHIER_EXPENSE',
-                            targetLocationId: p.locationId,
-                            targetLocationName: p.locationName
-                          })}
-                          className="py-1.5 px-3 text-right text-slate-700 cursor-pointer hover:underline"
-                        >
-                          (Rp {p.cashierExpenses.toLocaleString('id-ID')})
-                        </td>
-                      ))}
-                      <td 
-                        onClick={() => setActiveDrillDown({
-                          title: 'Pengeluaran Kasir Laci • Konsolidasi Seluruh Cabang',
-                          componentType: 'CASHIER_EXPENSE',
-                          targetLocationId: 'all',
-                          targetLocationName: 'Semua Cabang (Konsolidasi)'
-                        })}
-                        className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20 cursor-pointer hover:underline"
-                      >
-                        (Rp {consolidated.totalCashierExp.toLocaleString('id-ID')})
-                      </td>
-                    </>
-                  ) : (
+                  {displayedBranches.map((p) => (
                     <td 
+                      key={p.locationId} 
                       onClick={() => setActiveDrillDown({
-                        title: `Pengeluaran Kasir Laci • ${pnlList.find(p => p.locationId === selectedLocation)?.locationName}`,
+                        title: `Pengeluaran Kasir Laci • ${p.locationName}`,
                         componentType: 'CASHIER_EXPENSE',
-                        targetLocationId: selectedLocation,
-                        targetLocationName: cleanLocationName(locations.find(l => l.id === selectedLocation)?.name)
+                        targetLocationId: p.locationId,
+                        targetLocationName: p.locationName
                       })}
-                      className="py-1.5 px-4 text-right text-slate-800 font-bold cursor-pointer hover:underline"
+                      className="py-1.5 px-3 text-right text-slate-700 cursor-pointer hover:underline"
                     >
-                      (Rp {consolidated.totalCashierExp.toLocaleString('id-ID')})
+                      (Rp {p.cashierExpenses.toLocaleString('id-ID')})
                     </td>
-                  )}
+                  ))}
+                  <td 
+                    onClick={() => setActiveDrillDown({
+                      title: 'Pengeluaran Kasir Laci • Konsolidasi Seluruh Cabang',
+                      componentType: 'CASHIER_EXPENSE',
+                      targetLocationId: 'all',
+                      targetLocationName: 'Semua Cabang (Konsolidasi)'
+                    })}
+                    className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20 cursor-pointer hover:underline"
+                  >
+                    (Rp {consolidated.totalCashierExp.toLocaleString('id-ID')})
+                  </td>
                 </tr>
 
                 <tr>
                   <td className="py-1.5 px-4 text-slate-600 pl-8">
                     (-) Gaji & Bonus Kru Cabang (Input HR)
                   </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td key={p.locationId} className="py-1.5 px-3 text-right text-slate-700">
-                          (Rp {p.storePayroll.toLocaleString('id-ID')})
-                        </td>
-                      ))}
-                      <td className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20">
-                        (Rp {consolidated.totalPayroll.toLocaleString('id-ID')})
-                      </td>
-                    </>
-                  ) : (
-                    <td className="py-1.5 px-4 text-right text-slate-800 font-bold">
-                      (Rp {consolidated.totalPayroll.toLocaleString('id-ID')})
+                  {displayedBranches.map((p) => (
+                    <td key={p.locationId} className="py-1.5 px-3 text-right text-slate-700">
+                      (Rp {p.storePayroll.toLocaleString('id-ID')})
                     </td>
-                  )}
+                  ))}
+                  <td className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20">
+                    (Rp {consolidated.totalPayroll.toLocaleString('id-ID')})
+                  </td>
                 </tr>
 
                 <tr>
                   <td className="py-1.5 px-4 text-slate-600 pl-8">
                     (-) Utilitas Non-Kasir (WiFi & Listrik Transfer Bank)
                   </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td key={p.locationId} className="py-1.5 px-3 text-right text-slate-700">
-                          (Rp {p.storeUtilityBank.toLocaleString('id-ID')})
-                        </td>
-                      ))}
-                      <td className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20">
-                        (Rp {consolidated.totalUtilityBank.toLocaleString('id-ID')})
-                      </td>
-                    </>
-                  ) : (
-                    <td className="py-1.5 px-4 text-right text-slate-800 font-bold">
-                      (Rp {consolidated.totalUtilityBank.toLocaleString('id-ID')})
+                  {displayedBranches.map((p) => (
+                    <td key={p.locationId} className="py-1.5 px-3 text-right text-slate-700">
+                      (Rp {p.storeUtilityBank.toLocaleString('id-ID')})
                     </td>
-                  )}
+                  ))}
+                  <td className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20">
+                    (Rp {consolidated.totalUtilityBank.toLocaleString('id-ID')})
+                  </td>
                 </tr>
 
                 <tr className="bg-slate-100/70 border-y border-slate-200">
                   <td className="py-2 px-4 font-black text-slate-900 uppercase">
                     = LABA OPERASIONAL CABANG (STORE PROFIT)
                   </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td key={p.locationId} className="py-2 px-3 text-right font-black text-slate-800">
-                          Rp {p.storeOperatingProfit.toLocaleString('id-ID')}
-                        </td>
-                      ))}
-                      <td className="py-2 px-4 text-right font-black text-slate-900 bg-indigo-50/40">
-                        Rp {consolidated.totalStoreProfit.toLocaleString('id-ID')}
-                      </td>
-                    </>
-                  ) : (
-                    <td className="py-2 px-4 text-right font-black text-slate-900 bg-indigo-50/40">
-                      Rp {consolidated.totalStoreProfit.toLocaleString('id-ID')}
+                  {displayedBranches.map((p) => (
+                    <td key={p.locationId} className="py-2 px-3 text-right font-black text-slate-800">
+                      Rp {p.storeOperatingProfit.toLocaleString('id-ID')}
                     </td>
-                  )}
+                  ))}
+                  <td className="py-2 px-4 text-right font-black text-slate-900 bg-indigo-50/40">
+                    Rp {consolidated.totalStoreProfit.toLocaleString('id-ID')}
+                  </td>
                 </tr>
 
                 <tr>
                   <td className="py-2 px-4 text-indigo-900 font-bold pl-8">
                     (-) Alokasi Manajemen HQ (Bagi Rata: Gaji HR, Admin, Owner)
                   </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td key={p.locationId} className="py-2 px-3 text-right text-indigo-700 font-bold">
-                          (Rp {p.hqSharedAllocation.toLocaleString('id-ID')})
-                        </td>
-                      ))}
-                      <td className="py-2 px-4 text-right text-indigo-900 font-black bg-indigo-50/30">
-                        (Rp {consolidated.totalHq.toLocaleString('id-ID')})
-                      </td>
-                    </>
-                  ) : (
-                    <td className="py-2 px-4 text-right font-black text-indigo-900 bg-indigo-50/30">
-                      (Rp {consolidated.totalHq.toLocaleString('id-ID')})
+                  {displayedBranches.map((p) => (
+                    <td key={p.locationId} className="py-2 px-3 text-right text-indigo-700 font-bold">
+                      (Rp {p.hqSharedAllocation.toLocaleString('id-ID')})
                     </td>
-                  )}
+                  ))}
+                  <td className="py-2 px-4 text-right text-indigo-900 font-black bg-indigo-50/30">
+                    (Rp {consolidated.totalHq.toLocaleString('id-ID')})
+                  </td>
                 </tr>
 
-                {/* POS BARU: FINANCING & PENGELUARAN LAIN-LAIN */}
                 <tr className="bg-purple-50/40">
-                  <td colSpan={selectedLocation === 'all' ? pnlList.length + 2 : 2} className="py-2 px-4 font-black text-purple-900 uppercase text-[10px] tracking-wider">
+                  <td colSpan={displayedBranches.length + 2} className="py-2 px-4 font-black text-purple-900 uppercase text-[10px] tracking-wider">
                     3. BEBAN PEMBIAYAAN (FINANCING) & PENGELUARAN LAIN-LAIN
                   </td>
                 </tr>
@@ -1416,47 +1279,31 @@ export default function BranchPnLReport() {
                     <Landmark className="w-3.5 h-3.5 text-purple-600" />
                     <span>(-) Beban Financing & Pinjaman (Cicilan / Bunga Modal)</span>
                   </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td 
-                          key={p.locationId} 
-                          onClick={() => setActiveDrillDown({
-                            title: `Beban Financing & Pinjaman • ${p.locationName}`,
-                            componentType: 'FINANCING',
-                            targetLocationId: p.locationId,
-                            targetLocationName: p.locationName
-                          })}
-                          className="py-1.5 px-3 text-right text-purple-700 font-medium cursor-pointer hover:underline"
-                        >
-                          (Rp {p.financingExpense.toLocaleString('id-ID')})
-                        </td>
-                      ))}
-                      <td 
-                        onClick={() => setActiveDrillDown({
-                          title: 'Beban Financing & Pinjaman • Konsolidasi Seluruh Cabang',
-                          componentType: 'FINANCING',
-                          targetLocationId: 'all',
-                          targetLocationName: 'Semua Cabang (Konsolidasi)'
-                        })}
-                        className="py-1.5 px-4 text-right text-purple-900 font-bold bg-purple-50/30 cursor-pointer hover:underline"
-                      >
-                        (Rp {consolidated.totalFinancing.toLocaleString('id-ID')})
-                      </td>
-                    </>
-                  ) : (
+                  {displayedBranches.map((p) => (
                     <td 
+                      key={p.locationId} 
                       onClick={() => setActiveDrillDown({
-                        title: `Beban Financing & Pinjaman • ${pnlList.find(p => p.locationId === selectedLocation)?.locationName}`,
+                        title: `Beban Financing & Pinjaman • ${p.locationName}`,
                         componentType: 'FINANCING',
-                        targetLocationId: selectedLocation,
-                        targetLocationName: cleanLocationName(locations.find(l => l.id === selectedLocation)?.name)
+                        targetLocationId: p.locationId,
+                        targetLocationName: p.locationName
                       })}
-                      className="py-1.5 px-4 text-right text-purple-900 font-bold cursor-pointer hover:underline"
+                      className="py-1.5 px-3 text-right text-purple-700 font-medium cursor-pointer hover:underline"
                     >
-                      (Rp {consolidated.totalFinancing.toLocaleString('id-ID')})
+                      (Rp {p.financingExpense.toLocaleString('id-ID')})
                     </td>
-                  )}
+                  ))}
+                  <td 
+                    onClick={() => setActiveDrillDown({
+                      title: 'Beban Financing & Pinjaman • Konsolidasi Seluruh Cabang',
+                      componentType: 'FINANCING',
+                      targetLocationId: 'all',
+                      targetLocationName: 'Semua Cabang (Konsolidasi)'
+                    })}
+                    className="py-1.5 px-4 text-right text-purple-900 font-bold bg-purple-50/30 cursor-pointer hover:underline"
+                  >
+                    (Rp {consolidated.totalFinancing.toLocaleString('id-ID')})
+                  </td>
                 </tr>
 
                 <tr>
@@ -1464,78 +1311,51 @@ export default function BranchPnLReport() {
                     <FileSpreadsheet className="w-3.5 h-3.5 text-slate-500" />
                     <span>(-) Beban Lain-Lain / Non-Operasional</span>
                   </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td 
-                          key={p.locationId} 
-                          onClick={() => setActiveDrillDown({
-                            title: `Beban Lain-Lain • ${p.locationName}`,
-                            componentType: 'OTHER',
-                            targetLocationId: p.locationId,
-                            targetLocationName: p.locationName
-                          })}
-                          className="py-1.5 px-3 text-right text-slate-700 font-medium cursor-pointer hover:underline"
-                        >
-                          (Rp {p.otherExpense.toLocaleString('id-ID')})
-                        </td>
-                      ))}
-                      <td 
-                        onClick={() => setActiveDrillDown({
-                          title: 'Beban Lain-Lain • Konsolidasi Seluruh Cabang',
-                          componentType: 'OTHER',
-                          targetLocationId: 'all',
-                          targetLocationName: 'Semua Cabang (Konsolidasi)'
-                        })}
-                        className="py-1.5 px-4 text-right text-slate-900 font-bold bg-slate-100/50 cursor-pointer hover:underline"
-                      >
-                        (Rp {consolidated.totalOtherExp.toLocaleString('id-ID')})
-                      </td>
-                    </>
-                  ) : (
+                  {displayedBranches.map((p) => (
                     <td 
+                      key={p.locationId} 
                       onClick={() => setActiveDrillDown({
-                        title: `Beban Lain-Lain • ${pnlList.find(p => p.locationId === selectedLocation)?.locationName}`,
+                        title: `Beban Lain-Lain • ${p.locationName}`,
                         componentType: 'OTHER',
-                        targetLocationId: selectedLocation,
-                        targetLocationName: cleanLocationName(locations.find(l => l.id === selectedLocation)?.name)
+                        targetLocationId: p.locationId,
+                        targetLocationName: p.locationName
                       })}
-                      className="py-1.5 px-4 text-right text-slate-900 font-bold cursor-pointer hover:underline"
+                      className="py-1.5 px-3 text-right text-slate-700 font-medium cursor-pointer hover:underline"
                     >
-                      (Rp {consolidated.totalOtherExp.toLocaleString('id-ID')})
+                      (Rp {p.otherExpense.toLocaleString('id-ID')})
                     </td>
-                  )}
+                  ))}
+                  <td 
+                    onClick={() => setActiveDrillDown({
+                      title: 'Beban Lain-Lain • Konsolidasi Seluruh Cabang',
+                      componentType: 'OTHER',
+                      targetLocationId: 'all',
+                      targetLocationName: 'Semua Cabang (Konsolidasi)'
+                    })}
+                    className="py-1.5 px-4 text-right text-slate-900 font-bold bg-slate-100/50 cursor-pointer hover:underline"
+                  >
+                    (Rp {consolidated.totalOtherExp.toLocaleString('id-ID')})
+                  </td>
                 </tr>
 
                 <tr className="bg-indigo-600 text-white border-t-2 border-indigo-700">
                   <td className="py-3 px-4 font-black uppercase text-xs tracking-wider">
                     = LABA BERSIH AKHIR (NET PROFIT RIIL)
                   </td>
-                  {selectedLocation === 'all' ? (
-                    <>
-                      {pnlList.map((p) => (
-                        <td key={p.locationId} className="py-3 px-3 text-right font-black text-sm">
-                          Rp {p.netProfit.toLocaleString('id-ID')}
-                          <span className="block text-[10px] text-indigo-200 font-normal">
-                            Margin: {p.netMarginPct}%
-                          </span>
-                        </td>
-                      ))}
-                      <td className="py-3 px-4 text-right font-black text-base bg-indigo-700">
-                        Rp {consolidated.totalNet.toLocaleString('id-ID')}
-                        <span className="block text-[10px] text-indigo-200 font-normal">
-                          Margin: {consolidated.netPct}%
-                        </span>
-                      </td>
-                    </>
-                  ) : (
-                    <td className="py-3 px-4 text-right font-black text-base bg-indigo-700">
-                      Rp {consolidated.totalNet.toLocaleString('id-ID')}
+                  {displayedBranches.map((p) => (
+                    <td key={p.locationId} className="py-3 px-3 text-right font-black text-sm">
+                      Rp {p.netProfit.toLocaleString('id-ID')}
                       <span className="block text-[10px] text-indigo-200 font-normal">
-                        Margin: {consolidated.netPct}%
+                        Margin: {p.netMarginPct}%
                       </span>
                     </td>
-                  )}
+                  ))}
+                  <td className="py-3 px-4 text-right font-black text-base bg-indigo-700">
+                    Rp {consolidated.totalNet.toLocaleString('id-ID')}
+                    <span className="block text-[10px] text-indigo-200 font-normal">
+                      Margin: {consolidated.netPct}%
+                    </span>
+                  </td>
                 </tr>
               </>
             )}
@@ -1617,11 +1437,12 @@ export default function BranchPnLReport() {
                   onClick={() => setActiveDrillDown(null)}
                   className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
+            {/* Total Agregat Modal */}
             <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
               <span className="text-xs font-bold text-slate-600">Total Akumulasi Transaksi:</span>
               <span className="text-base font-black text-indigo-900">
@@ -1629,6 +1450,7 @@ export default function BranchPnLReport() {
               </span>
             </div>
 
+            {/* TABEL DETAIL TRANSAKSI */}
             <div className="flex-1 overflow-y-auto border border-slate-100 rounded-2xl shadow-2xs">
               {activeDrillDown.componentType.startsWith('REVENUE') ? (
                 <table className="w-full text-left text-xs border-collapse font-sans">
