@@ -63,6 +63,13 @@ export default function BranchPnLReport() {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
   };
 
+  // Helper mendapatkan tanggal terakhir bulan secara tepat (misal Nov -> 30, Okt -> 31)
+  const getLastDayOfMonth = (yearMonthStr: string) => {
+    const [year, month] = yearMonthStr.split('-').map(Number);
+    const lastDay = new Date(year, month, 0).getDate();
+    return `${yearMonthStr}-${String(lastDay).padStart(2, '0')}`;
+  };
+
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthStr());
   const [locations, setLocations] = useState<LocationItem[]>([]);
   const [selectedLocation, setSelectedLocation] = useState<string>('all');
@@ -126,7 +133,7 @@ export default function BranchPnLReport() {
     setLoading(true);
     try {
       const startDate = `${selectedMonth}-01`;
-      const endDate = `${selectedMonth}-31`;
+      const endDate = getLastDayOfMonth(selectedMonth);
 
       // 1. Ambil Beban HQ & Beban Susulan Owner
       const { data: hqExpenses } = await supabase
@@ -184,11 +191,13 @@ export default function BranchPnLReport() {
       });
 
       // 3. Omzet, Pengeluaran Kasir & Beban Non-Kasir
-      const { data: settlements } = await supabase
+      const { data: settlements, error: settleErr } = await supabase
         .from('cash_settlements')
         .select('*')
         .gte('settlement_date', startDate)
         .lte('settlement_date', endDate);
+
+      if (settleErr) throw settleErr;
 
       const revenueMap: Record<string, number> = {};
       const omsetDineInMap: Record<string, number> = {};
