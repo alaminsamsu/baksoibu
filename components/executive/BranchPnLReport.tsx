@@ -8,20 +8,17 @@ import {
   FileDown, 
   RefreshCw, 
   PieChart, 
-  Layers, 
-  ShoppingBag, 
-  Truck, 
   PlusCircle, 
   X, 
   CheckCircle2, 
   AlertCircle, 
   Landmark, 
-  FileSpreadsheet, 
-  Download, 
-  Eye, 
-  ChevronDown, 
-  Printer, 
-  FileText 
+  FileSpreadsheet,
+  Download,
+  Eye,
+  ChevronDown,
+  Printer,
+  FileText
 } from 'lucide-react';
 
 interface LocationItem {
@@ -767,10 +764,27 @@ export default function BranchPnLReport() {
   }, [allLogs, selectedLocation]);
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans print:p-0 print:border-none">
+    <div className="printable-area bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans print:p-0 print:border-none print:m-0">
       
+      {/* CSS Cetak Khusus: Menyembunyikan Navigasi Induk & Menjaga Kerapian Dokumen */}
       <style jsx global>{`
         @media print {
+          body * {
+            visibility: hidden;
+          }
+          .printable-area, .printable-area * {
+            visibility: visible;
+          }
+          .printable-area {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+          }
           @page {
             size: A4 portrait;
             margin: 8mm !important;
@@ -794,7 +808,7 @@ export default function BranchPnLReport() {
         }
       `}</style>
 
-      {/* Header Cetak Formal */}
+      {/* Header Cetak Formal (Hanya tampil di lembar cetak/PDF) */}
       <div className="hidden print:block print-header">
         <h1 className="text-base font-black text-slate-900 tracking-tight">
           BAKSO IBU • LAPORAN LABA RUGI EKSEKUTIF (PnL)
@@ -804,7 +818,7 @@ export default function BranchPnLReport() {
         </p>
       </div>
 
-      {/* Header Navigasi & Filter */}
+      {/* Header Navigasi & Filter (Disembunyikan saat dicetak) */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-5 border-b border-slate-100 gap-4 no-print">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
@@ -824,7 +838,7 @@ export default function BranchPnLReport() {
           <button
             type="button"
             onClick={() => setShowModal(true)}
-            className="px-3.5 py-2 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs"
+            className="px-3.5 py-2 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
           >
             <PlusCircle className="w-4 h-4 text-indigo-600" />
             <span>+ Input Pengeluaran / Financing</span>
@@ -836,7 +850,7 @@ export default function BranchPnLReport() {
               type="month"
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="pl-8 pr-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+              className="pl-8 pr-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none cursor-pointer"
             />
           </div>
 
@@ -845,7 +859,7 @@ export default function BranchPnLReport() {
             <select
               value={selectedLocation}
               onChange={(e) => setSelectedLocation(e.target.value)}
-              className="pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+              className="pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none cursor-pointer"
             >
               <option value="all">Semua Cabang (Konsolidasi)</option>
               {locations.map((loc) => (
@@ -858,13 +872,13 @@ export default function BranchPnLReport() {
 
           <button
             onClick={fetchPnLAnalytics}
-            className="p-2.5 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl text-slate-500"
+            className="p-2.5 bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-xl text-slate-500 cursor-pointer"
             title="Segarkan PnL"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
 
-          {/* MENU DROPDOWN DOWNLOAD DENGAN PILIHAN DETAIL */}
+          {/* Tombol Cetak / Download dengan Menu Opsi */}
           <div className="relative" ref={downloadMenuRef}>
             <button
               type="button"
@@ -937,7 +951,7 @@ export default function BranchPnLReport() {
         </div>
       </div>
 
-      {/* METRIK KARTU RINGKASAN FINANSIAL */}
+      {/* METRIK KARTU RINGKASAN FINANSIAL (Hanya Tampil di Layar) */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5 no-print">
         <div 
           onClick={() => setActiveDrillDown({
@@ -989,7 +1003,7 @@ export default function BranchPnLReport() {
         </div>
       </div>
 
-      {/* TABEL ANATOMI PnL RESMI (STRUKTUR HEADER & KOLOM SEJAJAR PRESISI) */}
+      {/* TABEL ANATOMI PnL RESMI (KOLOM TERSUSUN PRESISI TANPA HEADER PALSU) */}
       <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
         <table className="w-full text-left text-xs border-collapse font-sans">
           <thead>
@@ -1363,7 +1377,7 @@ export default function BranchPnLReport() {
         </table>
       </div>
 
-      {/* LAMPIRAN DOKUMEN CETAK KETIKA MEMILIH CETAK LENGKAP DETAIL */}
+      {/* LAMPIRAN DOKUMEN CETAK: RINCIAN AUDIT KETIKA MEMILIH PDF LENGKAP */}
       {includePrintDetails && (
         <div className="hidden print:block page-break pt-4 space-y-6">
           <div className="border-b-2 border-slate-900 pb-2">
@@ -1442,7 +1456,6 @@ export default function BranchPnLReport() {
               </div>
             </div>
 
-            {/* Total Agregat Modal */}
             <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
               <span className="text-xs font-bold text-slate-600">Total Akumulasi Transaksi:</span>
               <span className="text-base font-black text-indigo-900">
@@ -1450,7 +1463,6 @@ export default function BranchPnLReport() {
               </span>
             </div>
 
-            {/* TABEL DETAIL TRANSAKSI */}
             <div className="flex-1 overflow-y-auto border border-slate-100 rounded-2xl shadow-2xs">
               {activeDrillDown.componentType.startsWith('REVENUE') ? (
                 <table className="w-full text-left text-xs border-collapse font-sans">
