@@ -5,11 +5,7 @@ import { supabase } from '@/lib/supabaseClient';
 import { 
   Clock, 
   CheckCircle2, 
-  XCircle, 
-  AlertCircle, 
   Send, 
-  UserCheck, 
-  ShieldCheck, 
   RefreshCw,
   PlusCircle,
   X
@@ -18,7 +14,7 @@ import {
 interface Props {
   locationId: string;
   staffName: string;
-  isLeader: boolean; // true jika yang login adalah Leader/Owner/Admin
+  isLeader: boolean;
 }
 
 interface OvertimeItem {
@@ -31,7 +27,6 @@ interface OvertimeItem {
   reason: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   approved_by?: string;
-  approved_at?: string;
 }
 
 export default function OvertimeManager({ locationId, staffName, isLeader }: Props) {
@@ -39,7 +34,6 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
   const [loading, setLoading] = useState(true);
   const [showFormModal, setShowFormModal] = useState(false);
 
-  // State Form Kru
   const [startTime, setStartTime] = useState('22:00');
   const [estimatedHours, setEstimatedHours] = useState('1.5');
   const [reason, setReason] = useState('');
@@ -54,18 +48,17 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
     setLoading(true);
     try {
       const today = getTodayWita();
-      let query = supabase
+      const { data, error } = await supabase
         .from('overtime_requests')
         .select('*')
         .eq('location_id', locationId)
         .eq('request_date', today)
         .order('created_at', { ascending: false });
 
-      const { data, error } = await query;
       if (error) throw error;
       setRequests(data || []);
     } catch (err: any) {
-      console.error('Gagal mengambil data lembur:', err.message);
+      console.error('Gagal load lembur:', err.message);
     } finally {
       setLoading(false);
     }
@@ -77,7 +70,6 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
     }
   }, [locationId]);
 
-  // Submit Pengajuan Lembur oleh Kru
   const handleSubmitOvertime = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reason.trim()) {
@@ -103,7 +95,7 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
       const { error } = await supabase.from('overtime_requests').insert([payload]);
       if (error) throw error;
 
-      setMessage({ text: 'Pengajuan lembur berhasil dikirim. Menunggu ACC Leader!', type: 'success' });
+      setMessage({ text: 'Pengajuan lembur terkirim! Menunggu ACC Leader.', type: 'success' });
       setReason('');
       setTimeout(() => {
         setShowFormModal(false);
@@ -112,13 +104,12 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
 
       await fetchOvertimeRequests();
     } catch (err: any) {
-      setMessage({ text: err.message || 'Gagal mengajukan lembur.', type: 'error' });
+      setMessage({ text: err.message || 'Gagal mengirim pengajuan.', type: 'error' });
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Keputusan ACC / Tolak oleh Leader
   const handleDecision = async (id: string, decision: 'APPROVED' | 'REJECTED') => {
     try {
       const { error } = await supabase
@@ -133,14 +124,12 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
       if (error) throw error;
       await fetchOvertimeRequests();
     } catch (err: any) {
-      alert('Gagal memproses persetujuan: ' + err.message);
+      alert('Gagal update persetujuan: ' + err.message);
     }
   };
 
   return (
     <div className="bg-white rounded-3xl border border-slate-100 p-5 shadow-xs space-y-4 font-sans">
-      
-      {/* Header Widget Lembur */}
       <div className="flex items-center justify-between pb-3 border-b border-slate-100">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-black">
@@ -151,7 +140,7 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
               Persetujuan Lembur (Overtime ACC)
             </h3>
             <p className="text-[10px] text-slate-400">
-              Lembur kru wajib disetujui Leader sebelum dijalankan
+              Lembur kru wajib diajukan & disetujui Leader sebelum dijalankan
             </p>
           </div>
         </div>
@@ -161,7 +150,7 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
             <button
               type="button"
               onClick={() => setShowFormModal(true)}
-              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition-all"
             >
               <PlusCircle className="w-3.5 h-3.5" />
               <span>Ajukan Lembur</span>
@@ -171,7 +160,7 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
           <button
             type="button"
             onClick={fetchOvertimeRequests}
-            className="p-2 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-500 cursor-pointer"
+            className="p-2 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-500"
             title="Segarkan Data"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -179,15 +168,14 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
         </div>
       </div>
 
-      {/* Daftar Pengajuan Lembur Hari Ini */}
       <div className="space-y-2">
         {loading ? (
           <div className="text-center py-6 text-xs text-slate-400 font-bold">
-            Memeriksa pengajuan lembur...
+            Memuat pengajuan lembur...
           </div>
         ) : requests.length === 0 ? (
           <div className="text-center py-6 text-xs text-slate-400 font-medium bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
-            Tidak ada pengajuan lembur hari ini.
+            Belum ada pengajuan lembur untuk hari ini.
           </div>
         ) : (
           requests.map((req) => (
@@ -228,13 +216,12 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
                 )}
               </div>
 
-              {/* Tombol Keputusan Khusus Leader */}
               {isLeader && req.status === 'PENDING' && (
                 <div className="flex items-center gap-1.5 self-end sm:self-center">
                   <button
                     type="button"
                     onClick={() => handleDecision(req.id, 'APPROVED')}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1 shadow-sm transition-all cursor-pointer"
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1 shadow-sm transition-all"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     <span>ACC</span>
@@ -242,7 +229,7 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
                   <button
                     type="button"
                     onClick={() => handleDecision(req.id, 'REJECTED')}
-                    className="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                    className="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-xl text-xs font-bold transition-all"
                   >
                     Tolak
                   </button>
@@ -253,10 +240,9 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
         )}
       </div>
 
-      {/* MODAL INPUT PENGAJUAN LEMBUR OLEH KRU */}
       {showFormModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-slate-100 space-y-4 animate-in fade-in zoom-in-95">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-slate-100 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-black">
@@ -269,7 +255,7 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
               </div>
               <button 
                 onClick={() => setShowFormModal(false)}
-                className="p-1 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -279,7 +265,7 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
               <div className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
                 message.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
               }`}>
-                {message.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 text-red-600" />}
+                {message.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <X className="w-3.5 h-3.5 text-red-600" />}
                 <span>{message.text}</span>
               </div>
             )}
@@ -316,12 +302,12 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
 
               <div>
                 <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
-                  Alasan / Pekerjaan Lembur
+                  Alasan Lembur
                 </label>
                 <textarea
                   required
                   rows={3}
-                  placeholder="Misal: Bantu cuci mangkok closing ramai, potong sayur & persiapan kuah untuk shift pagi..."
+                  placeholder="Bantu cuci mangkok closing, persiapan bahan..."
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none resize-none"
@@ -332,24 +318,23 @@ export default function OvertimeManager({ locationId, staffName, isLeader }: Pro
                 <button
                   type="button"
                   onClick={() => setShowFormModal(false)}
-                  className="w-1/3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                  className="w-1/3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition-all"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-2/3 py-2 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs rounded-xl shadow-md shadow-amber-500/20 transition-all disabled:opacity-40 flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="w-2/3 py-2 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs rounded-xl shadow-md shadow-amber-500/20 transition-all disabled:opacity-40 flex items-center justify-center gap-1.5"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>{submitting ? 'Mengirim...' : 'Kirim ke Leader'}</span>
+                  <span>{submitting ? 'Mengirim...' : 'Kirim Pengajuan'}</span>
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }
