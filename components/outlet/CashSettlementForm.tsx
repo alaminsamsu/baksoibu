@@ -15,7 +15,9 @@ import {
   Calendar,
   Building2,
   Plus,
-  Trash2
+  Trash2,
+  Coins,
+  ArrowRightCircle
 } from 'lucide-react';
 
 interface Props {
@@ -36,7 +38,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const effectiveLocationId = propLocId || user?.location_id || user?.id || '';
   const effectiveStaffName = propStaff || user?.active_staff_name || user?.username || 'Kasir Outlet';
 
-  // Cut-off jam 06:00 WITA untuk shift malam (SHIFT_2)
   const getOperationalDateForShift = (targetShift: 'SHIFT_1' | 'SHIFT_2') => {
     const now = new Date();
     const witaHour = parseInt(
@@ -70,8 +71,9 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     { id: '1', category: 'RUMAH_PRODUKSI', nominal: '', notes: '' }
   ]);
 
-  // Uang Laci Fisik
-  const [actualCashDeposited, setActualCashDeposited] = useState<number | string>('');
+  // Uang Fisik, Sisa Laci, dan Uang Setoran
+  const [actualTotalCashInHand, setActualTotalCashInHand] = useState<number | string>(''); // Total semua lembaran fisik yang dihitung
+  const [cashRetainedInDrawer, setCashRetainedInDrawer] = useState<number | string>('');   // Uang yang ditinggal di laci untuk shift berikut/modal esok
   const [notes, setNotes] = useState<string>('');
 
   const [loading, setLoading] = useState(false);
@@ -88,15 +90,22 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const numExpense = Number(expenseNominal) || 0;
 
   const totalNonCashExpense = nonCashList.reduce((sum, item) => sum + (Number(item.nominal) || 0), 0);
-  const numActualCash = Number(actualCashDeposited) || 0;
+  const numActualTotalInHand = Number(actualTotalCashInHand) || 0;
+  const numRetained = Number(cashRetainedInDrawer) || 0;
 
   // Pemisahan Kanal Penjualan
   const omsetDineIn = numCash + numQris;
   const omsetOnline = numGrab + numGofood + numShopee;
   const totalOmset = omsetDineIn + omsetOnline;
 
+  // Uang Seharusnya di Laci = Modal Awal + Tunai Masuk - Pengeluaran Kasir
   const expectedCashInDrawer = numOpeningCash + numCash - numExpense;
-  const cashDifference = actualCashDeposited === '' ? 0 : numActualCash - expectedCashInDrawer;
+
+  // Selisih Kasir Nyata = Total uang fisik dihitung vs Uang seharusnya di laci
+  const cashDifference = actualTotalCashInHand === '' ? 0 : numActualTotalInHand - expectedCashInDrawer;
+
+  // Uang Bersih yang Disetor/Ditransfer = Total Uang Fisik - Uang Ditinggal di Laci
+  const netCashToDeposit = Math.max(0, numActualTotalInHand - numRetained);
 
   const handleShiftChange = (newShift: 'SHIFT_1' | 'SHIFT_2') => {
     setShift(newShift);
@@ -156,7 +165,8 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           setNonCashList([{ id: '1', category: 'RUMAH_PRODUKSI', nominal: '', notes: '' }]);
         }
 
-        setActualCashDeposited(data.actual_cash_deposited ?? '');
+        setActualTotalCashInHand(data.actual_cash_deposited ?? '');
+        setCashRetainedInDrawer(data.cash_retained_in_drawer ?? '');
         setNotes(data.notes ?? '');
       } else {
         setOpeningCash(0);
@@ -169,7 +179,8 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         setExpenseNominal('');
         setExpenseNotes('');
         setNonCashList([{ id: '1', category: 'RUMAH_PRODUKSI', nominal: '', notes: '' }]);
-        setActualCashDeposited('');
+        setActualTotalCashInHand('');
+        setCashRetainedInDrawer('');
         setNotes('');
       }
     } catch (err: any) {
@@ -213,7 +224,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
       const validNonCashItems = nonCashList.filter((item) => Number(item.nominal) > 0);
       const totalNonCash = validNonCashItems.reduce((acc, curr) => acc + Number(curr.nominal || 0), 0);
 
-      // total_omset sengaja tidak disertakan di payload karena di-generate otomatis oleh database
       const payload: Record<string, any> = {
         location_id: effectiveLocationId,
         settlement_date: settlementDate,
@@ -242,8 +252,10 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         non_cash_expense_category: validNonCashItems.length > 0 ? validNonCashItems.map(i => i.category).join(', ') : null,
         non_cash_expense_notes: validNonCashItems.length > 0 ? JSON.stringify(validNonCashItems) : null,
         
-        // Kas Fisik
-        actual_cash_deposited: numActualCash,
+        // Kas Fisik & Setoran Bersih
+        actual_cash_deposited: numActualTotalInHand,
+        cash_retained_in_drawer: numRetained,
+        net_cash_deposited: netCashToDeposit,
         cash_difference: cashDifference,
         notes: notes.trim() || null,
         reported_by: effectiveStaffName,
@@ -284,7 +296,9 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
             expenseNominal: numExpense,
             expenseNotes: expenseNotes.trim(),
             nonCashExpenseNominal: totalNonCash,
-            actualCashDeposited: numActualCash,
+            actualCashInHand: numActualTotalInHand,
+            cashRetainedInDrawer: numRetained,
+            netCashDeposited: netCashToDeposit,
             cashDifference,
           }),
         });
@@ -293,7 +307,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
       }
 
       setMsg({
-        text: `Laporan setoran ${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'} (${settlementDate}) berhasil disimpan oleh ${effectiveStaffName}!`,
+        text: `Laporan setoran ${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'} (${settlementDate}) berhasil disimpan! Total disetor: Rp ${netCashToDeposit.toLocaleString('id-ID')}`,
         type: 'success'
       });
     } catch (err: any) {
@@ -312,7 +326,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
             <button
               type="button"
               onClick={onBack}
-              className="p-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-slate-600 transition-all mr-1"
+              className="p-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-slate-600 transition-all mr-1 cursor-pointer"
               title="Kembali"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -324,7 +338,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               Rekap Omset & Kas Kasir
             </h3>
             <p className="text-[10px] text-slate-400">
-              Input rincian omset shift, pengeluaran kasir & beban non-kasir.
+              Input omset, pengeluaran laci, cek selisih & tentukan uang yang disetor.
             </p>
           </div>
         </div>
@@ -355,7 +369,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               type="date"
               value={settlementDate}
               onChange={(e) => setSettlementDate(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
               required
             />
           </div>
@@ -368,7 +382,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               <button
                 type="button"
                 onClick={() => handleShiftChange('SHIFT_1')}
-                className={`py-1.5 text-xs font-black rounded-lg transition-all ${
+                className={`py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer ${
                   shift === 'SHIFT_1' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -377,7 +391,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               <button
                 type="button"
                 onClick={() => handleShiftChange('SHIFT_2')}
-                className={`py-1.5 text-xs font-black rounded-lg transition-all ${
+                className={`py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer ${
                   shift === 'SHIFT_2' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -567,7 +581,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
             <button
               type="button"
               onClick={handleAddNonCashRow}
-              className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all"
+              className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
             >
               <Plus className="w-3 h-3" />
               <span>+ Tambah Beban</span>
@@ -621,7 +635,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                   <button
                     type="button"
                     onClick={() => handleRemoveNonCashRow(item.id)}
-                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                     title="Hapus baris ini"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -639,36 +653,63 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           )}
         </div>
 
-        {/* UANG FISIK LACI & CEK SELISIH */}
-        <div className="p-4 bg-slate-900 text-white rounded-2xl space-y-3">
-          <div className="flex justify-between items-center">
+        {/* UANG FISIK LACI, SISA MODAL, DAN UANG SETORAN BERSIH */}
+        <div className="p-4 bg-slate-900 text-white rounded-2xl space-y-4">
+          <div className="flex justify-between items-center pb-2 border-b border-slate-800">
             <div>
               <span className="text-[10px] font-bold text-slate-400 block uppercase">
                 Uang Seharusnya di Laci (Modal + Tunai - Pengeluaran Kasir)
               </span>
-              <span className="text-lg font-black text-white">
+              <span className="text-base font-black text-white">
                 Rp {expectedCashInDrawer.toLocaleString('id-ID')}
               </span>
             </div>
           </div>
 
-          <div>
-            <label className="block text-[11px] font-bold text-slate-300 mb-1">
-              Uang Fisik Nyata Dihitung di Laci (Rp)
-            </label>
-            <input
-              type="number"
-              min="0"
-              value={actualCashDeposited}
-              onChange={(e) => setActualCashDeposited(e.target.value)}
-              placeholder="Hitung lembaran fisik di laci..."
-              className="w-full px-3.5 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm font-black text-emerald-400 focus:outline-none"
-              required
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Input 1: Uang Fisik Nyata di Tangan */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1 flex items-center gap-1.5">
+                <Coins className="w-3.5 h-3.5 text-emerald-400" />
+                Total Uang Fisik di Laci (Rp)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={actualTotalCashInHand}
+                onChange={(e) => setActualTotalCashInHand(e.target.value)}
+                placeholder="Hitung semua lembaran di laci..."
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-black text-emerald-400 focus:outline-none"
+                required
+              />
+              <span className="text-[9px] text-slate-400 mt-0.5 block">
+                Total lembaran fisik kasir saat ini
+              </span>
+            </div>
+
+            {/* Input 2: Sisa Kas Ditinggal di Laci */}
+            <div>
+              <label className="block text-[11px] font-bold text-amber-300 mb-1 flex items-center gap-1.5">
+                <Wallet className="w-3.5 h-3.5 text-amber-400" />
+                Sisa Ditinggal di Laci (Rp)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={cashRetainedInDrawer}
+                onChange={(e) => setCashRetainedInDrawer(e.target.value)}
+                placeholder="0 (untuk modal shift esok)"
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-black text-amber-400 focus:outline-none"
+              />
+              <span className="text-[9px] text-slate-400 mt-0.5 block">
+                Modal kembalian yang tidak ikut disetor
+              </span>
+            </div>
           </div>
 
-          {actualCashDeposited !== '' && (
-            <div className={`p-3 rounded-xl border text-xs flex justify-between items-center ${
+          {/* Cek Selisih Nyata Kasir */}
+          {actualTotalCashInHand !== '' && (
+            <div className={`p-2.5 rounded-xl border text-xs flex justify-between items-center ${
               cashDifference === 0 
                 ? 'bg-emerald-950/40 border-emerald-800/80 text-emerald-300' 
                 : cashDifference < 0 
@@ -678,17 +719,35 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               <span className="font-bold">
                 {cashDifference === 0 ? 'Status Kasir: Klop (Pas)' : cashDifference < 0 ? 'Status Kasir: Minus' : 'Status Kasir: Lebih'}
               </span>
-              <span className="font-black text-sm">
+              <span className="font-black text-xs">
                 {cashDifference === 0 ? 'Rp 0' : `${cashDifference < 0 ? '-' : '+'}Rp ${Math.abs(cashDifference).toLocaleString('id-ID')}`}
               </span>
             </div>
           )}
+
+          {/* Kotak Rekomendasi Nominal Bersih yang Disetor */}
+          <div className="p-3 bg-emerald-950/50 rounded-xl border border-emerald-600/50 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ArrowRightCircle className="w-5 h-5 text-emerald-400" />
+              <div>
+                <span className="text-[10px] uppercase font-black tracking-wider text-emerald-300 block">
+                  Uang Bersih yang Wajib Disetor / Transfer
+                </span>
+                <span className="text-[9px] text-emerald-200/70">
+                  (Total Fisik di Tangan - Sisa Ditinggal di Laci)
+                </span>
+              </div>
+            </div>
+            <span className="text-base font-black text-emerald-300">
+              Rp {netCashToDeposit.toLocaleString('id-ID')}
+            </span>
+          </div>
         </div>
 
         <button
           type="submit"
           disabled={saving || loading}
-          className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
         >
           <Save className="w-4 h-4" />
           <span>{saving ? 'Menyimpan Rekap...' : `Simpan Rekap Kasir (${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'})`}</span>
