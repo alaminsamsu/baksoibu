@@ -52,6 +52,7 @@ interface PnLData {
   omsetOnline: number;
   vendorBreakdown: Record<string, number>;
   totalCogs: number;
+  cogsPct: number; // Persentase Total HPP dari Omzet
   grossProfit: number;
   grossMarginPct: number;
   cashierExpenses: number;
@@ -473,6 +474,9 @@ export default function BranchPnLReport() {
           totalCogs += Number(vBreakdown[v] || 0);
         });
 
+        // Hitung Persentase Total HPP dari Omzet
+        const cogsPct = rev > 0 ? (totalCogs / rev) * 100 : 0;
+
         const grossProfit = rev - totalCogs;
         const grossMarginPct = rev > 0 ? (grossProfit / rev) * 100 : 0;
 
@@ -497,6 +501,7 @@ export default function BranchPnLReport() {
           omsetOnline: online,
           vendorBreakdown: vBreakdown,
           totalCogs: totalCogs,
+          cogsPct: Math.round(cogsPct * 10) / 10,
           grossProfit: grossProfit,
           grossMarginPct: Math.round(grossMarginPct * 10) / 10,
           cashierExpenses: cashierExp,
@@ -540,6 +545,7 @@ export default function BranchPnLReport() {
     });
 
     const totalCogs = pnlList.reduce((sum, p) => sum + p.totalCogs, 0);
+    const totalCogsPct = totalRev > 0 ? (totalCogs / totalRev) * 100 : 0;
     const totalGross = totalRev - totalCogs;
     
     const totalCashierExp = pnlList.reduce((sum, p) => sum + p.cashierExpenses, 0);
@@ -565,6 +571,7 @@ export default function BranchPnLReport() {
       onlinePct,
       totalPerVendor,
       totalCogs,
+      cogsPct: Math.round(totalCogsPct * 10) / 10,
       totalGross,
       grossPct: totalRev > 0 ? Math.round((totalGross / totalRev) * 1000) / 10 : 0,
       totalCashierExp,
@@ -808,7 +815,7 @@ export default function BranchPnLReport() {
         }
       `}</style>
 
-      {/* Header Cetak Formal (Hanya tampil di lembar cetak/PDF) */}
+      {/* Header Cetak Formal */}
       <div className="hidden print:block print-header">
         <h1 className="text-base font-black text-slate-900 tracking-tight">
           BAKSO IBU • LAPORAN LABA RUGI EKSEKUTIF (PnL)
@@ -818,7 +825,7 @@ export default function BranchPnLReport() {
         </p>
       </div>
 
-      {/* Header Navigasi & Filter (Disembunyikan saat dicetak) */}
+      {/* Header Navigasi & Filter */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-5 border-b border-slate-100 gap-4 no-print">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
@@ -826,10 +833,10 @@ export default function BranchPnLReport() {
           </div>
           <div>
             <h2 className="text-base font-black text-slate-900 tracking-tight">
-              Laporan Laba Rugi Eksekutif (PnL Bulanan)
+              Laporan Laba Rugi Eksekutif (PnL Bulanan)[cite: 9]
             </h2>
             <p className="text-xs font-medium text-slate-400">
-              Breakdown rinci pengeluaran Rumah Produksi, Vendor Pasar, Hamdalah, dan Input Susulan Owner.
+              Breakdown rinci pengeluaran Rumah Produksi, Vendor Pasar, Hamdalah, dan Input Susulan Owner[cite: 9].
             </p>
           </div>
         </div>
@@ -841,7 +848,7 @@ export default function BranchPnLReport() {
             className="px-3.5 py-2 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
           >
             <PlusCircle className="w-4 h-4 text-indigo-600" />
-            <span>+ Input Pengeluaran / Financing</span>
+            <span>+ Input Pengeluaran / Financing</span>[cite: 9]
           </button>
 
           <div className="relative flex items-center">
@@ -861,7 +868,7 @@ export default function BranchPnLReport() {
               onChange={(e) => setSelectedLocation(e.target.value)}
               className="pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none cursor-pointer"
             >
-              <option value="all">Semua Cabang (Konsolidasi)</option>
+              <option value="all">Semua Cabang (Konsolidasi)</option>[cite: 9]
               {locations.map((loc) => (
                 <option key={loc.id} value={loc.id}>
                   {cleanLocationName(loc.name)}
@@ -886,7 +893,7 @@ export default function BranchPnLReport() {
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
             >
               <FileDown className="w-4 h-4" />
-              <span>Cetak / Download</span>
+              <span>Cetak / Download</span>[cite: 9]
               <ChevronDown className="w-3.5 h-3.5" />
             </button>
 
@@ -951,7 +958,7 @@ export default function BranchPnLReport() {
         </div>
       </div>
 
-      {/* METRIK KARTU RINGKASAN FINANSIAL (Hanya Tampil di Layar) */}
+      {/* METRIK KARTU RINGKASAN FINANSIAL */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5 no-print">
         <div 
           onClick={() => setActiveDrillDown({
@@ -963,59 +970,59 @@ export default function BranchPnLReport() {
           className="bg-slate-50/70 p-4 rounded-2xl border border-slate-100 hover:border-indigo-300 hover:bg-white cursor-pointer transition-all group"
         >
           <div className="flex justify-between items-center">
-            <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Total Omzet Penjualan</span>
+            <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Total Omzet Penjualan</span>[cite: 9]
             <Eye className="w-3.5 h-3.5 text-slate-300 group-hover:text-indigo-600 transition-colors" />
           </div>
           <div className="text-xl font-black text-slate-900 mt-1">
-            Rp {consolidated.totalRev.toLocaleString('id-ID')}
+            Rp {consolidated.totalRev.toLocaleString('id-ID')}[cite: 9]
           </div>
           <span className="text-[10px] text-slate-500 font-semibold mt-0.5 block">
-            Dine In: {consolidated.dineInPct}% • Online: {consolidated.onlinePct}%
+            Dine In: {consolidated.dineInPct}% • Online: {consolidated.onlinePct}%[cite: 9]
           </span>
         </div>
 
         <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-100">
-          <span className="text-[10px] uppercase font-black tracking-wider text-rose-500">Total Belanja Bahan (HPP)</span>
+          <span className="text-[10px] uppercase font-black tracking-wider text-rose-500">Total Belanja Bahan (HPP)</span>[cite: 9]
           <div className="text-xl font-black text-rose-800 mt-1">
-            Rp {consolidated.totalCogs.toLocaleString('id-ID')}
+            Rp {consolidated.totalCogs.toLocaleString('id-ID')}[cite: 9]
           </div>
-          <span className="text-[10px] text-slate-400 font-semibold mt-0.5 block">
-            {allVendorNames.length} Vendor / Sumber Pasokan
+          <span className="text-[10px] text-rose-600 font-bold mt-0.5 block">
+            Rasio HPP: {consolidated.cogsPct}% dari Omzet ({allVendorNames.length} Vendor)[cite: 9]
           </span>
         </div>
 
         <div className="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-100">
-          <span className="text-[10px] uppercase font-black tracking-wider text-emerald-600">Laba Operasional Toko</span>
+          <span className="text-[10px] uppercase font-black tracking-wider text-emerald-600">Laba Operasional Toko</span>[cite: 9]
           <div className="text-xl font-black text-emerald-800 mt-1">
-            Rp {consolidated.totalStoreProfit.toLocaleString('id-ID')}
+            Rp {consolidated.totalStoreProfit.toLocaleString('id-ID')}[cite: 9]
           </div>
-          <span className="text-[10px] text-emerald-600 font-semibold mt-0.5 block">Setelah HPP & Beban Toko</span>
+          <span className="text-[10px] text-emerald-600 font-semibold mt-0.5 block">Setelah HPP & Beban Toko</span>[cite: 9]
         </div>
 
         <div className="bg-indigo-50/70 p-4 rounded-2xl border border-indigo-100">
-          <span className="text-[10px] uppercase font-black tracking-wider text-indigo-600">Laba Bersih Akhir (Net)</span>
+          <span className="text-[10px] uppercase font-black tracking-wider text-indigo-600">Laba Bersih Akhir (Net)</span>[cite: 9]
           <div className="text-xl font-black text-indigo-900 mt-1">
-            Rp {consolidated.totalNet.toLocaleString('id-ID')}
+            Rp {consolidated.totalNet.toLocaleString('id-ID')}[cite: 9]
           </div>
           <span className="text-[10px] text-indigo-600 font-bold mt-0.5 block">
-            Net Margin: {consolidated.netPct}%
+            Net Margin: {consolidated.netPct}%[cite: 9]
           </span>
         </div>
       </div>
 
-      {/* TABEL ANATOMI PnL RESMI (KOLOM TERSUSUN PRESISI TANPA HEADER PALSU) */}
+      {/* TABEL ANATOMI PnL RESMI (DENGAN RASIO % HPP PER CABANG) */}
       <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
         <table className="w-full text-left text-xs border-collapse font-sans">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200/80 text-[10px] font-black uppercase tracking-wider text-slate-500">
-              <th className="py-3 px-4 min-w-[260px]">Komponen Laba Rugi (PnL)</th>
+              <th className="py-3 px-4 min-w-[260px]">Komponen Laba Rugi (PnL)</th>[cite: 9]
               {displayedBranches.map((p) => (
                 <th key={p.locationId} className="py-3 px-3 text-right min-w-[130px]">
-                  {p.locationName}
+                  {p.locationName}[cite: 9]
                 </th>
               ))}
               <th className="py-3 px-4 text-right min-w-[140px] font-black bg-indigo-50 text-indigo-900">
-                KONSOLIDASI (TOTAL)
+                KONSOLIDASI (TOTAL)[cite: 9]
               </th>
             </tr>
           </thead>
@@ -1028,9 +1035,10 @@ export default function BranchPnLReport() {
               </tr>
             ) : (
               <>
+                {/* 1. REVENUE TOTAL */}
                 <tr className="bg-slate-50/60 font-black">
                   <td className="py-2.5 px-4 font-black text-slate-900 uppercase">
-                    1. PENDAPATAN PENJUALAN (OMZET)
+                    1. PENDAPATAN PENJUALAN (OMZET)[cite: 9]
                   </td>
                   {displayedBranches.map((p) => (
                     <td 
@@ -1043,7 +1051,7 @@ export default function BranchPnLReport() {
                       })}
                       className="py-2.5 px-3 text-right font-black text-slate-900 hover:text-indigo-600 hover:underline cursor-pointer"
                     >
-                      Rp {p.revenue.toLocaleString('id-ID')}
+                      Rp {p.revenue.toLocaleString('id-ID')}[cite: 9]
                     </td>
                   ))}
                   <td 
@@ -1055,14 +1063,15 @@ export default function BranchPnLReport() {
                     })}
                     className="py-2.5 px-4 text-right font-black bg-indigo-50/60 text-indigo-950 hover:underline cursor-pointer"
                   >
-                    Rp {consolidated.totalRev.toLocaleString('id-ID')}
+                    Rp {consolidated.totalRev.toLocaleString('id-ID')}[cite: 9]
                   </td>
                 </tr>
 
+                {/* DINE IN */}
                 <tr className="text-slate-600 bg-white/50">
                   <td className="py-2 px-4 pl-8 flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                    <span className="text-[11px] font-bold">↳ Omzet Dine In (Cash + QRIS)</span>
+                    <span className="text-[11px] font-bold">↳ Omzet Dine In (Cash + QRIS)</span>[cite: 9]
                   </td>
                   {displayedBranches.map((p) => (
                     <td 
@@ -1075,7 +1084,7 @@ export default function BranchPnLReport() {
                       })}
                       className="py-2 px-3 text-right font-bold text-slate-700 text-[11px] hover:text-emerald-700 hover:underline cursor-pointer"
                     >
-                      Rp {p.omsetDineIn.toLocaleString('id-ID')}
+                      Rp {p.omsetDineIn.toLocaleString('id-ID')}[cite: 9]
                     </td>
                   ))}
                   <td 
@@ -1087,14 +1096,15 @@ export default function BranchPnLReport() {
                     })}
                     className="py-2 px-4 text-right font-bold bg-indigo-50/20 text-slate-800 text-[11px] hover:underline cursor-pointer"
                   >
-                    Rp {consolidated.totalDineIn.toLocaleString('id-ID')}
+                    Rp {consolidated.totalDineIn.toLocaleString('id-ID')}[cite: 9]
                   </td>
                 </tr>
 
+                {/* ONLINE */}
                 <tr className="text-slate-600 bg-white/50 border-b border-slate-200/60">
                   <td className="py-2 px-4 pl-8 flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
-                    <span className="text-[11px] font-bold">↳ Omzet Online (Grab / Gojek / Shopee)</span>
+                    <span className="text-[11px] font-bold">↳ Omzet Online (Grab / Gojek / Shopee)</span>[cite: 9]
                   </td>
                   {displayedBranches.map((p) => (
                     <td 
@@ -1107,7 +1117,7 @@ export default function BranchPnLReport() {
                       })}
                       className="py-2 px-3 text-right font-bold text-orange-700 text-[11px] hover:underline cursor-pointer"
                     >
-                      Rp {p.omsetOnline.toLocaleString('id-ID')}
+                      Rp {p.omsetOnline.toLocaleString('id-ID')}[cite: 9]
                     </td>
                   ))}
                   <td 
@@ -1119,26 +1129,46 @@ export default function BranchPnLReport() {
                     })}
                     className="py-2 px-4 text-right font-bold bg-indigo-50/20 text-orange-800 text-[11px] hover:underline cursor-pointer"
                   >
-                    Rp {consolidated.totalOnline.toLocaleString('id-ID')}
+                    Rp {consolidated.totalOnline.toLocaleString('id-ID')}[cite: 9]
                   </td>
                 </tr>
 
-                <tr className="bg-slate-50/20">
-                  <td colSpan={displayedBranches.length + 2} className="py-2 px-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Beban Pokok Penjualan / Bahan Masuk (HPP)
+                {/* 2. HEADER BEBAN POKOK + PERSENTASE TOTAL HPP DARI OMZET */}
+                <tr className="bg-rose-50/40 border-y border-rose-100">
+                  <td className="py-2.5 px-4 text-[11px] font-black uppercase tracking-wider text-rose-800">
+                    Beban Pokok Penjualan / Bahan Masuk (HPP)[cite: 9]
+                    <span className="block text-[10px] font-semibold text-rose-500 normal-case">
+                      (Total Pengeluaran Bahan Baku vs Omzet)
+                    </span>
+                  </td>
+                  {displayedBranches.map((p) => (
+                    <td key={`cogs-total-${p.locationId}`} className="py-2.5 px-3 text-right font-black text-rose-900">
+                      (Rp {p.totalCogs.toLocaleString('id-ID')})
+                      <span className={`block text-[10px] font-extrabold ${p.cogsPct > 50 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                        {p.cogsPct}% dari Omzet
+                      </span>
+                    </td>
+                  ))}
+                  <td className="py-2.5 px-4 text-right font-black text-rose-950 bg-rose-100/50">
+                    (Rp {consolidated.totalCogs.toLocaleString('id-ID')})
+                    <span className={`block text-[10px] font-extrabold ${consolidated.cogsPct > 50 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                      {consolidated.cogsPct}% dari Omzet
+                    </span>
                   </td>
                 </tr>
 
+                {/* BARIS-BARIS DETAIL VENDOR BESERTA PERSENTASE DARI OMZET CABANG */}
                 {allVendorNames.map((vendor) => {
                   const isRP = vendor === 'Rumah Produksi';
                   return (
                     <tr key={vendor} className="hover:bg-amber-50/30 transition-colors">
                       <td className="py-2 px-4 text-slate-700 pl-8 flex items-center gap-2">
                         <span className={`w-1.5 h-1.5 rounded-full ${isRP ? 'bg-rose-500' : 'bg-amber-500'}`}></span>
-                        <span>(-) {vendor}</span>
+                        <span>(-) {vendor}</span>[cite: 9]
                       </td>
                       {displayedBranches.map((p) => {
                         const val = Number(p.vendorBreakdown[vendor] || 0);
+                        const vendorPct = p.revenue > 0 ? (val / p.revenue) * 100 : 0;
                         return (
                           <td 
                             key={p.locationId} 
@@ -1151,7 +1181,12 @@ export default function BranchPnLReport() {
                             })}
                             className={`py-2 px-3 text-right cursor-pointer hover:underline ${isRP ? 'text-rose-700' : 'text-amber-800'}`}
                           >
-                            (Rp {val.toLocaleString('id-ID')})
+                            <div>(Rp {val.toLocaleString('id-ID')})[cite: 9]</div>
+                            {val > 0 && (
+                              <div className="text-[9px] text-slate-400 font-semibold">
+                                {vendorPct.toFixed(1)}% omzet
+                              </div>
+                            )}
                           </td>
                         );
                       })}
@@ -1165,32 +1200,41 @@ export default function BranchPnLReport() {
                         })}
                         className={`py-2 px-4 text-right font-bold bg-indigo-50/20 cursor-pointer hover:underline ${isRP ? 'text-rose-800' : 'text-amber-900'}`}
                       >
-                        (Rp {Number(consolidated.totalPerVendor[vendor] || 0).toLocaleString('id-ID')})
+                        <div>(Rp {Number(consolidated.totalPerVendor[vendor] || 0).toLocaleString('id-ID')})[cite: 9]</div>
+                        {Number(consolidated.totalPerVendor[vendor] || 0) > 0 && (
+                          <div className="text-[9px] text-slate-400 font-semibold">
+                            {consolidated.totalRev > 0 
+                              ? ((Number(consolidated.totalPerVendor[vendor] || 0) / consolidated.totalRev) * 100).toFixed(1)
+                              : '0.0'}% omzet
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
                 })}
 
+                {/* LABA KOTOR */}
                 <tr className="bg-emerald-50/30 border-y border-emerald-100">
                   <td className="py-2.5 px-4 font-black text-emerald-900 uppercase">
-                    = LABA KOTOR (GROSS PROFIT)
+                    = LABA KOTOR (GROSS PROFIT)[cite: 9]
                   </td>
                   {displayedBranches.map((p) => (
                     <td key={p.locationId} className="py-2.5 px-3 text-right font-black text-emerald-800">
-                      Rp {p.grossProfit.toLocaleString('id-ID')}
+                      Rp {p.grossProfit.toLocaleString('id-ID')}[cite: 9]
                       <span className="block text-[10px] text-emerald-600 font-normal">
-                        {p.grossMarginPct}%
+                        Margin: {p.grossMarginPct}%[cite: 9]
                       </span>
                     </td>
                   ))}
                   <td className="py-2.5 px-4 text-right font-black text-emerald-900 bg-emerald-100/40">
-                    Rp {consolidated.totalGross.toLocaleString('id-ID')}
+                    Rp {consolidated.totalGross.toLocaleString('id-ID')}[cite: 9]
                     <span className="block text-[10px] text-emerald-700 font-normal">
-                      {consolidated.grossPct}%
+                      Margin: {consolidated.grossPct}%[cite: 9]
                     </span>
                   </td>
                 </tr>
 
+                {/* OPEX */}
                 <tr className="bg-slate-50/40">
                   <td colSpan={displayedBranches.length + 2} className="py-2 px-4 font-black text-slate-800 uppercase text-[10px] tracking-wider">
                     2. BEBAN OPERASIONAL LANGSUNG CABANG (DIRECT OPEX)
@@ -1255,6 +1299,7 @@ export default function BranchPnLReport() {
                   </td>
                 </tr>
 
+                {/* STORE PROFIT */}
                 <tr className="bg-slate-100/70 border-y border-slate-200">
                   <td className="py-2 px-4 font-black text-slate-900 uppercase">
                     = LABA OPERASIONAL CABANG (STORE PROFIT)
@@ -1269,6 +1314,7 @@ export default function BranchPnLReport() {
                   </td>
                 </tr>
 
+                {/* HQ ALLOCATION */}
                 <tr>
                   <td className="py-2 px-4 text-indigo-900 font-bold pl-8">
                     (-) Alokasi Manajemen HQ (Bagi Rata: Gaji HR, Admin, Owner)
@@ -1283,6 +1329,7 @@ export default function BranchPnLReport() {
                   </td>
                 </tr>
 
+                {/* FINANCING & OTHER */}
                 <tr className="bg-purple-50/40">
                   <td colSpan={displayedBranches.length + 2} className="py-2 px-4 font-black text-purple-900 uppercase text-[10px] tracking-wider">
                     3. BEBAN PEMBIAYAAN (FINANCING) & PENGELUARAN LAIN-LAIN
@@ -1352,6 +1399,7 @@ export default function BranchPnLReport() {
                   </td>
                 </tr>
 
+                {/* NET PROFIT */}
                 <tr className="bg-indigo-600 text-white border-t-2 border-indigo-700">
                   <td className="py-3 px-4 font-black uppercase text-xs tracking-wider">
                     = LABA BERSIH AKHIR (NET PROFIT RIIL)
@@ -1377,7 +1425,7 @@ export default function BranchPnLReport() {
         </table>
       </div>
 
-      {/* LAMPIRAN DOKUMEN CETAK: RINCIAN AUDIT KETIKA MEMILIH PDF LENGKAP */}
+      {/* LAMPIRAN DOKUMEN CETAK KETIKA MEMILIH CETAK LENGKAP DETAIL */}
       {includePrintDetails && (
         <div className="hidden print:block page-break pt-4 space-y-6">
           <div className="border-b-2 border-slate-900 pb-2">
