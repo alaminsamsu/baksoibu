@@ -19,10 +19,9 @@ import {
   Coins,
   ArrowRightCircle,
   Camera,
-  Image as ImageIcon,
   X,
   UploadCloud,
-  Eye
+  Share2
 } from 'lucide-react';
 
 interface Props {
@@ -42,6 +41,7 @@ interface NonCashItem {
 export default function CashSettlementForm({ user, onBack, locationId: propLocId, staffName: propStaff }: Props) {
   const effectiveLocationId = propLocId || user?.location_id || user?.id || '';
   const effectiveStaffName = propStaff || user?.active_staff_name || user?.username || 'Kasir Outlet';
+  const outletName = user?.location_name || 'Outlet Bakso Ibu';
 
   const getOperationalDateForShift = (targetShift: 'SHIFT_1' | 'SHIFT_2') => {
     const now = new Date();
@@ -204,7 +204,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     }
   };
 
-  // Kompresi Gambar di Sisi Browser (Maks Lebar 1200px, Kualitas 70%)
   const compressImage = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -243,7 +242,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     });
   };
 
-  // Upload Foto Nota Pengeluaran Kasir
   const handleUploadExpensePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -283,7 +281,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     setExpensePhotos((prev) => prev.filter((_, idx) => idx !== indexToRemove));
   };
 
-  // Upload Foto Bukti Setoran Bank / Struk ATM
   const handleUploadDepositPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -333,6 +330,74 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     );
   };
 
+  // Format Pesan Rekap Omset & Kas Kasir ke WhatsApp
+  const handleShareToWhatsApp = () => {
+    if (totalOmset === 0 && numActualTotalInHand === 0) {
+      alert('Isi data omset atau kas terlebih dahulu sebelum membagikan ke WhatsApp!');
+      return;
+    }
+
+    const diffText = cashDifference === 0 
+      ? 'KLOP (Rp 0)' 
+      : `${cashDifference < 0 ? 'MINUS' : 'LEBIH'} Rp ${Math.abs(cashDifference).toLocaleString('id-ID')}`;
+
+    let text = `*REKAP OMSET & KAS KASIR*\n`;
+    text += `📍 Outlet: *${outletName}*\n`;
+    text += `📅 Tanggal: *${settlementDate}*\n`;
+    text += `⏱️ Shift: *${shift === 'SHIFT_1' ? 'Shift 1 (Siang)' : 'Shift 2 (Malam)'}*\n`;
+    text += `👤 Kasir: *${effectiveStaffName}*\n`;
+    if (Number(totalBills) > 0) text += `🧾 Total Transaksi (TC): *${totalBills} Struk*\n`;
+    text += `\n`;
+
+    text += `*1. OMSET PENJUALAN SHIFT:*\n`;
+    text += `• Dine In (Cash): Rp ${numCash.toLocaleString('id-ID')}\n`;
+    text += `• Dine In (QRIS/Tf): Rp ${numQris.toLocaleString('id-ID')}\n`;
+    if (numGrab > 0) text += `• GrabFood: Rp ${numGrab.toLocaleString('id-ID')}\n`;
+    if (numGofood > 0) text += `• GoFood: Rp ${numGofood.toLocaleString('id-ID')}\n`;
+    if (numShopee > 0) text += `• ShopeeFood: Rp ${numShopee.toLocaleString('id-ID')}\n`;
+    text += `👉 *Total Omset: Rp ${totalOmset.toLocaleString('id-ID')}*\n\n`;
+
+    text += `*2. PENGELUARAN KASIR (LACI):*\n`;
+    text += `• Nominal Keluar: *Rp ${numExpense.toLocaleString('id-ID')}*\n`;
+    if (expenseNotes.trim()) text += `• Keperluan: _${expenseNotes.trim()}_\n`;
+    if (expensePhotos.length > 0) text += `• Bukti Nota: *${expensePhotos.length} Foto Terlampir*\n`;
+    text += `\n`;
+
+    const validNonCash = nonCashList.filter(i => Number(i.nominal) > 0);
+    if (validNonCash.length > 0) {
+      text += `*3. PENGELUARAN NON-KASIR (RP & VENDOR):*\n`;
+      validNonCash.forEach((item, idx) => {
+        text += `• ${item.category}: Rp ${Number(item.nominal).toLocaleString('id-ID')} ${item.notes ? `(${item.notes})` : ''}\n`;
+      });
+      text += `👉 *Total Beban Vendor: Rp ${totalNonCashExpense.toLocaleString('id-ID')}*\n\n`;
+    }
+
+    text += `*4. REKONSILIASI KAS LACI & SETORAN:*\n`;
+    text += `• Modal Awal Laci: Rp ${numOpeningCash.toLocaleString('id-ID')}\n`;
+    text += `• Seharusnya di Laci: Rp ${expectedCashInDrawer.toLocaleString('id-ID')}\n`;
+    text += `• Total Fisik Nyata di Laci: *Rp ${numActualTotalInHand.toLocaleString('id-ID')}*\n`;
+    text += `• Status Kasir: *${diffText}*\n`;
+    text += `• Sisa Kas Ditinggal di Laci: *Rp ${numRetained.toLocaleString('id-ID')}*\n`;
+    text += `------------------------------------\n`;
+    text += `💰 *UANG BERSIH YANG DISETOR: Rp ${netCashToDeposit.toLocaleString('id-ID')}*\n`;
+    if (depositPhoto) text += `📌 _(Bukti transfer/setoran ATM sudah diupload)_\n`;
+    text += `------------------------------------\n`;
+    text += `_Dilaporkan resmi via Sistem ERP Bakso Ibu_`;
+
+    if (navigator.share) {
+      navigator.share({
+        title: `Rekap Kasir - ${outletName}`,
+        text: text,
+      }).catch(() => {
+        const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+        window.open(waUrl, '_blank');
+      });
+    } else {
+      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+      window.open(waUrl, '_blank');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!effectiveLocationId) {
@@ -356,7 +421,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         cash_nominal: numCash,
         qris_nominal: numQris,
         grab_nominal: numGrab,
-        gofoodNominal: numGofood,
+        gofood_nominal: numGofood,
         shopee_nominal: numShopee,
         online_nominal: omsetOnline,
 
@@ -387,21 +452,20 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
       if (error) throw error;
 
-      // Ambil nama cabang untuk WA
       const { data: locData } = await supabase
         .from('locations')
         .select('name')
         .eq('id', effectiveLocationId)
         .maybeSingle();
 
-      const outletName = locData?.name || 'Outlet Bakso Ibu';
+      const outletTitle = locData?.name || outletName;
 
       try {
         await fetch('/api/send-wa', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            outletName,
+            outletName: outletTitle,
             settlementDate,
             shift,
             reportedBy: effectiveStaffName,
@@ -458,14 +522,27 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               Rekap Omset & Kas Kasir
             </h3>
             <p className="text-[10px] text-slate-400">
-              Input omset, pengeluaran kasir + upload foto nota, cek selisih & uang setoran.
+              Input omset, pengeluaran kasir, foto nota, cek selisih & uang setoran.
             </p>
           </div>
         </div>
 
-        <div className="text-right">
-          <span className="text-[10px] font-bold text-slate-400 uppercase block">Petugas</span>
-          <span className="text-xs font-black text-slate-800">{effectiveStaffName}</span>
+        <div className="flex items-center gap-2">
+          {/* Tombol Bagikan ke WhatsApp */}
+          <button
+            type="button"
+            onClick={handleShareToWhatsApp}
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+            title="Bagikan format rekap omset dan setoran ini ke WhatsApp"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span>Bagikan ke WA</span>
+          </button>
+
+          <div className="text-right pl-1">
+            <span className="text-[10px] font-bold text-slate-400 uppercase block">Petugas</span>
+            <span className="text-xs font-black text-slate-800">{effectiveStaffName}</span>
+          </div>
         </div>
       </div>
 
@@ -769,7 +846,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
                   <select
                     value={item.category}
                     onChange={(e) => handleUpdateNonCashRow(item.id, 'category', e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-indigo-900 focus:outline-none"
+                    className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-indigo-900 focus:outline-none cursor-pointer"
                   >
                     <option value="RUMAH_PRODUKSI">Rumah Produksi</option>
                     <option value="VENDOR_PASAR">Vendor Pasar</option>
