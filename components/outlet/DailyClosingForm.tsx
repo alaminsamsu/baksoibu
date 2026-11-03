@@ -66,7 +66,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
     if (lower.includes('kecap nasional')) {
       return 'Liter';
     }
-    if (lower.includes('air botol')) {
+    if (lower.includes('air mineral') || lower.includes('air botol')) {
       return 'Pcs';
     }
     if (lower.includes('bumbu kuah')) {
@@ -377,7 +377,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
             <button
               type="button"
               onClick={onBack}
-              className="p-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-slate-600 transition-all mr-1"
+              className="p-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-slate-600 transition-all mr-1 cursor-pointer"
               title="Kembali"
             >
               <ArrowLeft className="w-4 h-4" />
@@ -401,7 +401,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
               type="date"
               value={closingDate}
               onChange={(e) => setClosingDate(e.target.value)}
-              className="pl-8 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none"
+              className="pl-8 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none cursor-pointer"
               title="Tanggal Operasional Closing"
             />
           </div>
@@ -409,7 +409,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
           <button
             type="button"
             onClick={handleSetCurrentTabZero}
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
             title="Set item pada tab aktif menjadi 0"
           >
             <CheckSquare className="w-3.5 h-3.5" />
@@ -419,7 +419,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
           <button
             type="button"
             onClick={loadData}
-            className="p-2 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-500"
+            className="p-2 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 text-slate-500 cursor-pointer"
             title="Segarkan Data Terbaru"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -445,7 +445,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
               key={cat}
               type="button"
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                 selectedCategory === cat
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -461,7 +461,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
         <div className={`p-3 rounded-2xl text-xs font-bold flex items-center gap-2 ${
           msg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'
         }`}>
-          {msg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+          {msg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" /> : <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />}
           <span>{msg.text}</span>
         </div>
       )}
@@ -537,7 +537,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
           <button
             type="submit"
             disabled={saving || items.length === 0}
-            className="w-full py-3.5 bg-[#5252ea] hover:bg-[#4343d6] text-white font-black text-xs rounded-xl shadow-md shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            className="w-full py-3.5 bg-[#5252ea] hover:bg-[#4343d6] text-white font-black text-xs rounded-xl shadow-md shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
           >
             <Save className="w-4 h-4" />
             <span>

@@ -50,7 +50,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
     if (lower.includes('kecap nasional')) {
       return 'Liter';
     }
-    if (lower.includes('air botol')) {
+    if (lower.includes('air mineral') || lower.includes('air botol')) {
       return 'Pcs';
     }
     if (lower.includes('bumbu kuah')) {
@@ -247,7 +247,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         <button
           type="button"
           onClick={onBack}
-          className="text-xs font-bold text-slate-400 hover:text-indigo-600 flex items-center gap-1.5 transition-colors"
+          className="text-xs font-bold text-slate-400 hover:text-indigo-600 flex items-center gap-1.5 transition-colors cursor-pointer"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           Kembali ke Dashboard
@@ -271,7 +271,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
           <button
             type="button"
             onClick={fetchItems}
-            className="p-2 bg-slate-50 border border-slate-100 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-indigo-600 transition-colors"
+            className="p-2 bg-slate-50 border border-slate-100 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
             title="Segarkan Data"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -303,7 +303,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Cari barang diterima (misal: kecap, bihun, kwetiau, bumbu kuah)..."
+            placeholder="Cari barang diterima (misal: kecap, bihun, kwetiau, bumbu kuah, air mineral)..."
             className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none"
           />
         </div>
@@ -314,7 +314,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
               key={cat}
               type="button"
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+              className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                 selectedCategory === cat
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -423,7 +423,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
           <button
             type="submit"
             disabled={submitting || totalFilled === 0}
-            className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-700 hover:to-indigo-600 text-white text-xs font-black rounded-2xl shadow-lg shadow-indigo-600/25 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+            className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-700 hover:to-indigo-600 text-white text-xs font-black rounded-2xl shadow-lg shadow-indigo-600/25 transition-all disabled:opacity-40 flex items-center justify-center gap-2 cursor-pointer"
           >
             <Check className="w-4 h-4" />
             <span>{submitting ? 'Menyimpan...' : `Konfirmasi Penerimaan (${totalFilled} Item)`}</span>

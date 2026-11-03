@@ -88,7 +88,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     if (lower.includes('kecap nasional')) {
       return 'Liter';
     }
-    if (lower.includes('air botol')) {
+    if (lower.includes('air mineral') || lower.includes('air botol')) {
       return 'Pcs';
     }
     if (lower.includes('bumbu kuah')) {
@@ -319,7 +319,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         <button
           type="button"
           onClick={onBack}
-          className="text-xs font-bold text-slate-400 hover:text-indigo-600 mb-5 flex items-center gap-1.5 transition-colors"
+          className="text-xs font-bold text-slate-400 hover:text-indigo-600 mb-5 flex items-center gap-1.5 transition-colors cursor-pointer"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           Kembali ke Dashboard
@@ -370,7 +370,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Cari barang cepat (misal: ayam, plastik, bakso, kecap)..."
+            placeholder="Cari barang cepat (misal: ayam, plastik, bakso, air mineral, kecap)..."
             className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition-all"
           />
         </div>
@@ -386,7 +386,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                 key={sup}
                 type="button"
                 onClick={() => setActiveSupplier(sup)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 ${
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
                   isActive
                     ? 'bg-[#ff6f3c] text-white shadow-md shadow-orange-500/20'
                     : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-100'
@@ -543,7 +543,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         <button
           type="submit"
           disabled={loading || totalFilled === 0}
-          className="w-full py-3.5 bg-gradient-to-r from-[#ff6f3c] to-orange-500 hover:from-orange-600 hover:to-orange-500 text-white text-xs font-black rounded-2xl shadow-lg shadow-orange-500/25 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+          className="w-full py-3.5 bg-gradient-to-r from-[#ff6f3c] to-orange-500 hover:from-orange-600 hover:to-orange-500 text-white text-xs font-black rounded-2xl shadow-lg shadow-orange-500/25 transition-all disabled:opacity-40 flex items-center justify-center gap-2 cursor-pointer"
         >
           <Send className="w-4 h-4" />
           <span>Kirim Permintaan Belanja ({totalFilled} Item Terpilih)</span>
@@ -565,7 +565,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
               </div>
               <button 
                 onClick={() => setShowConfirmModal(false)}
-                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -606,7 +606,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                 <button
                   type="button"
                   onClick={() => setShowConfirmModal(false)}
-                  className="w-1/3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition-all"
+                  className="w-1/3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition-all cursor-pointer"
                 >
                   Batal
                 </button>
@@ -614,7 +614,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                   type="button"
                   disabled={loading}
                   onClick={handleFinalSubmit}
-                  className="w-2/3 py-2.5 bg-gradient-to-r from-[#ff6f3c] to-orange-500 hover:from-orange-600 hover:to-orange-500 text-white font-black text-xs rounded-xl shadow-md shadow-orange-500/20 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  className="w-2/3 py-2.5 bg-gradient-to-r from-[#ff6f3c] to-orange-500 hover:from-orange-600 hover:to-orange-500 text-white font-black text-xs rounded-xl shadow-md shadow-orange-500/20 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>{loading ? 'Mengirim...' : 'Kirim Sekarang'}</span>
