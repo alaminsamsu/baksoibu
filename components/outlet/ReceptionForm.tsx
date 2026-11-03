@@ -2,7 +2,16 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { PackageCheck, ArrowLeft, CheckCircle2, AlertCircle, Search, Check, RefreshCw } from 'lucide-react';
+import { 
+  PackageCheck, 
+  ArrowLeft, 
+  CheckCircle2, 
+  AlertCircle, 
+  Search, 
+  Check, 
+  RefreshCw,
+  Share2 
+} from 'lucide-react';
 
 interface Props {
   user?: any;
@@ -28,6 +37,7 @@ const CATEGORY_ORDER = [
 export default function ReceptionForm({ user, onBack, locationId, staffName }: Props) {
   const activeLocationId = locationId || user?.location_id;
   const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
+  const outletName = user?.location_name || 'Outlet Bakso Ibu';
 
   const [items, setItems] = useState<MasterItem[]>([]);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
@@ -180,6 +190,60 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
     return ordered;
   }, [filteredItems]);
 
+  // Format pesan dan kirim langsung ke WhatsApp
+  const handleShareToWhatsApp = () => {
+    const validEntries = Object.entries(quantities).filter(([_, qty]) => parseFloat(qty) > 0);
+    if (validEntries.length === 0) {
+      alert('Isi minimal 1 jumlah barang yang diterima untuk dibagikan ke WhatsApp!');
+      return;
+    }
+
+    const todayDateStr = new Intl.DateTimeFormat('id-ID', {
+      timeZone: 'Asia/Makassar',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    }).format(new Date());
+
+    const timeStr = new Intl.DateTimeFormat('id-ID', {
+      timeZone: 'Asia/Makassar',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).format(new Date()) + ' WITA';
+
+    let text = `*KONFIRMASI BARANG DATANG / DITERIMA*\n`;
+    text += `📍 Outlet: *${outletName}*\n`;
+    text += `📅 Tanggal: *${todayDateStr}* (${timeStr})\n`;
+    text += `👤 Penerima: *${activeStaffName}*\n\n`;
+    text += `*DAFTAR BARANG FISIK TIBA:*\n`;
+
+    validEntries.forEach(([itemName, qty], idx) => {
+      const itemMeta = items.find((i) => i.name === itemName);
+      const unit = normalizeUnit(itemName, itemMeta?.uom);
+      text += `${idx + 1}. *${itemName}* : ${qty} ${unit}\n`;
+    });
+
+    if (notes.trim()) {
+      text += `\n📝 *Kondisi / Catatan:*\n_${notes.trim()}_\n`;
+    }
+
+    text += `\n_Dicatat & diverifikasi melalui Sistem ERP Bakso Ibu_`;
+
+    if (navigator.share) {
+      navigator.share({
+        title: `Penerimaan Barang - ${outletName}`,
+        text: text,
+      }).catch(() => {
+        const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+        window.open(waUrl, '_blank');
+      });
+    } else {
+      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+      window.open(waUrl, '_blank');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -264,10 +328,24 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
             <p className="text-xs font-medium text-slate-400">Konfirmasi fisik barang nyata yang tiba di outlet.</p>
           </div>
         </div>
+
         <div className="flex items-center gap-2">
-          <div className="text-xs font-black px-4 py-2 bg-indigo-50 text-indigo-600 border border-indigo-200/60 rounded-full w-fit">
+          {/* Tombol Bagikan ke WhatsApp */}
+          <button
+            type="button"
+            onClick={handleShareToWhatsApp}
+            disabled={totalFilled === 0}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+            title="Bagikan bukti rincian barang datang ke WhatsApp"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span>Bagikan ke WA</span>
+          </button>
+
+          <div className="text-xs font-black px-4 py-2 bg-indigo-50 text-indigo-600 border border-indigo-200/60 rounded-xl w-fit">
             {totalFilled} barang terisi
           </div>
+
           <button
             type="button"
             onClick={fetchItems}
