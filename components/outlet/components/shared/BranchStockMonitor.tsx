@@ -106,6 +106,15 @@ export default function BranchStockMonitor() {
     if (lower.includes('bihun') || lower.includes('kwetiau') || lower.includes('kwetiaw')) {
       return 'kg';
     }
+    if (lower.includes('kecap nasional')) {
+      return 'Liter';
+    }
+    if (lower.includes('air botol')) {
+      return 'Pcs';
+    }
+    if (lower.includes('bumbu kuah')) {
+      return 'Bungkus';
+    }
     return rawUnit || 'Pcs';
   };
 
@@ -671,14 +680,13 @@ export default function BranchStockMonitor() {
                     const isEditing = editingKey === row.id;
                     const previewEnd = Math.max(0, round1Dec((editInitial + editReceived) - editUsage - editWaste));
                     const { dateStr, timeStr } = formatDateTimeWita(row.updated_at);
-                    const isKg = row.unit === 'kg';
 
                     return (
                       <tr key={row.id} className="hover:bg-slate-50/60 transition-colors">
                         <td className="py-3 px-4">
                           <div className="font-extrabold text-slate-900 uppercase leading-tight">{row.item_name}</div>
                           <div className="text-[10px] text-slate-400 font-semibold mt-0.5">
-                            {row.location_name} • <span className={isKg ? 'text-amber-700 font-bold' : ''}>{row.unit}</span>
+                            {row.location_name} • <span className="text-slate-500 font-bold">{row.unit}</span>
                           </div>
                         </td>
 
@@ -741,7 +749,7 @@ export default function BranchStockMonitor() {
                         <td className="py-3 px-3 text-right font-black text-slate-900 bg-amber-50/80">
                           <span className="text-sm font-black text-slate-900">
                             {formatQty(isEditing ? previewEnd : row.current_stock)}{' '}
-                            <span className={`text-[10px] font-bold ${isKg ? 'text-amber-800' : 'text-slate-500'}`}>{row.unit}</span>
+                            <span className="text-[10px] font-bold text-slate-500">{row.unit}</span>
                           </span>
                         </td>
 
@@ -863,7 +871,7 @@ export default function BranchStockMonitor() {
                         </td>
                         <td className="py-2.5 px-3 text-right font-black text-rose-600 text-sm">
                           -{formatQty(log.waste_qty)}{' '}
-                          <span className={`text-[10px] font-normal ${log.unit === 'kg' ? 'text-amber-800 font-bold' : 'text-slate-400'}`}>{log.unit}</span>
+                          <span className="text-[10px] text-slate-400 font-normal">{log.unit}</span>
                         </td>
                         <td className="py-2.5 px-3 text-right">
                           <span className="text-slate-700 font-bold block">{log.reported_by}</span>

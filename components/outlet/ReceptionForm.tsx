@@ -47,6 +47,15 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
     if (lower.includes('bihun') || lower.includes('kwetiau') || lower.includes('kwetiaw')) {
       return 'kg';
     }
+    if (lower.includes('kecap nasional')) {
+      return 'Liter';
+    }
+    if (lower.includes('air botol')) {
+      return 'Pcs';
+    }
+    if (lower.includes('bumbu kuah')) {
+      return 'Bungkus';
+    }
     return rawUnit || 'Pcs';
   };
 
@@ -294,7 +303,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Cari barang diterima (misal: bihun, kwetiau, kuah, halus, minyak, gas)..."
+            placeholder="Cari barang diterima (misal: kecap, bihun, kwetiau, bumbu kuah)..."
             className="w-full pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none"
           />
         </div>
@@ -383,7 +392,7 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
                                       : 'bg-slate-50 border-slate-200 text-slate-800 focus:border-indigo-500'
                                   }`}
                                 />
-                                <span className={`text-[11px] w-10 text-left font-semibold ${displayUnit === 'kg' ? 'text-amber-700 font-black' : 'text-slate-400'}`}>
+                                <span className="text-[11px] text-slate-500 w-14 text-left font-semibold">
                                   {displayUnit}
                                 </span>
                               </div>

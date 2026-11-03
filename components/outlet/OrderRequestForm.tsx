@@ -85,6 +85,15 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     if (lower.includes('bihun') || lower.includes('kwetiau') || lower.includes('kwetiaw')) {
       return 'kg';
     }
+    if (lower.includes('kecap nasional')) {
+      return 'Liter';
+    }
+    if (lower.includes('air botol')) {
+      return 'Pcs';
+    }
+    if (lower.includes('bumbu kuah')) {
+      return 'Bungkus';
+    }
     return rawUnit || 'Pcs';
   };
 
@@ -461,7 +470,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                               <span className={`font-black text-xs ${isLowStock ? 'text-rose-600' : 'text-slate-700'}`}>
                                 {stockVal}
                               </span>
-                              <span className={`text-[10px] font-medium ${displayUnit === 'kg' ? 'text-amber-700 font-bold' : 'text-slate-400'}`}>
+                              <span className="text-[10px] font-medium text-slate-400">
                                 {displayUnit}
                               </span>
                             </div>
@@ -482,7 +491,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
                                     : 'bg-slate-50 border-slate-200 text-slate-800 focus:border-indigo-500'
                                 }`}
                               />
-                              <span className={`text-[11px] w-12 text-left font-semibold ${displayUnit === 'kg' ? 'text-amber-700 font-black' : 'text-slate-400'}`}>
+                              <span className="text-[11px] w-14 text-left font-semibold text-slate-500">
                                 {displayUnit}
                               </span>
                             </div>

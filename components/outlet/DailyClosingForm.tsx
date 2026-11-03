@@ -63,6 +63,15 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
     if (lower.includes('bihun') || lower.includes('kwetiau') || lower.includes('kwetiaw')) {
       return 'kg';
     }
+    if (lower.includes('kecap nasional')) {
+      return 'Liter';
+    }
+    if (lower.includes('air botol')) {
+      return 'Pcs';
+    }
+    if (lower.includes('bumbu kuah')) {
+      return 'Bungkus';
+    }
     return rawUnit || 'Pcs';
   };
 
@@ -490,7 +499,7 @@ export default function DailyClosingForm({ user, onBack, locationId: propLocId, 
                     {list.map((row) => (
                       <tr key={row.item_name} className="hover:bg-slate-50/60 transition-colors">
                         <td className="py-2.5 px-3 text-slate-800 uppercase font-extrabold">{row.item_name}</td>
-                        <td className={`py-2.5 px-3 text-center ${row.unit === 'kg' ? 'text-amber-800 font-black' : 'text-slate-400 font-normal'}`}>
+                        <td className="py-2.5 px-3 text-center text-slate-500 font-semibold">
                           {row.unit}
                         </td>
                         <td className="py-2.5 px-3 text-center bg-indigo-50/20">
