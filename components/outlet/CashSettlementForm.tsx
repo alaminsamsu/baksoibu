@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { 
   Banknote, 
@@ -17,7 +17,12 @@ import {
   Plus,
   Trash2,
   Coins,
-  ArrowRightCircle
+  ArrowRightCircle,
+  Camera,
+  Image as ImageIcon,
+  X,
+  UploadCloud,
+  Eye
 } from 'lucide-react';
 
 interface Props {
@@ -72,9 +77,19 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   ]);
 
   // Uang Fisik, Sisa Laci, dan Uang Setoran
-  const [actualTotalCashInHand, setActualTotalCashInHand] = useState<number | string>(''); // Total semua lembaran fisik yang dihitung
-  const [cashRetainedInDrawer, setCashRetainedInDrawer] = useState<number | string>('');   // Uang yang ditinggal di laci untuk shift berikut/modal esok
+  const [actualTotalCashInHand, setActualTotalCashInHand] = useState<number | string>('');
+  const [cashRetainedInDrawer, setCashRetainedInDrawer] = useState<number | string>('');
   const [notes, setNotes] = useState<string>('');
+
+  // Foto Bukti Nota Kasir & Setoran
+  const [expensePhotos, setExpensePhotos] = useState<string[]>([]);
+  const [depositPhoto, setDepositPhoto] = useState<string | null>(null);
+  const [uploadingExpensePhoto, setUploadingExpensePhoto] = useState(false);
+  const [uploadingDepositPhoto, setUploadingDepositPhoto] = useState(false);
+  const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
+
+  const expenseFileInputRef = useRef<HTMLInputElement | null>(null);
+  const depositFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -98,13 +113,8 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const omsetOnline = numGrab + numGofood + numShopee;
   const totalOmset = omsetDineIn + omsetOnline;
 
-  // Uang Seharusnya di Laci = Modal Awal + Tunai Masuk - Pengeluaran Kasir
   const expectedCashInDrawer = numOpeningCash + numCash - numExpense;
-
-  // Selisih Kasir Nyata = Total uang fisik dihitung vs Uang seharusnya di laci
   const cashDifference = actualTotalCashInHand === '' ? 0 : numActualTotalInHand - expectedCashInDrawer;
-
-  // Uang Bersih yang Disetor/Ditransfer = Total Uang Fisik - Uang Ditinggal di Laci
   const netCashToDeposit = Math.max(0, numActualTotalInHand - numRetained);
 
   const handleShiftChange = (newShift: 'SHIFT_1' | 'SHIFT_2') => {
@@ -167,6 +177,8 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
         setActualTotalCashInHand(data.actual_cash_deposited ?? '');
         setCashRetainedInDrawer(data.cash_retained_in_drawer ?? '');
+        setExpensePhotos(data.expense_receipt_photos || []);
+        setDepositPhoto(data.deposit_receipt_photo || null);
         setNotes(data.notes ?? '');
       } else {
         setOpeningCash(0);
@@ -181,12 +193,122 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         setNonCashList([{ id: '1', category: 'RUMAH_PRODUKSI', nominal: '', notes: '' }]);
         setActualTotalCashInHand('');
         setCashRetainedInDrawer('');
+        setExpensePhotos([]);
+        setDepositPhoto(null);
         setNotes('');
       }
     } catch (err: any) {
       console.error('Error load settlement:', err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Kompresi Gambar di Sisi Browser (Maks Lebar 1200px, Kualitas 70%)
+  const compressImage = (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (e) => {
+        const img = new Image();
+        img.src = e.target?.result as string;
+        img.onload = () => {
+          const maxWidth = 1200;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return reject(new Error('Gagal kanvas'));
+
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => {
+              if (blob) resolve(blob);
+              else reject(new Error('Gagal kompres'));
+            },
+            'image/jpeg',
+            0.7
+          );
+        };
+      };
+      reader.onerror = (err) => reject(err);
+    });
+  };
+
+  // Upload Foto Nota Pengeluaran Kasir
+  const handleUploadExpensePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploadingExpensePhoto(true);
+    try {
+      const newUrls: string[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const compressedBlob = await compressImage(file);
+        const fileName = `nota_${settlementDate}_${shift}_${Date.now()}_${i}.jpg`;
+
+        const { error: uploadErr } = await supabase.storage
+          .from('settlement-receipts')
+          .upload(fileName, compressedBlob, { contentType: 'image/jpeg' });
+
+        if (uploadErr) throw uploadErr;
+
+        const { data: publicUrlData } = supabase.storage
+          .from('settlement-receipts')
+          .getPublicUrl(fileName);
+
+        newUrls.push(publicUrlData.publicUrl);
+      }
+
+      setExpensePhotos((prev) => [...prev, ...newUrls]);
+    } catch (err: any) {
+      alert('Gagal upload nota: ' + err.message);
+    } finally {
+      setUploadingExpensePhoto(false);
+      if (expenseFileInputRef.current) expenseFileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveExpensePhoto = (indexToRemove: number) => {
+    setExpensePhotos((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  // Upload Foto Bukti Setoran Bank / Struk ATM
+  const handleUploadDepositPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingDepositPhoto(true);
+    try {
+      const compressedBlob = await compressImage(file);
+      const fileName = `setor_bank_${settlementDate}_${shift}_${Date.now()}.jpg`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from('settlement-receipts')
+        .upload(fileName, compressedBlob, { contentType: 'image/jpeg' });
+
+      if (uploadErr) throw uploadErr;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('settlement-receipts')
+        .getPublicUrl(fileName);
+
+      setDepositPhoto(publicUrlData.publicUrl);
+    } catch (err: any) {
+      alert('Gagal upload bukti setoran: ' + err.message);
+    } finally {
+      setUploadingDepositPhoto(false);
+      if (depositFileInputRef.current) depositFileInputRef.current.value = '';
     }
   };
 
@@ -231,31 +353,28 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         opening_cash: numOpeningCash,
         total_bills: Number(totalBills) || 0,
         
-        // Kanal Rinci
         cash_nominal: numCash,
         qris_nominal: numQris,
         grab_nominal: numGrab,
-        gofood_nominal: numGofood,
+        gofoodNominal: numGofood,
         shopee_nominal: numShopee,
         online_nominal: omsetOnline,
 
-        // Kolom Agregasi Resmi PnL
         omset_dine_in: omsetDineIn,
         omset_online: omsetOnline,
 
-        // Pengeluaran Kasir
         expense_nominal: numExpense,
         expense_notes: expenseNotes.trim() || null,
+        expense_receipt_photos: expensePhotos,
 
-        // Non-Kasir
         non_cash_expense_nominal: totalNonCash,
         non_cash_expense_category: validNonCashItems.length > 0 ? validNonCashItems.map(i => i.category).join(', ') : null,
         non_cash_expense_notes: validNonCashItems.length > 0 ? JSON.stringify(validNonCashItems) : null,
         
-        // Kas Fisik & Setoran Bersih
         actual_cash_deposited: numActualTotalInHand,
         cash_retained_in_drawer: numRetained,
         net_cash_deposited: netCashToDeposit,
+        deposit_receipt_photo: depositPhoto,
         cash_difference: cashDifference,
         notes: notes.trim() || null,
         reported_by: effectiveStaffName,
@@ -268,7 +387,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
       if (error) throw error;
 
-      // Ambil nama cabang untuk template pesan WA
+      // Ambil nama cabang untuk WA
       const { data: locData } = await supabase
         .from('locations')
         .select('name')
@@ -277,7 +396,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
       const outletName = locData?.name || 'Outlet Bakso Ibu';
 
-      // Kirim Notifikasi WhatsApp Otomatis
       try {
         await fetch('/api/send-wa', {
           method: 'POST',
@@ -300,14 +418,16 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
             cashRetainedInDrawer: numRetained,
             netCashDeposited: netCashToDeposit,
             cashDifference,
+            expensePhotosCount: expensePhotos.length,
+            hasDepositPhoto: !!depositPhoto
           }),
         });
       } catch (waErr) {
-        console.warn('Gagal memicu notifikasi WA:', waErr);
+        console.warn('Gagal pemicu WA:', waErr);
       }
 
       setMsg({
-        text: `Laporan setoran ${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'} (${settlementDate}) berhasil disimpan! Total disetor: Rp ${netCashToDeposit.toLocaleString('id-ID')}`,
+        text: `Rekap kasir ${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'} (${settlementDate}) tersimpan! Total disetor: Rp ${netCashToDeposit.toLocaleString('id-ID')} (${expensePhotos.length} nota kasir terlampir)`,
         type: 'success'
       });
     } catch (err: any) {
@@ -338,7 +458,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               Rekap Omset & Kas Kasir
             </h3>
             <p className="text-[10px] text-slate-400">
-              Input omset, pengeluaran laci, cek selisih & tentukan uang yang disetor.
+              Input omset, pengeluaran kasir + upload foto nota, cek selisih & uang setoran.
             </p>
           </div>
         </div>
@@ -525,7 +645,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           </div>
         </div>
 
-        {/* 1. PENGELUARAN KASIR (MEMOTONG FISIK LACI KASIR) */}
+        {/* 1. PENGELUARAN KASIR + UPLOAD FOTO NOTA */}
         <div className="p-4 bg-rose-50/50 rounded-2xl border border-rose-100 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black uppercase text-rose-500 block tracking-wider flex items-center gap-1.5">
@@ -564,9 +684,63 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               />
             </div>
           </div>
+
+          {/* Area Lampiran Foto Nota Belanja Kasir */}
+          <div className="pt-2 border-t border-rose-100 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-rose-800 flex items-center gap-1">
+                <Camera className="w-3.5 h-3.5 text-rose-600" /> Foto Nota / Bon Belanja Kasir:
+              </span>
+              <button
+                type="button"
+                onClick={() => expenseFileInputRef.current?.click()}
+                disabled={uploadingExpensePhoto}
+                className="px-2.5 py-1 bg-white hover:bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-bold rounded-lg flex items-center gap-1 cursor-pointer transition-all disabled:opacity-50"
+              >
+                <UploadCloud className="w-3 h-3 text-rose-600" />
+                <span>{uploadingExpensePhoto ? 'Mengompres...' : '+ Foto Nota'}</span>
+              </button>
+              <input
+                ref={expenseFileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                capture="environment"
+                className="hidden"
+                onChange={handleUploadExpensePhoto}
+              />
+            </div>
+
+            {expensePhotos.length > 0 ? (
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 pt-1">
+                {expensePhotos.map((url, idx) => (
+                  <div key={idx} className="relative group rounded-xl overflow-hidden aspect-square border border-rose-200 bg-white shadow-2xs">
+                    <img 
+                      src={url} 
+                      alt={`Nota ${idx + 1}`} 
+                      className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform"
+                      onClick={() => setPreviewPhotoUrl(url)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveExpensePhoto(idx)}
+                      className="absolute top-1 right-1 p-1 bg-black/60 hover:bg-rose-600 text-white rounded-full transition-colors cursor-pointer"
+                      title="Hapus foto"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[10px] text-rose-400 italic">
+                Belum ada foto nota dilampirkan. Klik tombol di atas untuk foto nota belanja lewat kamera HP.
+              </p>
+            )}
+          </div>
         </div>
 
-        {/* 2. PENGELUARAN NON-KASIR MULTI-BARIS (TIDAK MEMOTONG UANG LACI) */}
+        {/* 2. PENGELUARAN NON-KASIR (TIDAK MEMOTONG UANG LACI) */}
         <div className="p-4 bg-indigo-50/40 rounded-2xl border border-indigo-100 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -667,7 +841,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* Input 1: Uang Fisik Nyata di Tangan */}
             <div>
               <label className="block text-[11px] font-bold text-slate-300 mb-1 flex items-center gap-1.5">
                 <Coins className="w-3.5 h-3.5 text-emerald-400" />
@@ -687,7 +860,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               </span>
             </div>
 
-            {/* Input 2: Sisa Kas Ditinggal di Laci */}
             <div>
               <label className="block text-[11px] font-bold text-amber-300 mb-1 flex items-center gap-1.5">
                 <Wallet className="w-3.5 h-3.5 text-amber-400" />
@@ -707,7 +879,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
             </div>
           </div>
 
-          {/* Cek Selisih Nyata Kasir */}
           {actualTotalCashInHand !== '' && (
             <div className={`p-2.5 rounded-xl border text-xs flex justify-between items-center ${
               cashDifference === 0 
@@ -742,6 +913,59 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
               Rp {netCashToDeposit.toLocaleString('id-ID')}
             </span>
           </div>
+
+          {/* Slot Upload Bukti Transfer Setoran (Bisa Menyusul) */}
+          <div className="pt-2 border-t border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-black uppercase text-slate-300 block">
+                  Bukti Transfer / Struk Setoran Bank
+                </span>
+                <span className="text-[9px] text-slate-400">
+                  *Bisa menyusul setelah uang disetor ke ATM/bank
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => depositFileInputRef.current?.click()}
+                disabled={uploadingDepositPhoto}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[10px] font-bold rounded-lg flex items-center gap-1 cursor-pointer transition-all disabled:opacity-50"
+              >
+                <Camera className="w-3 h-3 text-emerald-400" />
+                <span>{depositPhoto ? 'Ganti Bukti' : '+ Upload Struk'}</span>
+              </button>
+              <input
+                ref={depositFileInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleUploadDepositPhoto}
+              />
+            </div>
+
+            {depositPhoto && (
+              <div className="flex items-center gap-2.5 p-2 bg-slate-800/80 rounded-xl border border-slate-700 w-fit">
+                <img 
+                  src={depositPhoto} 
+                  alt="Bukti Transfer" 
+                  className="w-12 h-12 object-cover rounded-lg cursor-pointer border border-slate-600"
+                  onClick={() => setPreviewPhotoUrl(depositPhoto)}
+                />
+                <div>
+                  <span className="text-[11px] font-bold text-emerald-400 block">✓ Struk Terlampir</span>
+                  <button
+                    type="button"
+                    onClick={() => setDepositPhoto(null)}
+                    className="text-[10px] text-rose-400 hover:underline cursor-pointer"
+                  >
+                    Hapus Foto
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <button
@@ -753,6 +977,34 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           <span>{saving ? 'Menyimpan Rekap...' : `Simpan Rekap Kasir (${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'})`}</span>
         </button>
       </form>
+
+      {/* MODAL LIGHTBOX / PRATINJAU FOTO PERBESAR */}
+      {previewPhotoUrl && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="relative max-w-lg w-full bg-slate-900 rounded-3xl p-3 border border-slate-800 space-y-3 animate-in fade-in zoom-in-95">
+            <div className="flex justify-between items-center px-2 pt-1">
+              <span className="text-xs font-black text-white uppercase tracking-wider">
+                Pratinjau Foto Nota / Bukti Fisik
+              </span>
+              <button
+                type="button"
+                onClick={() => setPreviewPhotoUrl(null)}
+                className="p-1 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="rounded-2xl overflow-hidden bg-black flex items-center justify-center max-h-[75vh]">
+              <img 
+                src={previewPhotoUrl} 
+                alt="Nota Perbesar" 
+                className="max-w-full max-h-[75vh] object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
