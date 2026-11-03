@@ -13,7 +13,8 @@ import {
   PackageCheck,
   Calendar,
   X,
-  Clock
+  Clock,
+  Share2
 } from 'lucide-react';
 
 interface Props {
@@ -57,6 +58,7 @@ const VENDOR_LIST = [
 export default function OrderRequestForm({ user, onBack, locationId, staffName }: Props) {
   const activeLocationId = locationId || user?.location_id;
   const activeStaffName = staffName || user?.active_staff_name || user?.username || 'Petugas Outlet';
+  const outletName = user?.location_name || 'Outlet Bakso Ibu';
 
   const getDefaultTargetDate = () => {
     const d = new Date();
@@ -249,6 +251,63 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     return Object.values(quantities).filter((q) => parseFloat(q) > 0).length;
   }, [quantities]);
 
+  // Format Text & Bagikan ke WhatsApp
+  const handleShareToWhatsApp = () => {
+    const selectedEntries = Object.entries(quantities).filter(([_, qty]) => parseFloat(qty) > 0);
+    if (selectedEntries.length === 0) {
+      alert('Pilih minimal 1 barang untuk dibagikan ke WhatsApp!');
+      return;
+    }
+
+    const grouped: Record<string, Array<{ name: string; qty: string; unit: string; status: string }>> = {};
+
+    selectedEntries.forEach(([itemName, qty]) => {
+      const meta = items.find((i) => i.name === itemName);
+      const supplier = meta?.supplier || 'RUMAH PRODUKSI';
+      const unit = normalizeUnit(itemName, meta?.uom);
+      const status = orderStatuses[itemName] === 'BOUGHT_CASHIER' 
+        ? '(Dibeli Kasir)' 
+        : orderStatuses[itemName] === 'PROCESSED_LOGISTICS'
+        ? '(Logistik)'
+        : '(Diorder Leader)';
+
+      if (!grouped[supplier]) grouped[supplier] = [];
+      grouped[supplier].push({ name: itemName, qty, unit, status });
+    });
+
+    let text = `*PERMINTAAN BELANJA BAKSO IBU*\n`;
+    text += `📍 Outlet: *${outletName}*\n`;
+    text += `📅 Untuk Tanggal: *${targetDate}*\n`;
+    text += `👤 Leader/Petugas: *${activeStaffName}*\n\n`;
+
+    Object.entries(grouped).forEach(([supplier, list]) => {
+      text += `🏢 *[${supplier}]*\n`;
+      list.forEach((item, idx) => {
+        text += `${idx + 1}. ${item.name} : *${item.qty} ${item.unit}* ${item.status}\n`;
+      });
+      text += `\n`;
+    });
+
+    if (notes.trim()) {
+      text += `📝 *Catatan Khusus:*\n_${notes.trim()}_\n\n`;
+    }
+
+    text += `_Dikirim melalui Sistem ERP Bakso Ibu_`;
+
+    if (navigator.share) {
+      navigator.share({
+        title: `Permintaan Belanja - ${outletName}`,
+        text: text,
+      }).catch(() => {
+        const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+        window.open(waUrl, '_blank');
+      });
+    } else {
+      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+      window.open(waUrl, '_blank');
+    }
+  };
+
   const handlePreSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (totalFilled === 0) {
@@ -340,7 +399,19 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="text-xs font-black px-3.5 py-1.5 bg-orange-50 text-[#ff6f3c] border border-orange-200/60 rounded-full">
+          {/* Tombol Bagikan ke WhatsApp */}
+          <button
+            type="button"
+            onClick={handleShareToWhatsApp}
+            disabled={totalFilled === 0}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+            title="Kirim rincian order yang terisi ke WhatsApp"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span>Bagikan ke WA</span>
+          </button>
+
+          <div className="text-xs font-black px-3.5 py-2 bg-orange-50 text-[#ff6f3c] border border-orange-200/60 rounded-xl">
             {totalFilled} barang diisi
           </div>
         </div>
