@@ -6,10 +6,7 @@ import {
   BookOpen, 
   Search, 
   Plus, 
-  Edit3, 
   Trash2, 
-  CheckCircle2, 
-  AlertCircle, 
   X, 
   UserCheck, 
   ChefHat, 
@@ -17,7 +14,6 @@ import {
   UtensilsCrossed, 
   FileText, 
   ListChecks, 
-  Clock, 
   ShieldCheck, 
   Layers
 } from 'lucide-react';
@@ -25,6 +21,8 @@ import {
 interface Props {
   user?: any;
   isHR?: boolean;
+  userRole?: string;
+  userName?: string;
 }
 
 interface GuideItem {
@@ -48,7 +46,15 @@ const DIVISIONS = [
   { id: 'UMUM', label: 'Kebijakan Umum HR', icon: ShieldCheck, color: 'text-indigo-600 bg-indigo-50' }
 ];
 
-export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
+export default function OperationalKnowledgeBase({ 
+  user, 
+  isHR = true, 
+  userRole, 
+  userName 
+}: Props) {
+  const effectiveRole = (userRole || user?.role || user?.role_name || '').toUpperCase();
+  const effectiveIsHR = isHR || effectiveRole.includes('HR') || effectiveRole.includes('OWNER') || effectiveRole.includes('ADMIN');
+
   const [selectedDivision, setSelectedDivision] = useState<string>('DAPUR');
   const [selectedType, setSelectedType] = useState<'JOBDESK' | 'SOP'>('SOP');
   const [searchTerm, setSearchTerm] = useState('');
@@ -67,13 +73,12 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
   const [formPhase, setFormPhase] = useState<'OPENING' | 'OPERASIONAL' | 'CLOSING' | 'UMUM'>('OPENING');
   const [formTitle, setFormTitle] = useState('');
   const [formSummary, setFormSummary] = useState('');
-  const [formContentList, setFormContentList] = useState<string>(''); // multiline per baris
+  const [formContentList, setFormContentList] = useState<string>('');
   const [formNotes, setFormNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Data Standar Default jika Supabase Kosong
+  // Data Default Awal
   const defaultInitialGuides: GuideItem[] = [
-    // --- DAPUR ---
     {
       id: 'dapur-jobdesk-1',
       division: 'DAPUR',
@@ -139,8 +144,6 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
       ],
       notes: 'Pastikan regulator tabung gas dicabut saat outlet tutup malam.'
     },
-
-    // --- KASIR ---
     {
       id: 'kasir-jobdesk-1',
       division: 'KASIR',
@@ -189,8 +192,6 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
       ],
       notes: 'Uang bersih setoran wajib diserahkan ke Leader atau disetor ke rekening bank resmi.'
     },
-
-    // --- LEADER ---
     {
       id: 'leader-jobdesk-1',
       division: 'LEADER',
@@ -249,7 +250,6 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
     fetchGuides();
   }, []);
 
-  // Filter Data
   const filteredGuides = useMemo(() => {
     return guides.filter((g) => {
       const matchDiv = g.division === selectedDivision;
@@ -265,7 +265,6 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
     });
   }, [guides, selectedDivision, selectedType, searchTerm]);
 
-  // Kelompokkan SOP berdasarkan Tahapan (Opening, Operasional, Closing)
   const groupedSOPByPhase = useMemo(() => {
     if (selectedType !== 'SOP') return null;
 
@@ -329,7 +328,7 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
     try {
       await supabase.from('knowledge_base_articles').upsert([newGuide]);
     } catch {
-      // Fallback local update
+      // Fallback
     }
 
     setGuides((prev) => {
@@ -368,7 +367,7 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
                 Pusat Panduan Kerja, Jobdesk & SOP Divisi
               </h2>
               <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700">
-                Mode Pengelola (HR)
+                {effectiveIsHR ? 'Mode Pengelola (HR)' : `Kru: ${userName || 'Karyawan'}`}
               </span>
             </div>
             <p className="text-xs font-medium text-slate-400">
@@ -389,7 +388,7 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
             />
           </div>
 
-          {isHR && (
+          {effectiveIsHR && (
             <button
               type="button"
               onClick={handleOpenAddModal}
@@ -460,7 +459,7 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
         </span>
       </div>
 
-      {/* 4. KONTEN TAMPILAN SESUAI TIPE */}
+      {/* 4. KONTEN TAMPILAN */}
       {loading ? (
         <div className="py-16 text-center text-slate-400 font-bold text-xs">
           Memuat panduan operasional...
@@ -471,7 +470,7 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
           <p className="text-xs font-bold text-slate-500">
             Belum ada data {selectedType === 'JOBDESK' ? 'Jobdesk' : 'SOP'} untuk divisi ini.
           </p>
-          {isHR && (
+          {effectiveIsHR && (
             <button
               type="button"
               onClick={handleOpenAddModal}
@@ -527,16 +526,16 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
           ))}
         </div>
       ) : (
-        /* --- TAMPILAN SOP (Dikelompokkan Berdasarkan Opening, Operasional, Closing) --- */
+        /* --- TAMPILAN SOP --- */
         <div className="space-y-6">
           {(['OPENING', 'OPERASIONAL', 'CLOSING'] as const).map((phase) => {
             const phaseItems = groupedSOPByPhase?.[phase] || [];
             if (phaseItems.length === 0) return null;
 
             const phaseLabels = {
-              OPENING: { title: 'OPENING', color: 'bg-emerald-500', desc: 'Standar persiapan sebelum toko buka' },
-              OPERASIONAL: { title: 'OPERASIONAL (RUNNING)', color: 'bg-amber-500', desc: 'Standar penyajian & pelayanan saat toko buka' },
-              CLOSING: { title: 'CLOSING', color: 'bg-rose-500', desc: 'Standar kebersihan & rekap tutup toko malam' }
+              OPENING: { title: 'OPENING', color: 'bg-emerald-500' },
+              OPERASIONAL: { title: 'OPERASIONAL (RUNNING)', color: 'bg-amber-500' },
+              CLOSING: { title: 'CLOSING', color: 'bg-rose-500' }
             };
 
             return (
@@ -589,7 +588,7 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
         </div>
       )}
 
-      {/* 5. MODAL POPUP DETAIL DOKUMEN (JOBDESK / SOP) */}
+      {/* 5. MODAL POPUP DETAIL DOKUMEN */}
       {activeDetailItem && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 space-y-5 shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col">
@@ -628,7 +627,6 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
                 </div>
               )}
 
-              {/* Poin Jobdesk */}
               {activeDetailItem.content_type === 'JOBDESK' && activeDetailItem.responsibilities && (
                 <div className="space-y-2">
                   <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
@@ -647,7 +645,6 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
                 </div>
               )}
 
-              {/* Langkah SOP */}
               {activeDetailItem.content_type === 'SOP' && activeDetailItem.steps && (
                 <div className="space-y-2">
                   <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
@@ -666,7 +663,6 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
                 </div>
               )}
 
-              {/* Catatan / Pantangan Khusus */}
               {activeDetailItem.notes && (
                 <div className="p-3 bg-amber-50/70 rounded-2xl border border-amber-200/70 text-xs text-amber-900 space-y-1">
                   <span className="font-black block uppercase text-[10px] text-amber-700">
@@ -678,7 +674,7 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-              {isHR ? (
+              {effectiveIsHR ? (
                 <button
                   type="button"
                   onClick={() => handleDeleteGuide(activeDetailItem.id)}
@@ -687,7 +683,7 @@ export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Hapus Materi</span>
                 </button>
-              ) : <div></div>}
+              ) : <div />}
 
               <button
                 type="button"
