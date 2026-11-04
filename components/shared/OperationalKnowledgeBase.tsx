@@ -4,70 +4,242 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { 
   BookOpen, 
-  Crown,
+  Search, 
+  Plus, 
+  Edit3, 
+  Trash2, 
+  CheckCircle2, 
+  AlertCircle, 
+  X, 
+  UserCheck, 
   ChefHat, 
   Receipt, 
-  Users, 
+  UtensilsCrossed, 
+  FileText, 
+  ListChecks, 
+  Clock, 
   ShieldCheck, 
-  Sparkles, 
-  Edit3, 
-  Plus, 
-  Trash2, 
-  Save, 
-  X,
-  Search,
-  CheckCircle2,
-  ExternalLink
+  Layers
 } from 'lucide-react';
 
 interface Props {
-  userRole?: string; // 'OWNER', 'EXECUTIVE', 'HR', 'ADMIN', 'LEADER', 'CREW'
-  userName?: string;
+  user?: any;
+  isHR?: boolean;
 }
 
 interface GuideItem {
   id: string;
-  module_type: 'PRODUCT_KNOWLEDGE' | 'LEADER' | 'DAPUR' | 'KASIR' | 'PELAYAN' | 'HR_POLICY';
-  section_type: string;
+  division: 'LEADER' | 'DAPUR' | 'KASIR' | 'PELAYAN' | 'UMUM';
+  content_type: 'JOBDESK' | 'SOP';
+  phase?: 'OPENING' | 'OPERASIONAL' | 'CLOSING' | 'UMUM';
   title: string;
-  description: string;
-  sort_order: number;
-  updated_at: string;
-  updated_by?: string;
+  summary?: string;
+  steps: string[];
+  responsibilities?: string[];
+  notes?: string;
+  updated_at?: string;
 }
 
-export default function OperationalKnowledgeBase({ userRole = 'CREW', userName = 'Staff' }: Props) {
-  // Hanya Owner dan HR yang punya akses mengedit & menghapus
-  const roleUpper = (userRole || '').toUpperCase();
-  const canManage = roleUpper === 'OWNER' || roleUpper === 'EXECUTIVE' || roleUpper === 'HR' || roleUpper.includes('ADMIN');
+const DIVISIONS = [
+  { id: 'LEADER', label: 'Leader Outlet', icon: UserCheck, color: 'text-amber-600 bg-amber-50' },
+  { id: 'DAPUR', label: 'Divisi Dapur', icon: ChefHat, color: 'text-orange-600 bg-orange-50' },
+  { id: 'KASIR', label: 'Divisi Kasir', icon: Receipt, color: 'text-emerald-600 bg-emerald-50' },
+  { id: 'PELAYAN', label: 'Divisi Pelayan / Floor', icon: UtensilsCrossed, color: 'text-blue-600 bg-blue-50' },
+  { id: 'UMUM', label: 'Kebijakan Umum HR', icon: ShieldCheck, color: 'text-indigo-600 bg-indigo-50' }
+];
 
-  const [activeModule, setActiveModule] = useState<'PRODUCT_KNOWLEDGE' | 'LEADER' | 'DAPUR' | 'KASIR' | 'PELAYAN' | 'HR_POLICY'>('PRODUCT_KNOWLEDGE');
+export default function OperationalKnowledgeBase({ user, isHR = true }: Props) {
+  const [selectedDivision, setSelectedDivision] = useState<string>('DAPUR');
+  const [selectedType, setSelectedType] = useState<'JOBDESK' | 'SOP'>('SOP');
+  const [searchTerm, setSearchTerm] = useState('');
   const [guides, setGuides] = useState<GuideItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchKeyword, setSearchKeyword] = useState('');
 
-  // Modal Baca Detail (Untuk Semua Kru, Leader, HR, Owner)
-  const [viewingItem, setViewingItem] = useState<GuideItem | null>(null);
+  // Modal State
+  const [activeDetailItem, setActiveDetailItem] = useState<GuideItem | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
 
-  // Modal Form Tambah / Edit (Hanya Owner & HR)
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<Partial<GuideItem> | null>(null);
+  // Form State
+  const [formDivision, setFormDivision] = useState<'LEADER' | 'DAPUR' | 'KASIR' | 'PELAYAN' | 'UMUM'>('DAPUR');
+  const [formType, setFormType] = useState<'JOBDESK' | 'SOP'>('SOP');
+  const [formPhase, setFormPhase] = useState<'OPENING' | 'OPERASIONAL' | 'CLOSING' | 'UMUM'>('OPENING');
+  const [formTitle, setFormTitle] = useState('');
+  const [formSummary, setFormSummary] = useState('');
+  const [formContentList, setFormContentList] = useState<string>(''); // multiline per baris
+  const [formNotes, setFormNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Ambil Data dari Database
+  // Data Standar Default jika Supabase Kosong
+  const defaultInitialGuides: GuideItem[] = [
+    // --- DAPUR ---
+    {
+      id: 'dapur-jobdesk-1',
+      division: 'DAPUR',
+      content_type: 'JOBDESK',
+      title: 'Jobdesk & Tanggung Jawab Cook / Kitchen Crew',
+      summary: 'Tanggung jawab utama atas kualitas rasa, kecepatan penyajian porsi, dan kebersihan dapur.',
+      responsibilities: [
+        'Memastikan seluruh bahan baku siap pakai sebelum jam operasional dimulai.',
+        'Menjaga konsistensi porsi dan standar penyajian bakso serta mie ayam sesuai gramasi.',
+        'Mengontrol suhu kuah kaldu agar selalu panas dan mendidih.',
+        'Menjaga kebersihan area masak, panci dandang, dan tempat penyimpanan bahan beku.',
+        'Melaporkan kekurangan stok bahan baku ke Leader sebelum bahan habis.'
+      ],
+      steps: [],
+      notes: 'Wajib mengenakan celemek, masker, dan penutup kepala selama bertugas.'
+    },
+    {
+      id: 'dapur-sop-1',
+      division: 'DAPUR',
+      content_type: 'SOP',
+      phase: 'OPENING',
+      title: 'Persiapan Dandang & Pemanasan Kuah Kaldu',
+      summary: 'Standar penyalaan api kompor dan pengisian takaran kuah di pagi hari.',
+      steps: [
+        'Cek kebersihan bagian dalam dandang sebelum diisi air.',
+        'Isi air dandang kuah minimal 3/4 volume dandang.',
+        'Nyalakan kompor dengan api sedang-tinggi hingga mendidih.',
+        'Masukkan bumbu kuah kaldu resmi Bakso Ibu, aduk rata dan cicipi rasa standar.',
+        'Kecilkan api ke tingkat api simpan panas begitu kuah mendidih sempurna.'
+      ],
+      notes: 'Jangan pernah membiarkan air dandang kurang dari 1/2 volume.'
+    },
+    {
+      id: 'dapur-sop-2',
+      division: 'DAPUR',
+      content_type: 'SOP',
+      phase: 'OPERASIONAL',
+      title: 'Standar Rebus Mie Ayam & Racikan Topping',
+      summary: 'Waktu perebusan mie agar tekstur kenyal dan tidak lembek.',
+      steps: [
+        'Pastikan air rebusan mie dalam kondisi mendidih bergolak.',
+        'Urai mie ayam sebelum dimasukkan ke saringan rebus.',
+        'Rebus mie ayam selama 1 - 1.5 menit sambil diaduk perlahan.',
+        'Tiriskan mie secara maksimal (kocok saringan 3-4 kali agar air tidak terbawa).',
+        'Tuangkan racikan minyak bumbu ke mangkuk sebelum mie dimasukkan, aduk cepat hingga merata.',
+        'Beri topping ayam cincang dan daun bawang sesuai takaran standar.'
+      ],
+      notes: 'Ganti air rebusan mie jika sudah mulai keruh dan berbusa.'
+    },
+    {
+      id: 'dapur-sop-3',
+      division: 'DAPUR',
+      content_type: 'SOP',
+      phase: 'CLOSING',
+      title: 'Pembersihan Kompor, Dandang & Penyimpanan Bahan Sisa',
+      summary: 'Prosedur tutup shift malam untuk sterilisasi dapur.',
+      steps: [
+        'Matikan seluruh regulator kompor gas dan pastikan tidak ada bau gas menyengat.',
+        'Pindahkan sisa kuah kaldu yang layak ke wadah pendingin.',
+        'Cuci bersih dandang dan tiriskan di rak yang bersih.',
+        'Tutup rapat bahan sisa (daun bawang, bumbu, bakso) dan simpan dalam chiller/freezer.',
+        'Pel lantai dapur dengan karbol pembersih lemak.'
+      ],
+      notes: 'Pastikan regulator tabung gas dicabut saat outlet tutup malam.'
+    },
+
+    // --- KASIR ---
+    {
+      id: 'kasir-jobdesk-1',
+      division: 'KASIR',
+      content_type: 'JOBDESK',
+      title: 'Jobdesk & Tanggung Jawab Kasir Outlet',
+      summary: 'Tanggung jawab penuh atas penerimaan uang pembayaran, ketelitian input POS, dan setoran.',
+      responsibilities: [
+        'Melayani transaksi pembayaran pelanggan dengan ramah, cepat, dan teliti.',
+        'Menjaga kesesuaian antara uang tunai di laci fisik dengan laporan penjualan sistem.',
+        'Mencatat seluruh pengeluaran kas kecil laci (petty cash) dan melampirkan foto nota fisik.',
+        'Mengelola pesanan online (GrabFood, GoFood, ShopeeFood) agar tidak terlewat.',
+        'Menghitung dan melaporkan rekapan setoran bersih di akhir shift.'
+      ],
+      steps: [],
+      notes: 'Uang laci kasir tidak boleh dipinjamkan atau digunakan untuk keperluan pribadi.'
+    },
+    {
+      id: 'kasir-sop-1',
+      division: 'KASIR',
+      content_type: 'SOP',
+      phase: 'OPENING',
+      title: 'Standar Buka Kasir & Cek Uang Modal (Float)',
+      summary: 'Pengecekan modal receh awal shift.',
+      steps: [
+        'Nyalakan tablet / perangkat POS Olsera / ESB.',
+        'Hitung fisik uang modal laci kembalian (pastikan nominal pecahan sesuai modal awal).',
+        'Cek koneksi internet printer Bluetooth dan kertas struk termal.',
+        'Pastikan kode QRIS statis bersih dan terlihat jelas oleh pembeli.'
+      ],
+      notes: 'Jika modal pecahan awal kurang, segera koordinasikan dengan Leader.'
+    },
+    {
+      id: 'kasir-sop-2',
+      division: 'KASIR',
+      content_type: 'SOP',
+      phase: 'CLOSING',
+      title: 'Rekap Kas Laci, Upload Nota & Penyerahan Setoran',
+      summary: 'Langkah tutup shift kasir di sistem ERP Bakso Ibu.',
+      steps: [
+        'Keluarkan seluruh uang tunai dari laci kasir dan pisahkan per pecahan.',
+        'Buka modul "Rekap Omset & Kas Kasir" di portal outlet.',
+        'Input nominal penjualan tunai, QRIS, dan pesanan online sesuai laporan POS.',
+        'Input pengeluaran laci dan ambil foto nota/bon belanja lewat kamera HP.',
+        'Tentukan sisa uang modal yang ditinggal di laci untuk shift esok.',
+        'Cek status selisih kasir, simpan rekap, dan bagikan ringkasan ke grup WhatsApp.'
+      ],
+      notes: 'Uang bersih setoran wajib diserahkan ke Leader atau disetor ke rekening bank resmi.'
+    },
+
+    // --- LEADER ---
+    {
+      id: 'leader-jobdesk-1',
+      division: 'LEADER',
+      content_type: 'JOBDESK',
+      title: 'Jobdesk & Tanggung Jawab Leader Outlet',
+      summary: 'Penanggung jawab operasional harian cabang, koordinasi tim, stok bahan, dan kepuasan pelanggan.',
+      responsibilities: [
+        'Memimpin briefing harian sebelum outlet buka dan membagi tugas kru.',
+        'Memeriksa stok harian cabang dan mengajukan pesanan belanja bahan baku ke dapur pusat/vendor.',
+        'Menyetujui (ACC) atau menolak pengajuan lembur (overtime) kru sebelum jam kerja ekstra berjalan.',
+        'Memvalidasi laporan setoran kasir dan memeriksa keaslian nota belanja fisik.',
+        'Menangani komplain pelanggan dengan sopan dan solusi cepat.'
+      ],
+      steps: [],
+      notes: 'Leader adalah role model ketepatan waktu, kedisiplinan, dan keramahan pelayanan.'
+    },
+    {
+      id: 'leader-sop-1',
+      division: 'LEADER',
+      content_type: 'SOP',
+      phase: 'OPERASIONAL',
+      title: 'SOP Pengajuan Order Belanja Cabang',
+      summary: 'Tata cara pemesanan kebutuhan bahan harian ke Logistik & Vendor.',
+      steps: [
+        'Lakukan pengecekan fisik sisa stok di rak, chiller, dan freezer pada sore hari.',
+        'Buka modul "Lembar Permintaan Belanja" di portal outlet.',
+        'Isi jumlah kebutuhan bahan sesuai estimasi penjualan esok hari.',
+        'Tentukan penanggung jawab pembelian (Order Leader / Kasir / Logistik).',
+        'Kirim data ke sistem dan tekan tombol "Bagikan ke WA" untuk dikirim ke tim logistik.'
+      ],
+      notes: 'Pemesanan bahan maksimal dikirim sebelum jam cut-off dapur pusat.'
+    }
+  ];
+
   const fetchGuides = async () => {
     setLoading(true);
     try {
       const { data, error } = await supabase
-        .from('operational_guides')
+        .from('knowledge_base_articles')
         .select('*')
-        .eq('is_active', true)
-        .order('sort_order', { ascending: true });
+        .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setGuides(data || []);
-    } catch (err: any) {
-      console.error('Gagal mengambil data panduan:', err.message);
+      if (error || !data || data.length === 0) {
+        setGuides(defaultInitialGuides);
+      } else {
+        setGuides(data);
+      }
+    } catch {
+      setGuides(defaultInitialGuides);
     } finally {
       setLoading(false);
     }
@@ -77,446 +249,598 @@ export default function OperationalKnowledgeBase({ userRole = 'CREW', userName =
     fetchGuides();
   }, []);
 
-  // Membersihkan format teks dan memecah string menjadi array poin-poin rapi
-  const parseDescriptionToPoints = (text: string): string[] => {
-    if (!text) return [];
-    // Hilangkan karakter literal \n atau baris baru nyata
-    const cleaned = text.replace(/\\n/g, '\n');
-    return cleaned
-      .split('\n')
-      .map((line) => line.trim())
-      // Hapus angka di depan seperti "1. ", "2. ", "1) ", atau "- "
-      .map((line) => line.replace(/^(\d+[\.\)]\s*|\-\s*|\*\s*)/, '').trim())
-      .filter((line) => line.length > 0);
-  };
-
-  // Filter pencarian
+  // Filter Data
   const filteredGuides = useMemo(() => {
     return guides.filter((g) => {
-      const matchModule = g.module_type === activeModule;
-      const matchSearch = searchKeyword === '' || 
-        g.title.toLowerCase().includes(searchKeyword.toLowerCase()) ||
-        g.description.toLowerCase().includes(searchKeyword.toLowerCase()) ||
-        g.section_type.toLowerCase().includes(searchKeyword.toLowerCase());
-      return matchModule && matchSearch;
-    });
-  }, [guides, activeModule, searchKeyword]);
+      const matchDiv = g.division === selectedDivision;
+      const matchType = g.content_type === selectedType;
+      const matchSearch =
+        searchTerm === '' ||
+        g.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        g.summary?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (g.steps && g.steps.some((s) => s.toLowerCase().includes(searchTerm.toLowerCase()))) ||
+        (g.responsibilities && g.responsibilities.some((r) => r.toLowerCase().includes(searchTerm.toLowerCase())));
 
-  // Kelompokkan per Section (Opening, Closing, dll)
-  const groupedGuides = useMemo(() => {
-    const map: Record<string, GuideItem[]> = {};
+      return matchDiv && matchType && matchSearch;
+    });
+  }, [guides, selectedDivision, selectedType, searchTerm]);
+
+  // Kelompokkan SOP berdasarkan Tahapan (Opening, Operasional, Closing)
+  const groupedSOPByPhase = useMemo(() => {
+    if (selectedType !== 'SOP') return null;
+
+    const phases: Record<string, GuideItem[]> = {
+      OPENING: [],
+      OPERASIONAL: [],
+      CLOSING: []
+    };
+
     filteredGuides.forEach((item) => {
-      const sec = item.section_type || 'UMUM';
-      if (!map[sec]) map[sec] = [];
-      map[sec].push(item);
-    });
-    return map;
-  }, [filteredGuides]);
-
-  // Simpan / Perbarui Materi (Khusus Pengelola)
-  const handleSaveItem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingItem?.title || !editingItem?.description) return;
-    setSaving(true);
-
-    try {
-      const payload = {
-        module_type: activeModule,
-        section_type: (editingItem.section_type || 'OPERASIONAL').toUpperCase().trim(),
-        title: editingItem.title.trim(),
-        description: editingItem.description.replace(/\\n/g, '\n').trim(),
-        sort_order: Number(editingItem.sort_order || 1),
-        updated_by: userName,
-        updated_at: new Date().toISOString()
-      };
-
-      if (editingItem.id) {
-        const { error } = await supabase
-          .from('operational_guides')
-          .update(payload)
-          .eq('id', editingItem.id);
-        if (error) throw error;
+      const phaseKey = item.phase || 'OPERASIONAL';
+      if (phases[phaseKey]) {
+        phases[phaseKey].push(item);
       } else {
-        const { error } = await supabase
-          .from('operational_guides')
-          .insert([payload]);
-        if (error) throw error;
+        phases.OPERASIONAL.push(item);
       }
+    });
 
-      setIsFormOpen(false);
-      setEditingItem(null);
-      await fetchGuides();
-    } catch (err: any) {
-      alert('Gagal menyimpan panduan: ' + err.message);
-    } finally {
-      setSaving(false);
-    }
+    return phases;
+  }, [filteredGuides, selectedType]);
+
+  const handleOpenAddModal = () => {
+    setIsEditing(false);
+    setEditId(null);
+    setFormDivision(selectedDivision as any);
+    setFormType(selectedType);
+    setFormPhase('OPENING');
+    setFormTitle('');
+    setFormSummary('');
+    setFormContentList('');
+    setFormNotes('');
+    setShowAddModal(true);
   };
 
-  // Hapus Materi (Khusus Pengelola)
-  const handleDeleteItem = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // Cegah membuka modal baca
-    if (!confirm('Yakin ingin menghapus poin panduan ini?')) return;
+  const handleSaveGuide = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formTitle.trim()) {
+      alert('Judul panduan wajib diisi!');
+      return;
+    }
+
+    setSaving(true);
+    const lines = formContentList
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+
+    const newGuide: GuideItem = {
+      id: isEditing && editId ? editId : `guide-${Date.now()}`,
+      division: formDivision,
+      content_type: formType,
+      phase: formType === 'SOP' ? formPhase : undefined,
+      title: formTitle.trim(),
+      summary: formSummary.trim(),
+      steps: formType === 'SOP' ? lines : [],
+      responsibilities: formType === 'JOBDESK' ? lines : [],
+      notes: formNotes.trim(),
+      updated_at: new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar' }).format(new Date())
+    };
+
     try {
-      const { error } = await supabase
-        .from('operational_guides')
-        .update({ is_active: false })
-        .eq('id', id);
-      if (error) throw error;
-      await fetchGuides();
-    } catch (err: any) {
-      alert('Gagal menghapus materi: ' + err.message);
+      await supabase.from('knowledge_base_articles').upsert([newGuide]);
+    } catch {
+      // Fallback local update
     }
+
+    setGuides((prev) => {
+      if (isEditing && editId) {
+        return prev.map((item) => (item.id === editId ? newGuide : item));
+      }
+      return [newGuide, ...prev];
+    });
+
+    setSaving(false);
+    setShowAddModal(false);
   };
 
-  const navTabs = [
-    { key: 'PRODUCT_KNOWLEDGE', label: 'Product Knowledge', icon: Sparkles },
-    { key: 'LEADER', label: 'Job Desk Leader', icon: Crown },
-    { key: 'DAPUR', label: 'Job Desk Dapur', icon: ChefHat },
-    { key: 'KASIR', label: 'Job Desk Kasir', icon: Receipt },
-    { key: 'PELAYAN', label: 'Job Desk Pelayan', icon: Users },
-    { key: 'HR_POLICY', label: 'Kebijakan & Aturan HR', icon: ShieldCheck },
-  ] as const;
+  const handleDeleteGuide = async (id: string) => {
+    if (!confirm('Yakin ingin menghapus panduan/jobdesk ini?')) return;
+    try {
+      await supabase.from('knowledge_base_articles').delete().eq('id', id);
+    } catch {
+      // ignore
+    }
+    setGuides((prev) => prev.filter((item) => item.id !== id));
+    setActiveDetailItem(null);
+  };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 p-5 sm:p-7 shadow-xs space-y-6 font-sans">
-      
-      {/* HEADER PANEL */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-slate-100 gap-4">
+    <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans">
+      {/* 1. Header Bar Portal Panduan */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-5 border-b border-slate-100 gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-orange-50 text-[#ff6f3c] flex items-center justify-center">
-            <BookOpen className="w-5 h-5" />
+          <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
+            <BookOpen className="w-6 h-6" />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-black text-slate-900 tracking-tight">
-                Pusat Panduan Kerja & Knowledge Base
+                Pusat Panduan Kerja, Jobdesk & SOP Divisi
               </h2>
-              {canManage ? (
-                <span className="text-[10px] font-black bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-200">
-                  Mode Pengelola ({userRole})
-                </span>
-              ) : (
-                <span className="text-[10px] font-black bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200">
-                  Mode Panduan Kru ({userRole})
-                </span>
-              )}
+              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700">
+                Mode Pengelola (HR)
+              </span>
             </div>
             <p className="text-xs font-medium text-slate-400">
-              Klik pada kartu untuk membaca rincian langkah kerja secara jelas.
+              Standar operasional prosedur dan rincian tanggung jawab kru per bagian.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3 pointer-events-none" />
             <input
               type="text"
-              placeholder="Cari materi..."
-              value={searchKeyword}
-              onChange={(e) => setSearchKeyword(e.target.value)}
-              className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none w-36 sm:w-48"
+              placeholder="Cari materi / panduan..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none w-48 sm:w-60"
             />
           </div>
 
-          {canManage && (
+          {isHR && (
             <button
-              onClick={() => {
-                setEditingItem({
-                  module_type: activeModule,
-                  section_type: 'OPERASIONAL',
-                  title: '',
-                  description: '',
-                  sort_order: guides.length + 1
-                });
-                setIsFormOpen(true);
-              }}
-              className="px-3.5 py-1.5 bg-[#ff6f3c] hover:bg-orange-600 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-xs transition-all"
+              type="button"
+              onClick={handleOpenAddModal}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition-all cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Tambah Materi</span>
+              <Plus className="w-4 h-4" />
+              <span>+ Tambah Materi</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* NAVIGASI 6 MODUL UTAMA */}
-      <div className="flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100 gap-1 overflow-x-auto text-xs font-bold">
-        {navTabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeModule === tab.key;
+      {/* 2. TAB PILIHAN DIVISI */}
+      <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-none">
+        {DIVISIONS.map((div) => {
+          const Icon = div.icon;
+          const isActive = selectedDivision === div.id;
           return (
             <button
-              key={tab.key}
-              onClick={() => setActiveModule(tab.key)}
-              className={`px-3.5 py-2 rounded-xl transition-all flex items-center gap-2 whitespace-nowrap ${
-                isActive 
-                  ? 'bg-white text-slate-900 shadow-xs font-black' 
-                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/60'
+              key={div.id}
+              type="button"
+              onClick={() => setSelectedDivision(div.id)}
+              className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
+                isActive
+                  ? 'bg-slate-900 text-white shadow-md shadow-slate-900/10'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-100'
               }`}
             >
-              <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-[#ff6f3c]' : 'text-slate-400'}`} />
-              <span>{tab.label}</span>
+              <Icon className={`w-4 h-4 ${isActive ? 'text-white' : div.color.split(' ')[0]}`} />
+              <span>{div.label}</span>
             </button>
           );
         })}
       </div>
 
-      {/* DAFTAR CARD PANDUAN */}
+      {/* 3. SWITCH MODE: JOBDESK vs SOP */}
+      <div className="flex items-center justify-between bg-slate-50/80 p-2 rounded-2xl border border-slate-100">
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            onClick={() => setSelectedType('JOBDESK')}
+            className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
+              selectedType === 'JOBDESK'
+                ? 'bg-white text-indigo-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <ListChecks className="w-4 h-4 text-indigo-600" />
+            <span>1. Jobdesk & Tanggung Jawab</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSelectedType('SOP')}
+            className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
+              selectedType === 'SOP'
+                ? 'bg-white text-indigo-900 shadow-sm'
+                : 'text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <FileText className="w-4 h-4 text-orange-600" />
+            <span>2. SOP & Langkah Kerja Lapangan</span>
+          </button>
+        </div>
+
+        <span className="text-[10px] font-bold text-slate-400 pr-2 hidden sm:inline">
+          {filteredGuides.length} Dokumen Ditemukan
+        </span>
+      </div>
+
+      {/* 4. KONTEN TAMPILAN SESUAI TIPE */}
       {loading ? (
-        <div className="py-16 text-center text-slate-400 text-xs font-bold">
+        <div className="py-16 text-center text-slate-400 font-bold text-xs">
           Memuat panduan operasional...
         </div>
-      ) : Object.keys(groupedGuides).length === 0 ? (
-        <div className="py-16 text-center text-slate-400 text-xs font-medium bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
-          Belum ada materi untuk bagian ini. {canManage && 'Tekan tombol "Tambah Materi" di atas untuk mengisi.'}
+      ) : filteredGuides.length === 0 ? (
+        <div className="py-16 text-center bg-slate-50/60 rounded-3xl border border-dashed border-slate-200 p-8 space-y-2">
+          <Layers className="w-8 h-8 text-slate-300 mx-auto" />
+          <p className="text-xs font-bold text-slate-500">
+            Belum ada data {selectedType === 'JOBDESK' ? 'Jobdesk' : 'SOP'} untuk divisi ini.
+          </p>
+          {isHR && (
+            <button
+              type="button"
+              onClick={handleOpenAddModal}
+              className="text-xs font-black text-indigo-600 hover:underline inline-block pt-1 cursor-pointer"
+            >
+              + Klik di sini untuk membuat baru
+            </button>
+          )}
         </div>
-      ) : (
-        <div className="space-y-6">
-          {Object.entries(groupedGuides).map(([sectionName, items]) => (
-            <div key={sectionName} className="space-y-3">
-              <div className="flex items-center gap-2 pb-1 border-b border-slate-100">
-                <span className="w-2 h-2 rounded-full bg-[#ff6f3c]"></span>
-                <h3 className="text-xs font-black uppercase tracking-wider text-slate-700">
-                  {sectionName.replace(/_/g, ' ')}
-                </h3>
-                <span className="text-[10px] font-bold text-slate-400">({items.length} Standar Kerja)</span>
+      ) : selectedType === 'JOBDESK' ? (
+        /* --- TAMPILAN JOBDESK --- */
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {filteredGuides.map((item) => (
+            <div
+              key={item.id}
+              onClick={() => setActiveDetailItem(item)}
+              className="p-5 rounded-3xl border border-slate-100 bg-white hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer space-y-3 group"
+            >
+              <div className="flex items-start justify-between">
+                <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase rounded-lg">
+                  Tanggung Jawab Divisi
+                </span>
+                <span className="text-[10px] text-slate-400">
+                  {item.responsibilities?.length || 0} Poin Utama
+                </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {items.map((guide) => {
-                  const points = parseDescriptionToPoints(guide.description);
+              <div>
+                <h3 className="text-sm font-black text-slate-900 group-hover:text-indigo-600 transition-colors">
+                  {item.title}
+                </h3>
+                {item.summary && (
+                  <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+                    {item.summary}
+                  </p>
+                )}
+              </div>
 
-                  return (
-                    <div 
-                      key={guide.id}
-                      onClick={() => setViewingItem(guide)}
-                      className="p-4 sm:p-5 rounded-2xl bg-slate-50/80 border border-slate-200/80 hover:border-[#ff6f3c]/40 hover:bg-white hover:shadow-md transition-all cursor-pointer space-y-3 relative group"
-                    >
-                      <div className="flex justify-between items-start gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-lg bg-orange-100 text-[#ff6f3c] flex items-center justify-center font-black text-xs shrink-0">
-                            ✓
-                          </span>
-                          <h4 className="text-xs sm:text-sm font-extrabold text-slate-900 group-hover:text-[#ff6f3c] transition-colors leading-snug">
-                            {guide.title}
-                          </h4>
-                        </div>
-
-                        {/* Tombol aksi khusus Owner / HR */}
-                        {canManage ? (
-                          <div 
-                            className="flex items-center gap-1 opacity-90 sm:opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingItem(guide);
-                                setIsFormOpen(true);
-                              }}
-                              title="Edit Materi"
-                              className="p-1 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={(e) => handleDeleteItem(guide.id, e)}
-                              title="Hapus Materi"
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-slate-300 group-hover:text-[#ff6f3c] transition-colors">
-                            <ExternalLink className="w-4 h-4" />
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Preview 2 Poin Awal Bersih */}
-                      <div className="space-y-1.5 pl-1">
-                        {points.slice(0, 2).map((pt, pIdx) => (
-                          <div key={pIdx} className="flex items-start gap-2 text-[11px] text-slate-600 leading-relaxed font-medium">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0 mt-1.5"></span>
-                            <span className="line-clamp-2">{pt}</span>
-                          </div>
-                        ))}
-                        {points.length > 2 && (
-                          <span className="text-[10px] font-bold text-indigo-600 block pt-0.5">
-                            +{points.length - 2} langkah lainnya (klik untuk buka)
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="pt-2 border-t border-slate-200/50 flex justify-between items-center text-[9px] text-slate-400 font-semibold">
-                        <span>Pembaruan: {new Date(guide.updated_at).toLocaleDateString('id-ID')}</span>
-                        {guide.updated_by && <span>Oleh: {guide.updated_by}</span>}
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                {(item.responsibilities || []).slice(0, 3).map((resp, idx) => (
+                  <div key={idx} className="flex items-start gap-2 text-xs text-slate-700 font-medium">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-1.5 shrink-0"></span>
+                    <span className="line-clamp-1">{resp}</span>
+                  </div>
+                ))}
+                {(item.responsibilities?.length || 0) > 3 && (
+                  <p className="text-[10px] font-bold text-indigo-600 pt-0.5">
+                    +{item.responsibilities!.length - 3} tanggung jawab lainnya (klik untuk buka)
+                  </p>
+                )}
               </div>
             </div>
           ))}
         </div>
+      ) : (
+        /* --- TAMPILAN SOP (Dikelompokkan Berdasarkan Opening, Operasional, Closing) --- */
+        <div className="space-y-6">
+          {(['OPENING', 'OPERASIONAL', 'CLOSING'] as const).map((phase) => {
+            const phaseItems = groupedSOPByPhase?.[phase] || [];
+            if (phaseItems.length === 0) return null;
+
+            const phaseLabels = {
+              OPENING: { title: 'OPENING', color: 'bg-emerald-500', desc: 'Standar persiapan sebelum toko buka' },
+              OPERASIONAL: { title: 'OPERASIONAL (RUNNING)', color: 'bg-amber-500', desc: 'Standar penyajian & pelayanan saat toko buka' },
+              CLOSING: { title: 'CLOSING', color: 'bg-rose-500', desc: 'Standar kebersihan & rekap tutup toko malam' }
+            };
+
+            return (
+              <div key={phase} className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${phaseLabels[phase].color}`}></span>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                    {phaseLabels[phase].title}
+                  </h3>
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    ({phaseItems.length} Standar Kerja)
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {phaseItems.map((sop) => (
+                    <div
+                      key={sop.id}
+                      onClick={() => setActiveDetailItem(sop)}
+                      className="p-4 rounded-2xl border border-slate-100 bg-white hover:border-orange-300 hover:shadow-xs transition-all cursor-pointer space-y-2.5 group"
+                    >
+                      <div className="flex items-center justify-between text-[10px] text-slate-400">
+                        <span className="font-bold text-orange-600">✓ {sop.steps.length} Langkah SOP</span>
+                        {sop.updated_at && <span>{sop.updated_at}</span>}
+                      </div>
+
+                      <h4 className="text-xs font-black text-slate-900 group-hover:text-orange-600 transition-colors leading-snug">
+                        {sop.title}
+                      </h4>
+
+                      <div className="space-y-1 pt-1">
+                        {sop.steps.slice(0, 2).map((step, sIdx) => (
+                          <div key={sIdx} className="flex items-start gap-1.5 text-[11px] text-slate-600">
+                            <span className="text-slate-400 font-bold shrink-0">{sIdx + 1}.</span>
+                            <span className="line-clamp-1">{step}</span>
+                          </div>
+                        ))}
+                        {sop.steps.length > 2 && (
+                          <span className="text-[10px] font-bold text-orange-600 block pt-0.5">
+                            +{sop.steps.length - 2} langkah lainnya (klik untuk buka)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* 1. MODAL BACA DETAIL (UNTUK SEMUA KRU, LEADER, HR, OWNER)                  */}
-      {/* ========================================================================= */}
-      {viewingItem && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 space-y-5 shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col">
-            
-            {/* Header Modal Baca */}
-            <div className="flex justify-between items-start pb-3 border-b border-slate-100 gap-3">
+      {/* 5. MODAL POPUP DETAIL DOKUMEN (JOBDESK / SOP) */}
+      {activeDetailItem && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 space-y-5 shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col">
+            <div className="flex items-start justify-between pb-3 border-b border-slate-100">
               <div>
-                <span className="text-[10px] font-black uppercase tracking-wider text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md border border-orange-100">
-                  {viewingItem.section_type.replace(/_/g, ' ')}
-                </span>
-                <h3 className="text-base sm:text-lg font-black text-slate-900 mt-1.5 leading-snug">
-                  {viewingItem.title}
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
+                    activeDetailItem.content_type === 'JOBDESK'
+                      ? 'bg-indigo-50 text-indigo-700'
+                      : 'bg-orange-50 text-orange-700'
+                  }`}>
+                    {activeDetailItem.content_type === 'JOBDESK' ? 'URAIAN JOBDESK' : `SOP • ${activeDetailItem.phase || 'OPERASIONAL'}`}
+                  </span>
+                  <span className="text-xs font-bold text-slate-400">
+                    Divisi: {DIVISIONS.find((d) => d.id === activeDetailItem.division)?.label}
+                  </span>
+                </div>
+                <h3 className="text-base font-black text-slate-900 mt-1.5">
+                  {activeDetailItem.title}
                 </h3>
               </div>
-              <button 
-                onClick={() => setViewingItem(null)}
-                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center shrink-0 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            {/* Konten Poin-Poin Kerja Bersih & Mudah Dipahami */}
-            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block">
-                STANDAR & URUTAN LANGKAH KERJA:
-              </span>
-
-              <div className="space-y-2.5">
-                {parseDescriptionToPoints(viewingItem.description).map((point, index) => (
-                  <div 
-                    key={index} 
-                    className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 flex items-start gap-3"
-                  >
-                    <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-black flex items-center justify-center shrink-0 mt-0.5">
-                      {index + 1}
-                    </span>
-                    <p className="text-xs sm:text-sm font-semibold text-slate-700 leading-relaxed">
-                      {point}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Footer Modal Baca */}
-            <div className="pt-3 border-t border-slate-100 flex justify-between items-center text-xs">
-              <div className="text-[10px] text-slate-400 font-semibold">
-                <span>Diperbarui: {new Date(viewingItem.updated_at).toLocaleDateString('id-ID')}</span>
-                {viewingItem.updated_by && <span> • {viewingItem.updated_by}</span>}
-              </div>
               <button
                 type="button"
-                onClick={() => setViewingItem(null)}
-                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold shadow-xs transition-colors"
+                onClick={() => setActiveDetailItem(null)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
               >
-                Tutup Panduan
+                <X className="w-5 h-5" />
               </button>
             </div>
 
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              {activeDetailItem.summary && (
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs text-slate-600 font-medium">
+                  {activeDetailItem.summary}
+                </div>
+              )}
+
+              {/* Poin Jobdesk */}
+              {activeDetailItem.content_type === 'JOBDESK' && activeDetailItem.responsibilities && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
+                    Daftar Tanggung Jawab & Target Kerja:
+                  </h4>
+                  <div className="space-y-2">
+                    {activeDetailItem.responsibilities.map((resp, idx) => (
+                      <div key={idx} className="p-3 rounded-xl bg-indigo-50/40 border border-indigo-100 text-xs font-semibold text-slate-800 flex items-start gap-2.5">
+                        <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">
+                          {idx + 1}
+                        </span>
+                        <span className="leading-relaxed">{resp}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Langkah SOP */}
+              {activeDetailItem.content_type === 'SOP' && activeDetailItem.steps && (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
+                    Langkah Kerja Petunjuk Lapangan:
+                  </h4>
+                  <div className="space-y-2">
+                    {activeDetailItem.steps.map((step, idx) => (
+                      <div key={idx} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs font-semibold text-slate-800 flex items-start gap-2.5">
+                        <span className="w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">
+                          {idx + 1}
+                        </span>
+                        <span className="leading-relaxed">{step}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Catatan / Pantangan Khusus */}
+              {activeDetailItem.notes && (
+                <div className="p-3 bg-amber-50/70 rounded-2xl border border-amber-200/70 text-xs text-amber-900 space-y-1">
+                  <span className="font-black block uppercase text-[10px] text-amber-700">
+                    ⚠️ Catatan Khusus & Ketentuan HR:
+                  </span>
+                  <p className="leading-relaxed">{activeDetailItem.notes}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+              {isHR ? (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteGuide(activeDetailItem.id)}
+                  className="px-3 py-2 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Hapus Materi</span>
+                </button>
+              ) : <div></div>}
+
+              <button
+                type="button"
+                onClick={() => setActiveDetailItem(null)}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* 2. MODAL FORM INPUT / EDIT (HANYA MUNCUL DI AKUN OWNER & HR)              */}
-      {/* ========================================================================= */}
-      {isFormOpen && canManage && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-xl border border-slate-100">
-            <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-              <h3 className="text-sm font-black text-slate-900">
-                {editingItem?.id ? 'Edit Panduan / Job Desk' : 'Tambah Panduan Baru'}
+      {/* 6. MODAL INPUT TAMBAH / EDIT DOKUMEN HR */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-slate-100">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-sm font-black text-slate-900 uppercase">
+                {isEditing ? 'Edit Materi Panduan' : 'Tambah Materi Jobdesk / SOP Baru'}
               </h3>
-              <button 
-                onClick={() => setIsFormOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-800 rounded-xl"
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-700"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveItem} className="space-y-3.5 text-xs font-bold">
+            <form onSubmit={handleSaveGuide} className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
+                    Divisi Terkait
+                  </label>
+                  <select
+                    value={formDivision}
+                    onChange={(e: any) => setFormDivision(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800"
+                  >
+                    {DIVISIONS.map((d) => (
+                      <option key={d.id} value={d.id}>{d.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
+                    Jenis Dokumen
+                  </label>
+                  <select
+                    value={formType}
+                    onChange={(e: any) => setFormType(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800"
+                  >
+                    <option value="SOP">SOP (Standar Operasional)</option>
+                    <option value="JOBDESK">Jobdesk (Uraian Tugas)</option>
+                  </select>
+                </div>
+              </div>
+
+              {formType === 'SOP' && (
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
+                    Fase Pelaksanaan SOP
+                  </label>
+                  <select
+                    value={formPhase}
+                    onChange={(e: any) => setFormPhase(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800"
+                  >
+                    <option value="OPENING">OPENING (Persiapan Buka Toko)</option>
+                    <option value="OPERASIONAL">OPERASIONAL (Saat Melayani Tamu)</option>
+                    <option value="CLOSING">CLOSING (Bersih-bersih & Tutup Toko)</option>
+                  </select>
+                </div>
+              )}
+
               <div>
-                <label className="block text-slate-400 text-[10px] uppercase font-black mb-1">
-                  Bagian / Alur Kerja (Section)
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
+                  Judul Materi
                 </label>
                 <input
                   type="text"
-                  placeholder="Contoh: OPENING, BRIEFING, OPERASIONAL, CLOSING, ADMINISTRASI"
-                  value={editingItem?.section_type || ''}
-                  onChange={(e) => setEditingItem({ ...editingItem, section_type: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 uppercase focus:outline-none"
                   required
+                  placeholder="Misal: Standar Pembersihan Kompor Dapur / Standar Salam Kasir"
+                  value={formTitle}
+                  onChange={(e) => setFormTitle(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 text-[10px] uppercase font-black mb-1">
-                  Judul Pos / Panduan
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
+                  Ringkasan / Uraian Singkat
                 </label>
                 <input
                   type="text"
-                  placeholder="Contoh: Standar Racik Kuah, SOP Hitung Kasir"
-                  value={editingItem?.title || ''}
-                  onChange={(e) => setEditingItem({ ...editingItem, title: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none"
-                  required
+                  placeholder="Deskripsi singkat tujuan dari SOP atau Jobdesk ini..."
+                  value={formSummary}
+                  onChange={(e) => setFormSummary(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-700"
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 text-[10px] uppercase font-black mb-1">
-                  Poin-Poin Langkah Kerja (Tiap baris otomatis jadi 1 poin)
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
+                  {formType === 'JOBDESK' ? 'Poin-Poin Tanggung Jawab (1 baris per poin)' : 'Langkah-Langkah SOP (1 baris per langkah)'}
                 </label>
                 <textarea
-                  rows={6}
-                  placeholder="Tuliskan tiap langkah di baris baru (tekan Enter):&#10;Pastikan air dandang kuah 3/4 penuh&#10;Nyalakan kompor dengan api stabil&#10;Cek rasa sebelum outlet buka"
-                  value={(editingItem?.description || '').replace(/\\n/g, '\n')}
-                  onChange={(e) => setEditingItem({ ...editingItem, description: e.target.value })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none font-medium leading-relaxed"
                   required
+                  rows={4}
+                  placeholder={`Tulis tiap poin di baris baru:\n1. Pastikan dandang bersih\n2. Nyalakan kompor api sedang\n3. Cek takaran bumbu kaldu`}
+                  value={formContentList}
+                  onChange={(e) => setFormContentList(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 resize-none"
                 />
-                <span className="text-[10px] text-slate-400 font-normal mt-1 block">
-                  *Cukup tekan Enter untuk membuat langkah berikutnya. Tidak perlu ketik manual angka 1, 2 atau tanda hubung (-).
-                </span>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
+                  Catatan Tambahan / Larangan HR (Opsional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Misal: Dilarang bermain HP saat jam operasional..."
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-700"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsFormOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold"
+                  onClick={() => setShowAddModal(false)}
+                  className="w-1/3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-2 bg-[#ff6f3c] hover:bg-orange-600 text-white rounded-xl font-black flex items-center gap-1.5 shadow-xs"
+                  className="w-2/3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl shadow-md transition-all disabled:opacity-40"
                 >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>{saving ? 'Menyimpan...' : 'Simpan Panduan'}</span>
+                  {saving ? 'Menyimpan...' : 'Simpan Materi'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }
