@@ -58,6 +58,10 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const [shift, setShift] = useState<'SHIFT_1' | 'SHIFT_2'>('SHIFT_1');
   const [settlementDate, setSettlementDate] = useState<string>(getOperationalDateForShift('SHIFT_1'));
 
+  // Data Omset Shift 1 untuk kalkulasi Total Omset Harian saat Shift 2
+  const [shift1Omset, setShift1Omset] = useState<number>(0);
+  const [hasShift1Data, setHasShift1Data] = useState<boolean>(false);
+
   // Input Fields Omset
   const [openingCash, setOpeningCash] = useState<number | string>(0);
   const [totalBills, setTotalBills] = useState<number | string>('');
@@ -113,6 +117,9 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const omsetOnline = numGrab + numGofood + numShopee;
   const totalOmset = omsetDineIn + omsetOnline;
 
+  // Total Omset Harian (Khusus Shift 2 = Omset Shift 1 + Omset Shift 2)
+  const dailyTotalOmset = shift === 'SHIFT_2' ? shift1Omset + totalOmset : totalOmset;
+
   const expectedCashInDrawer = numOpeningCash + numCash - numExpense;
   const cashDifference = actualTotalCashInHand === '' ? 0 : numActualTotalInHand - expectedCashInDrawer;
   const netCashToDeposit = Math.max(0, numActualTotalInHand - numRetained);
@@ -131,6 +138,32 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     setLoading(true);
     setMsg(null);
     try {
+      // 1. Jika sedang di Shift 2, ambil data omset Shift 1 pada tanggal yang sama
+      if (shift === 'SHIFT_2') {
+        const { data: s1Data } = await supabase
+          .from('cash_settlements')
+          .select('omset_dine_in, omset_online, total_omset')
+          .eq('location_id', effectiveLocationId)
+          .eq('settlement_date', settlementDate)
+          .eq('shift', 'SHIFT_1')
+          .maybeSingle();
+
+        if (s1Data) {
+          const calcS1 =
+            Number(s1Data.total_omset) ||
+            Number(s1Data.omset_dine_in || 0) + Number(s1Data.omset_online || 0);
+          setShift1Omset(calcS1);
+          setHasShift1Data(true);
+        } else {
+          setShift1Omset(0);
+          setHasShift1Data(false);
+        }
+      } else {
+        setShift1Omset(0);
+        setHasShift1Data(false);
+      }
+
+      // 2. Ambil data shift yang sedang aktif
       const { data, error } = await supabase
         .from('cash_settlements')
         .select('*')
@@ -366,7 +399,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     const validNonCash = nonCashList.filter(i => Number(i.nominal) > 0);
     if (validNonCash.length > 0) {
       text += `*3. PENGELUARAN NON-KASIR (RP & VENDOR):*\n`;
-      validNonCash.forEach((item, idx) => {
+      validNonCash.forEach((item) => {
         text += `• ${item.category}: Rp ${Number(item.nominal).toLocaleString('id-ID')} ${item.notes ? `(${item.notes})` : ''}\n`;
       });
       text += `👉 *Total Beban Vendor: Rp ${totalNonCashExpense.toLocaleString('id-ID')}*\n\n`;
@@ -381,6 +414,9 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     text += `------------------------------------\n`;
     text += `💰 *UANG BERSIH YANG DISETOR: Rp ${netCashToDeposit.toLocaleString('id-ID')}*\n`;
     if (depositPhoto) text += `📌 _(Bukti transfer/setoran ATM sudah diupload)_\n`;
+    if (shift === 'SHIFT_2') {
+      text += `📊 *TOTAL OMSET HARIAN (SHIFT 1 + 2): Rp ${dailyTotalOmset.toLocaleString('id-ID')}*${!hasShift1Data ? ' _(Shift 1 belum input)_' : ''}\n`;
+    }
     text += `------------------------------------\n`;
     text += `_Dilaporkan resmi via Sistem ERP Bakso Ibu_`;
 
@@ -470,6 +506,8 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
             shift,
             reportedBy: effectiveStaffName,
             totalOmset,
+            dailyTotalOmset: shift === 'SHIFT_2' ? dailyTotalOmset : totalOmset,
+            shift1Omset: shift === 'SHIFT_2' ? shift1Omset : null,
             omsetDineIn,
             omsetOnline,
             cashNominal: numCash,
@@ -491,7 +529,7 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
       }
 
       setMsg({
-        text: `Rekap kasir ${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'} (${settlementDate}) tersimpan! Total disetor: Rp ${netCashToDeposit.toLocaleString('id-ID')} (${expensePhotos.length} nota kasir terlampir)`,
+        text: `Rekap kasir ${shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2'} (${settlementDate}) tersimpan! Total disetor: Rp ${netCashToDeposit.toLocaleString('id-ID')}${shift === 'SHIFT_2' ? ` • Total Omset Harian: Rp ${dailyTotalOmset.toLocaleString('id-ID')}` : ''}`,
         type: 'success'
       });
     } catch (err: any) {
@@ -714,11 +752,24 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
             </div>
           </div>
 
-          <div className="flex justify-between items-center pt-2 border-t border-slate-200/60">
-            <span className="text-xs font-bold text-slate-500">Total Omset Shift:</span>
-            <span className="text-base font-black text-emerald-600">
-              Rp {totalOmset.toLocaleString('id-ID')}
-            </span>
+          <div className="pt-2 border-t border-slate-200/60 space-y-1.5">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold text-slate-500">Total Omset Shift:</span>
+              <span className="text-base font-black text-emerald-600">
+                Rp {totalOmset.toLocaleString('id-ID')}
+              </span>
+            </div>
+
+            {shift === 'SHIFT_2' && (
+              <div className="flex justify-between items-center px-3 py-2 rounded-xl bg-indigo-50/70 border border-indigo-100">
+                <span className="text-[11px] font-bold text-indigo-800">
+                  Total Omset Harian (Shift 1 + 2):
+                </span>
+                <span className="text-xs font-black text-indigo-700">
+                  Rp {dailyTotalOmset.toLocaleString('id-ID')}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
