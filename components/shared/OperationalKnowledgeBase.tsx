@@ -7,6 +7,7 @@ import {
   Search, 
   Plus, 
   Trash2, 
+  Edit3,
   X, 
   UserCheck, 
   ChefHat, 
@@ -15,7 +16,9 @@ import {
   FileText, 
   ListChecks, 
   ShieldCheck, 
-  Layers
+  Layers,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 
 interface Props {
@@ -60,6 +63,7 @@ export default function OperationalKnowledgeBase({
   const [searchTerm, setSearchTerm] = useState('');
   const [guides, setGuides] = useState<GuideItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statusMsg, setStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Modal State
   const [activeDetailItem, setActiveDetailItem] = useState<GuideItem | null>(null);
@@ -77,7 +81,6 @@ export default function OperationalKnowledgeBase({
   const [formNotes, setFormNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Data Default Awal
   const defaultInitialGuides: GuideItem[] = [
     {
       id: 'dapur-jobdesk-1',
@@ -234,7 +237,11 @@ export default function OperationalKnowledgeBase({
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error || !data || data.length === 0) {
+      if (error) {
+        console.warn('Info DB knowledge_base_articles:', error.message);
+        setGuides(defaultInitialGuides);
+      } else if (!data || data.length === 0) {
+        await supabase.from('knowledge_base_articles').upsert(defaultInitialGuides);
         setGuides(defaultInitialGuides);
       } else {
         setGuides(data);
@@ -299,6 +306,24 @@ export default function OperationalKnowledgeBase({
     setShowAddModal(true);
   };
 
+  const handleOpenEditModal = (item: GuideItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setIsEditing(true);
+    setEditId(item.id);
+    setFormDivision(item.division);
+    setFormType(item.content_type);
+    setFormPhase(item.phase || 'OPERASIONAL');
+    setFormTitle(item.title);
+    setFormSummary(item.summary || '');
+    const listToEdit = item.content_type === 'JOBDESK' 
+      ? (item.responsibilities || []).join('\n')
+      : (item.steps || []).join('\n');
+    setFormContentList(listToEdit);
+    setFormNotes(item.notes || '');
+    setActiveDetailItem(null);
+    setShowAddModal(true);
+  };
+
   const handleSaveGuide = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim()) {
@@ -307,6 +332,7 @@ export default function OperationalKnowledgeBase({
     }
 
     setSaving(true);
+    setStatusMsg(null);
     const lines = formContentList
       .split('\n')
       .map((l) => l.trim())
@@ -326,31 +352,43 @@ export default function OperationalKnowledgeBase({
     };
 
     try {
-      await supabase.from('knowledge_base_articles').upsert([newGuide]);
-    } catch {
-      // Fallback
+      const { error } = await supabase.from('knowledge_base_articles').upsert([newGuide]);
+      if (error) throw error;
+
+      setGuides((prev) => {
+        if (isEditing && editId) {
+          return prev.map((item) => (item.id === editId ? newGuide : item));
+        }
+        return [newGuide, ...prev];
+      });
+
+      setStatusMsg({
+        text: isEditing ? 'Perubahan materi berhasil disimpan permanen!' : 'Materi baru berhasil ditambahkan!',
+        type: 'success'
+      });
+      setShowAddModal(false);
+    } catch (err: any) {
+      setStatusMsg({
+        text: `Gagal menyimpan ke database: ${err.message}. Pastikan SQL tabel knowledge_base_articles sudah dijalankan.`,
+        type: 'error'
+      });
+      setShowAddModal(false);
+    } finally {
+      setSaving(false);
     }
-
-    setGuides((prev) => {
-      if (isEditing && editId) {
-        return prev.map((item) => (item.id === editId ? newGuide : item));
-      }
-      return [newGuide, ...prev];
-    });
-
-    setSaving(false);
-    setShowAddModal(false);
   };
 
   const handleDeleteGuide = async (id: string) => {
     if (!confirm('Yakin ingin menghapus panduan/jobdesk ini?')) return;
     try {
-      await supabase.from('knowledge_base_articles').delete().eq('id', id);
-    } catch {
-      // ignore
+      const { error } = await supabase.from('knowledge_base_articles').delete().eq('id', id);
+      if (error) throw error;
+      setGuides((prev) => prev.filter((item) => item.id !== id));
+      setActiveDetailItem(null);
+      setStatusMsg({ text: 'Materi berhasil dihapus.', type: 'success' });
+    } catch (err: any) {
+      alert('Gagal menghapus: ' + err.message);
     }
-    setGuides((prev) => prev.filter((item) => item.id !== id));
-    setActiveDetailItem(null);
   };
 
   return (
@@ -400,6 +438,28 @@ export default function OperationalKnowledgeBase({
           )}
         </div>
       </div>
+
+      {statusMsg && (
+        <div
+          className={`p-3.5 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 ${
+            statusMsg.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+              : 'bg-rose-50 text-rose-700 border border-rose-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {statusMsg.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+            ) : (
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+            )}
+            <span>{statusMsg.text}</span>
+          </div>
+          <button onClick={() => setStatusMsg(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* 2. TAB PILIHAN DIVISI */}
       <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-none">
@@ -493,9 +553,21 @@ export default function OperationalKnowledgeBase({
                 <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase rounded-lg">
                   Tanggung Jawab Divisi
                 </span>
-                <span className="text-[10px] text-slate-400">
-                  {item.responsibilities?.length || 0} Poin Utama
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-400">
+                    {item.responsibilities?.length || 0} Poin Utama
+                  </span>
+                  {effectiveIsHR && (
+                    <button
+                      type="button"
+                      onClick={(e) => handleOpenEditModal(item, e)}
+                      className="p-1.5 rounded-lg bg-slate-50 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
+                      title="Edit Jobdesk"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -559,7 +631,19 @@ export default function OperationalKnowledgeBase({
                     >
                       <div className="flex items-center justify-between text-[10px] text-slate-400">
                         <span className="font-bold text-orange-600">✓ {sop.steps.length} Langkah SOP</span>
-                        {sop.updated_at && <span>{sop.updated_at}</span>}
+                        <div className="flex items-center gap-1.5">
+                          {sop.updated_at && <span>{sop.updated_at}</span>}
+                          {effectiveIsHR && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleOpenEditModal(sop, e)}
+                              className="p-1 rounded-md bg-slate-50 hover:bg-orange-50 text-slate-400 hover:text-orange-600 transition-colors cursor-pointer"
+                              title="Edit SOP"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <h4 className="text-xs font-black text-slate-900 group-hover:text-orange-600 transition-colors leading-snug">
@@ -673,16 +757,27 @@ export default function OperationalKnowledgeBase({
               )}
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
               {effectiveIsHR ? (
-                <button
-                  type="button"
-                  onClick={() => handleDeleteGuide(activeDetailItem.id)}
-                  className="px-3 py-2 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Hapus Materi</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEditModal(activeDetailItem)}
+                    className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Edit Materi</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteGuide(activeDetailItem.id)}
+                    className="px-3 py-2 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Hapus</span>
+                  </button>
+                </div>
               ) : <div />}
 
               <button
@@ -708,7 +803,7 @@ export default function OperationalKnowledgeBase({
               <button
                 type="button"
                 onClick={() => setShowAddModal(false)}
-                className="p-1 rounded-xl text-slate-400 hover:text-slate-700"
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-700 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -797,7 +892,7 @@ export default function OperationalKnowledgeBase({
                 <textarea
                   required
                   rows={4}
-                  placeholder={`Tulis tiap poin di baris baru:\n1. Pastikan dandang bersih\n2. Nyalakan kompor api sedang\n3. Cek takaran bumbu kaldu`}
+                  placeholder={`Tulis tiap poin di baris baru:\nPastikan dandang bersih\nNyalakan kompor api sedang\nCek takaran bumbu kaldu`}
                   value={formContentList}
                   onChange={(e) => setFormContentList(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 resize-none"
@@ -821,16 +916,16 @@ export default function OperationalKnowledgeBase({
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="w-1/3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl"
+                  className="w-1/3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="w-2/3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl shadow-md transition-all disabled:opacity-40"
+                  className="w-2/3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl shadow-md transition-all disabled:opacity-40 cursor-pointer"
                 >
-                  {saving ? 'Menyimpan...' : 'Simpan Materi'}
+                  {saving ? 'Menyimpan...' : isEditing ? 'Simpan Perubahan' : 'Simpan Materi'}
                 </button>
               </div>
             </form>
