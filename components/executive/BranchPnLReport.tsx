@@ -346,7 +346,8 @@ export default function BranchPnLReport() {
           finalRev = totalNominal;
         }
 
-        const custCount = Number(s.total_customer || s.customer_count || s.transaction_count || 0);
+        // Ambil dari total_bills (nama kolom resmi di CashSettlementForm)
+        const custCount = Number(s.total_bills || s.total_customer || s.customer_count || s.transaction_count || 0);
         customerCountMap[locId] = (customerCountMap[locId] || 0) + custCount;
 
         omsetDineInMap[locId] = (omsetDineInMap[locId] || 0) + dineIn;
@@ -1047,7 +1048,7 @@ export default function BranchPnLReport() {
         </div>
       </div>
 
-      {/* TABEL ANATOMI PnL RESMI (HEADER 4 KOLOM PRESISI) */}
+      {/* TABEL ANATOMI PnL RESMI */}
       <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-2xs">
         <table className="w-full text-left text-xs border-collapse font-sans">
           <thead>
