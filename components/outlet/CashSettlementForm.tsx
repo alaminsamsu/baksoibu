@@ -58,11 +58,9 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const [shift, setShift] = useState<'SHIFT_1' | 'SHIFT_2'>('SHIFT_1');
   const [settlementDate, setSettlementDate] = useState<string>(getOperationalDateForShift('SHIFT_1'));
 
-  // Data Omset Shift 1 untuk kalkulasi Total Omset Harian saat Shift 2
   const [shift1Omset, setShift1Omset] = useState<number>(0);
   const [hasShift1Data, setHasShift1Data] = useState<boolean>(false);
 
-  // Input Fields Omset
   const [openingCash, setOpeningCash] = useState<number | string>(0);
   const [totalBills, setTotalBills] = useState<number | string>('');
   const [cashNominal, setCashNominal] = useState<number | string>('');
@@ -71,21 +69,17 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const [gofoodNominal, setGofoodNominal] = useState<number | string>('');
   const [shopeeNominal, setShopeeNominal] = useState<number | string>('');
   
-  // 1. Pengeluaran Kasir (Memotong Uang Laci)
   const [expenseNominal, setExpenseNominal] = useState<number | string>('');
   const [expenseNotes, setExpenseNotes] = useState<string>('');
 
-  // 2. Pengeluaran Non-Kasir (Rumah Produksi & Vendor)
   const [nonCashList, setNonCashList] = useState<NonCashItem[]>([
     { id: '1', category: 'RUMAH_PRODUKSI', nominal: '', notes: '' }
   ]);
 
-  // Uang Fisik, Sisa Laci, dan Uang Setoran
   const [actualTotalCashInHand, setActualTotalCashInHand] = useState<number | string>('');
   const [cashRetainedInDrawer, setCashRetainedInDrawer] = useState<number | string>('');
   const [notes, setNotes] = useState<string>('');
 
-  // Foto Bukti Nota Kasir & Setoran
   const [expensePhotos, setExpensePhotos] = useState<string[]>([]);
   const [depositPhoto, setDepositPhoto] = useState<string | null>(null);
   const [uploadingExpensePhoto, setUploadingExpensePhoto] = useState(false);
@@ -99,7 +93,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // Kalkulasi Angka
   const numOpeningCash = Number(openingCash) || 0;
   const numCash = Number(cashNominal) || 0;
   const numQris = Number(qrisNominal) || 0;
@@ -112,12 +105,9 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
   const numActualTotalInHand = Number(actualTotalCashInHand) || 0;
   const numRetained = Number(cashRetainedInDrawer) || 0;
 
-  // Pemisahan Kanal Penjualan
   const omsetDineIn = numCash + numQris;
   const omsetOnline = numGrab + numGofood + numShopee;
   const totalOmset = omsetDineIn + omsetOnline;
-
-  // Total Omset Harian (Khusus Shift 2 = Omset Shift 1 + Omset Shift 2)
   const dailyTotalOmset = shift === 'SHIFT_2' ? shift1Omset + totalOmset : totalOmset;
 
   const expectedCashInDrawer = numOpeningCash + numCash - numExpense;
@@ -138,7 +128,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     setLoading(true);
     setMsg(null);
     try {
-      // 1. Jika sedang di Shift 2, ambil data omset Shift 1 pada tanggal yang sama
       if (shift === 'SHIFT_2') {
         const { data: s1Data } = await supabase
           .from('cash_settlements')
@@ -163,7 +152,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         setHasShift1Data(false);
       }
 
-      // 2. Ambil data shift yang sedang aktif
       const { data, error } = await supabase
         .from('cash_settlements')
         .select('*')
@@ -363,7 +351,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     );
   };
 
-  // Format Pesan Rekap Omset & Kas Kasir ke WhatsApp
   const handleShareToWhatsApp = () => {
     if (totalOmset === 0 && numActualTotalInHand === 0) {
       alert('Isi data omset atau kas terlebih dahulu sebelum membagikan ke WhatsApp!');
@@ -374,55 +361,54 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
       ? 'KLOP (Rp 0)' 
       : `${cashDifference < 0 ? 'MINUS' : 'LEBIH'} Rp ${Math.abs(cashDifference).toLocaleString('id-ID')}`;
 
-    let text = `*REKAP OMSET & KAS KASIR*\n`;
+    const shiftLabel = shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2';
+
+    let text = `💰 *[CLOSING KASIR] REKAP OMSET & SETORAN*\n`;
     text += `📍 Outlet: *${outletName}*\n`;
     text += `📅 Tanggal: *${settlementDate}*\n`;
     text += `⏱️ Shift: *${shift === 'SHIFT_1' ? 'Shift 1 (Siang)' : 'Shift 2 (Malam)'}*\n`;
     text += `👤 Kasir: *${effectiveStaffName}*\n`;
-    if (Number(totalBills) > 0) text += `🧾 Total Transaksi (TC): *${totalBills} Struk*\n`;
+    if (Number(totalBills) > 0) text += `🧾 Transaksi (TC): *${totalBills} Struk*\n`;
     text += `\n`;
 
-    text += `*1. OMSET PENJUALAN SHIFT:*\n`;
+    text += `*1. OMSET SHIFT:*\n`;
     text += `• Dine In (Cash): Rp ${numCash.toLocaleString('id-ID')}\n`;
     text += `• Dine In (QRIS/Tf): Rp ${numQris.toLocaleString('id-ID')}\n`;
     if (numGrab > 0) text += `• GrabFood: Rp ${numGrab.toLocaleString('id-ID')}\n`;
     if (numGofood > 0) text += `• GoFood: Rp ${numGofood.toLocaleString('id-ID')}\n`;
     if (numShopee > 0) text += `• ShopeeFood: Rp ${numShopee.toLocaleString('id-ID')}\n`;
-    text += `👉 *Total Omset: Rp ${totalOmset.toLocaleString('id-ID')}*\n\n`;
+    text += `👉 *Total Omset ${shiftLabel}: Rp ${totalOmset.toLocaleString('id-ID')}*\n\n`;
 
-    text += `*2. PENGELUARAN KASIR (LACI):*\n`;
-    text += `• Nominal Keluar: *Rp ${numExpense.toLocaleString('id-ID')}*\n`;
-    if (expenseNotes.trim()) text += `• Keperluan: _${expenseNotes.trim()}_\n`;
-    if (expensePhotos.length > 0) text += `• Bukti Nota: *${expensePhotos.length} Foto Terlampir*\n`;
+    text += `*2. PENGELUARAN LACI (TUNAI):*\n`;
+    text += `• Keluar: *Rp ${numExpense.toLocaleString('id-ID')}*${expensePhotos.length > 0 ? ` _(${expensePhotos.length} Nota Terlampir)_` : ''}\n`;
+    if (expenseNotes.trim()) text += `• Rincian: _${expenseNotes.trim()}_\n`;
     text += `\n`;
 
     const validNonCash = nonCashList.filter(i => Number(i.nominal) > 0);
     if (validNonCash.length > 0) {
-      text += `*3. PENGELUARAN NON-KASIR (RP & VENDOR):*\n`;
+      text += `*3. BEBAN NON-KASIR (RP & VENDOR):*\n`;
       validNonCash.forEach((item) => {
-        text += `• ${item.category}: Rp ${Number(item.nominal).toLocaleString('id-ID')} ${item.notes ? `(${item.notes})` : ''}\n`;
+        text += `• ${item.category}: Rp ${Number(item.nominal).toLocaleString('id-ID')}${item.notes ? ` _(${item.notes})_` : ''}\n`;
       });
       text += `👉 *Total Beban Vendor: Rp ${totalNonCashExpense.toLocaleString('id-ID')}*\n\n`;
     }
 
-    text += `*4. REKONSILIASI KAS LACI & SETORAN:*\n`;
-    text += `• Modal Awal Laci: Rp ${numOpeningCash.toLocaleString('id-ID')}\n`;
-    text += `• Seharusnya di Laci: Rp ${expectedCashInDrawer.toLocaleString('id-ID')}\n`;
-    text += `• Total Fisik Nyata di Laci: *Rp ${numActualTotalInHand.toLocaleString('id-ID')}*\n`;
-    text += `• Status Kasir: *${diffText}*\n`;
-    text += `• Sisa Kas Ditinggal di Laci: *Rp ${numRetained.toLocaleString('id-ID')}*\n`;
+    text += `*4. REKONSILIASI LACI & SETORAN:*\n`;
+    text += `• Modal Awal: Rp ${numOpeningCash.toLocaleString('id-ID')} | Seharusnya: Rp ${expectedCashInDrawer.toLocaleString('id-ID')}\n`;
+    text += `• Fisik di Laci: *Rp ${numActualTotalInHand.toLocaleString('id-ID')}* • Status: *${diffText}*\n`;
+    text += `• Sisa Ditinggal di Laci: Rp ${numRetained.toLocaleString('id-ID')}\n`;
     text += `------------------------------------\n`;
-    text += `💰 *UANG BERSIH YANG DISETOR: Rp ${netCashToDeposit.toLocaleString('id-ID')}*\n`;
-    if (depositPhoto) text += `📌 _(Bukti transfer/setoran ATM sudah diupload)_\n`;
+    text += `💵 *UANG BERSIH DISETOR: Rp ${netCashToDeposit.toLocaleString('id-ID')}*\n`;
+    if (depositPhoto) text += `📌 _(Bukti transfer/setoran sudah diupload)_\n`;
     if (shift === 'SHIFT_2') {
       text += `📊 *TOTAL OMSET HARIAN (SHIFT 1 + 2): Rp ${dailyTotalOmset.toLocaleString('id-ID')}*${!hasShift1Data ? ' _(Shift 1 belum input)_' : ''}\n`;
     }
     text += `------------------------------------\n`;
-    text += `_Dilaporkan resmi via Sistem ERP Bakso Ibu_`;
+    text += `_Dilaporkan via Sistem ERP Bakso Ibu_`;
 
     if (navigator.share) {
       navigator.share({
-        title: `Rekap Kasir - ${outletName}`,
+        title: `Closing Kasir - ${outletName}`,
         text: text,
       }).catch(() => {
         const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
@@ -541,7 +527,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
 
   return (
     <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-100 shadow-xs space-y-5 max-w-2xl mx-auto font-sans">
-      {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-slate-100">
         <div className="flex items-center gap-2">
           {onBack && (
@@ -566,7 +551,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Tombol Bagikan ke WhatsApp */}
           <button
             type="button"
             onClick={handleShareToWhatsApp}
@@ -594,7 +578,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Tanggal & Pilihan Shift */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1.5">
@@ -636,7 +619,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           </div>
         </div>
 
-        {/* Modal Kas & Total Bill */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1">
@@ -667,7 +649,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           </div>
         </div>
 
-        {/* Rincian Omset Penjualan */}
         <div className="p-4 bg-slate-50/70 rounded-2xl border border-slate-100 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black uppercase text-slate-400 block tracking-wider">
@@ -773,7 +754,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           </div>
         </div>
 
-        {/* 1. PENGELUARAN KASIR + UPLOAD FOTO NOTA */}
         <div className="p-4 bg-rose-50/50 rounded-2xl border border-rose-100 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-black uppercase text-rose-500 block tracking-wider flex items-center gap-1.5">
@@ -813,7 +793,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
             </div>
           </div>
 
-          {/* Area Lampiran Foto Nota Belanja Kasir */}
           <div className="pt-2 border-t border-rose-100 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-bold text-rose-800 flex items-center gap-1">
@@ -868,7 +847,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           </div>
         </div>
 
-        {/* 2. PENGELUARAN NON-KASIR (TIDAK MEMOTONG UANG LACI) */}
         <div className="p-4 bg-indigo-50/40 rounded-2xl border border-indigo-100 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -955,7 +933,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
           )}
         </div>
 
-        {/* UANG FISIK LACI, SISA MODAL, DAN UANG SETORAN BERSIH */}
         <div className="p-4 bg-slate-900 text-white rounded-2xl space-y-4">
           <div className="flex justify-between items-center pb-2 border-b border-slate-800">
             <div>
@@ -1024,7 +1001,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
             </div>
           )}
 
-          {/* Kotak Rekomendasi Nominal Bersih yang Disetor */}
           <div className="p-3 bg-emerald-950/50 rounded-xl border border-emerald-600/50 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <ArrowRightCircle className="w-5 h-5 text-emerald-400" />
@@ -1042,7 +1018,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
             </span>
           </div>
 
-          {/* Slot Upload Bukti Transfer Setoran (Bisa Menyusul) */}
           <div className="pt-2 border-t border-slate-800 space-y-2">
             <div className="flex items-center justify-between">
               <div>
@@ -1106,7 +1081,6 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
         </button>
       </form>
 
-      {/* MODAL LIGHTBOX / PRATINJAU FOTO PERBESAR */}
       {previewPhotoUrl && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="relative max-w-lg w-full bg-slate-900 rounded-3xl p-3 border border-slate-800 space-y-3 animate-in fade-in zoom-in-95">

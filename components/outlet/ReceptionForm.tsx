@@ -273,46 +273,47 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
       hour12: false
     }).format(new Date()) + ' WITA';
 
-    let text = `*BERITA ACARA PENERIMAAN BARANG*\n`;
+    let text = `📦 *[BARANG MASUK] KONFIRMASI PENERIMAAN*\n`;
     text += `📍 Outlet: *${outletName}*\n`;
-    text += `📅 Untuk Pemakaian Tgl: *${usageDate}*\n`;
+    text += `📅 Utk Pemakaian: *${usageDate}*\n`;
     text += `🕒 Jam Terima: *${timeStr}*\n`;
     text += `👤 Penerima: *${activeStaffName}*\n\n`;
 
     if (filledOrders.length > 0) {
-      text += `*1. BARANG SESUAI DAFTAR ORDER:*\n`;
-      filledOrders.forEach((o, idx) => {
+      text += `*1. REALISASI DAFTAR ORDER (${filledOrders.length} Item):*\n`;
+      filledOrders.forEach((o) => {
         const recQty = parseFloat(receivedQtys[o.id] || '0');
         const diff = recQty - Number(o.quantity);
-        const statusInfo = getStatusBadge(o.status).label;
-        let diffLabel = '✅ Pas';
-        if (diff < 0) diffLabel = `⚠️ Kurang ${Math.abs(diff)} ${o.unit}`;
-        if (diff > 0) diffLabel = `➕ Lebih +${diff} ${o.unit}`;
 
-        text += `${idx + 1}. *${o.item_name}*\n`;
-        text += `   Order: ${o.quantity} ${o.unit} | Terima: *${recQty} ${o.unit}* (${diffLabel})\n`;
-        text += `   Sumber: ${o.supplier || o.target_type || 'RUMAH PRODUKSI'} [${statusInfo}]\n`;
+        if (diff === 0) {
+          text += `✅ *${o.item_name}* : ${recQty} ${o.unit} _(Pas)_\n`;
+        } else if (diff < 0) {
+          text += `⚠️ *${o.item_name}* : *${recQty} ${o.unit}* _(Order: ${o.quantity} ${o.unit} • Kurang ${Math.abs(diff)} ${o.unit})_\n`;
+        } else {
+          text += `➕ *${o.item_name}* : *${recQty} ${o.unit}* _(Order: ${o.quantity} ${o.unit} • Lebih +${diff} ${o.unit})_\n`;
+        }
       });
       text += `\n`;
     }
 
     if (validAdHoc.length > 0) {
-      text += `*2. BELANJA TAMBAHAN DI LUAR ORDER:*\n`;
-      validAdHoc.forEach((a, idx) => {
-        text += `${idx + 1}. *${a.item_name}* : *${a.quantity} ${a.unit}* ${a.notes ? `(${a.notes})` : ''}\n`;
+      text += `*2. BARANG MASUK DI LUAR ORDER:*\n`;
+      validAdHoc.forEach((a) => {
+        text += `🔸 *${a.item_name}* : *${a.quantity} ${a.unit}*${a.notes ? ` _(${a.notes})_` : ''}\n`;
       });
       text += `\n`;
     }
 
     if (notes.trim()) {
-      text += `📝 *Catatan Kondisi Barang:*\n_${notes.trim()}_\n\n`;
+      text += `📝 *Kondisi Barang:* _${notes.trim()}_\n`;
     }
 
-    text += `_Diverifikasi melalui Sistem ERP Bakso Ibu_`;
+    text += `------------------------------------\n`;
+    text += `_Diverifikasi via Sistem ERP Bakso Ibu_`;
 
     if (navigator.share) {
       navigator.share({
-        title: `Penerimaan Barang - ${outletName}`,
+        title: `Barang Masuk - ${outletName}`,
         text
       }).catch(() => {
         window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
@@ -450,7 +451,6 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         </button>
       )}
 
-      {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-4 border-b border-slate-100 gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
@@ -509,7 +509,6 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         </div>
       )}
 
-      {/* Bar Filter Tanggal Pemakaian, Status & Tombol Isi Semua Sesuai Order */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end bg-slate-50/80 p-4 rounded-2xl border border-slate-100">
         <div className="md:col-span-3">
           <label className="block text-[10px] font-black uppercase text-slate-500 mb-1 flex items-center gap-1">
@@ -576,7 +575,6 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* TABEL 1: DAFTAR ACUAN DARI PERMINTAAN BELANJA */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-black uppercase text-slate-700 tracking-wider">
@@ -690,7 +688,6 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
             </div>
           </div>
 
-          {/* TABEL 2: BARANG TAMBAHAN DI LUAR PERMINTAAN BELANJA (AD-HOC) */}
           <div className="p-4 bg-amber-50/40 rounded-2xl border border-amber-200/70 space-y-3">
             <div className="flex items-center justify-between">
               <div>
@@ -773,7 +770,6 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
             )}
           </div>
 
-          {/* Catatan Kondisi Fisik Umum */}
           <div>
             <label className="block text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
               Catatan Umum Kondisi Barang Datang

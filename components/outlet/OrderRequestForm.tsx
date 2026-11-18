@@ -251,7 +251,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     return Object.values(quantities).filter((q) => parseFloat(q) > 0).length;
   }, [quantities]);
 
-  // Format Text & Bagikan ke WhatsApp
+  // Format Text & Bagikan ke WhatsApp (Seragam dengan Laporan Lain)
   const handleShareToWhatsApp = () => {
     const selectedEntries = Object.entries(quantities).filter(([_, qty]) => parseFloat(qty) > 0);
     if (selectedEntries.length === 0) {
@@ -259,44 +259,74 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
       return;
     }
 
-    const grouped: Record<string, Array<{ name: string; qty: string; unit: string; status: string }>> = {};
+    const timeStr = new Intl.DateTimeFormat('id-ID', {
+      timeZone: 'Asia/Makassar',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).format(new Date()) + ' WITA';
+
+    const rpItems: string[] = [];
+    const vendorItems: string[] = [];
+    const cashierItems: string[] = [];
 
     selectedEntries.forEach(([itemName, qty]) => {
       const meta = items.find((i) => i.name === itemName);
       const supplier = meta?.supplier || 'RUMAH PRODUKSI';
       const unit = normalizeUnit(itemName, meta?.uom);
-      const status = orderStatuses[itemName] === 'BOUGHT_CASHIER' 
-        ? '(Dibeli Kasir)' 
-        : orderStatuses[itemName] === 'PROCESSED_LOGISTICS'
-        ? '(Logistik)'
-        : '(Diorder Leader)';
+      const status = orderStatuses[itemName] || 'ORDERED_LEADER';
 
-      if (!grouped[supplier]) grouped[supplier] = [];
-      grouped[supplier].push({ name: itemName, qty, unit, status });
+      if (status === 'BOUGHT_CASHIER') {
+        cashierItems.push(`*${itemName}* : ${qty} ${unit}`);
+      } else if (supplier.toUpperCase().includes('RUMAH PRODUKSI') || supplier.toUpperCase() === 'RP') {
+        const statusTag = status === 'PROCESSED_LOGISTICS' ? ' _(Logistik)_' : '';
+        rpItems.push(`*${itemName}* : ${qty} ${unit}${statusTag}`);
+      } else {
+        const statusTag = status === 'PROCESSED_LOGISTICS' ? ' • Logistik' : '';
+        vendorItems.push(`*${itemName}* : ${qty} ${unit} _(${supplier}${statusTag})_`);
+      }
     });
 
-    let text = `*PERMINTAAN BELANJA BAKSO IBU*\n`;
+    let text = `🛒 *[ORDER BELANJA] PERMINTAAN BAHAN*\n`;
     text += `📍 Outlet: *${outletName}*\n`;
-    text += `📅 Untuk Tanggal: *${targetDate}*\n`;
-    text += `👤 Leader/Petugas: *${activeStaffName}*\n\n`;
+    text += `📅 Utk Pemakaian: *${targetDate}*\n`;
+    text += `🕒 Dibuat: *${timeStr}*\n`;
+    text += `👤 Pemohon: *${activeStaffName}*\n\n`;
 
-    Object.entries(grouped).forEach(([supplier, list]) => {
-      text += `🏢 *[${supplier}]*\n`;
-      list.forEach((item, idx) => {
-        text += `${idx + 1}. ${item.name} : *${item.qty} ${item.unit}* ${item.status}\n`;
+    if (rpItems.length > 0) {
+      text += `*A. ORDER RUMAH PRODUKSI (PUSAT):*\n`;
+      rpItems.forEach((line, idx) => {
+        text += `${idx + 1}. ${line}\n`;
       });
       text += `\n`;
-    });
-
-    if (notes.trim()) {
-      text += `📝 *Catatan Khusus:*\n_${notes.trim()}_\n\n`;
     }
 
-    text += `_Dikirim melalui Sistem ERP Bakso Ibu_`;
+    if (vendorItems.length > 0) {
+      text += `*B. ORDER VENDOR / LOGISTIK:*\n`;
+      vendorItems.forEach((line, idx) => {
+        text += `${idx + 1}. ${line}\n`;
+      });
+      text += `\n`;
+    }
+
+    if (cashierItems.length > 0) {
+      text += `*C. BELANJA TUNAI KASIR (LACI):*\n`;
+      cashierItems.forEach((line, idx) => {
+        text += `${idx + 1}. ${line}\n`;
+      });
+      text += `\n`;
+    }
+
+    if (notes.trim()) {
+      text += `📝 *Catatan:* _${notes.trim()}_\n`;
+    }
+
+    text += `------------------------------------\n`;
+    text += `_Dikirim via Sistem ERP Bakso Ibu_`;
 
     if (navigator.share) {
       navigator.share({
-        title: `Permintaan Belanja - ${outletName}`,
+        title: `Order Belanja - ${outletName}`,
         text: text,
       }).catch(() => {
         const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
@@ -399,7 +429,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Tombol Bagikan ke WhatsApp */}
           <button
             type="button"
             onClick={handleShareToWhatsApp}
