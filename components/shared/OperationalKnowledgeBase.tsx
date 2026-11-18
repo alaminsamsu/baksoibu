@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { 
   BookOpen, 
@@ -18,7 +18,10 @@ import {
   ShieldCheck, 
   Layers,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Utensils,
+  Camera,
+  UploadCloud
 } from 'lucide-react';
 
 interface Props {
@@ -28,26 +31,83 @@ interface Props {
   userName?: string;
 }
 
+type DivisionType = 'LEADER' | 'DAPUR' | 'KASIR' | 'PELAYAN' | 'UMUM';
+type ContentType = 'JOBDESK' | 'SOP' | 'MENU_STANDARD';
+type PhaseType = 'OPENING' | 'OPERASIONAL' | 'HANDOVER' | 'CLOSING' | 'ADMINISTRASI';
+
 interface GuideItem {
   id: string;
-  division: 'LEADER' | 'DAPUR' | 'KASIR' | 'PELAYAN' | 'UMUM';
-  content_type: 'JOBDESK' | 'SOP';
-  phase?: 'OPENING' | 'OPERASIONAL' | 'CLOSING' | 'UMUM';
+  division: DivisionType;
+  content_type: ContentType;
+  phase?: PhaseType;
   title: string;
   summary?: string;
   steps: string[];
   responsibilities?: string[];
   notes?: string;
+  menu_photo_url?: string | null;
   updated_at?: string;
 }
 
-const DIVISIONS = [
+interface ParsedStep {
+  numberLabel: string;
+  text: string;
+  isSub: boolean;
+}
+
+const DIVISIONS: { id: DivisionType; label: string; icon: any; color: string }[] = [
   { id: 'LEADER', label: 'Leader Outlet', icon: UserCheck, color: 'text-amber-600 bg-amber-50' },
   { id: 'DAPUR', label: 'Divisi Dapur', icon: ChefHat, color: 'text-orange-600 bg-orange-50' },
   { id: 'KASIR', label: 'Divisi Kasir', icon: Receipt, color: 'text-emerald-600 bg-emerald-50' },
   { id: 'PELAYAN', label: 'Divisi Pelayan / Floor', icon: UtensilsCrossed, color: 'text-blue-600 bg-blue-50' },
   { id: 'UMUM', label: 'Kebijakan Umum HR', icon: ShieldCheck, color: 'text-indigo-600 bg-indigo-50' }
 ];
+
+const SOP_PHASES: { id: PhaseType; title: string; color: string }[] = [
+  { id: 'OPENING', title: 'OPENING', color: 'bg-emerald-500' },
+  { id: 'OPERASIONAL', title: 'OPERASIONAL (RUNNING)', color: 'bg-amber-500' },
+  { id: 'HANDOVER', title: 'SERAH TERIMA SHIFT', color: 'bg-indigo-500' },
+  { id: 'CLOSING', title: 'CLOSING', color: 'bg-rose-500' },
+  { id: 'ADMINISTRASI', title: 'ADMINISTRASI & PELAPORAN', color: 'bg-slate-700' }
+];
+
+// Helper: Parse baris teks menjadi penomoran bertingkat (1., 1.1, 1.2, 2., dst.)
+const parseHierarchicalLines = (lines: string[]): ParsedStep[] => {
+  let mainCount = 0;
+  let subCount = 0;
+
+  return lines.map((rawLine) => {
+    const trimmed = rawLine.trim();
+    // Deteksi sub-poin jika diawali '-', '*', '>', atau pola angka bertingkat seperti '1.1'
+    const isExplicitSub =
+      trimmed.startsWith('-') ||
+      trimmed.startsWith('*') ||
+      trimmed.startsWith('>') ||
+      /^\d+\.\d+/.test(trimmed);
+
+    if (isExplicitSub) {
+      if (mainCount === 0) mainCount = 1;
+      subCount += 1;
+      const cleanText = trimmed
+        .replace(/^[-*>]\s*/, '')
+        .replace(/^\d+\.\d+\.?\s*/, '');
+      return {
+        numberLabel: `${mainCount}.${subCount}`,
+        text: cleanText,
+        isSub: true
+      };
+    } else {
+      mainCount += 1;
+      subCount = 0;
+      const cleanText = trimmed.replace(/^\d+[\.\)]\s*/, '');
+      return {
+        numberLabel: `${mainCount}.`,
+        text: cleanText,
+        isSub: false
+      };
+    }
+  });
+};
 
 export default function OperationalKnowledgeBase({ 
   user, 
@@ -58,8 +118,8 @@ export default function OperationalKnowledgeBase({
   const effectiveRole = (userRole || user?.role || user?.role_name || '').toUpperCase();
   const effectiveIsHR = isHR || effectiveRole.includes('HR') || effectiveRole.includes('OWNER') || effectiveRole.includes('ADMIN');
 
-  const [selectedDivision, setSelectedDivision] = useState<string>('DAPUR');
-  const [selectedType, setSelectedType] = useState<'JOBDESK' | 'SOP'>('SOP');
+  const [selectedDivision, setSelectedDivision] = useState<DivisionType>('DAPUR');
+  const [selectedType, setSelectedType] = useState<ContentType>('SOP');
   const [searchTerm, setSearchTerm] = useState('');
   const [guides, setGuides] = useState<GuideItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,14 +132,18 @@ export default function OperationalKnowledgeBase({
   const [editId, setEditId] = useState<string | null>(null);
 
   // Form State
-  const [formDivision, setFormDivision] = useState<'LEADER' | 'DAPUR' | 'KASIR' | 'PELAYAN' | 'UMUM'>('DAPUR');
-  const [formType, setFormType] = useState<'JOBDESK' | 'SOP'>('SOP');
-  const [formPhase, setFormPhase] = useState<'OPENING' | 'OPERASIONAL' | 'CLOSING' | 'UMUM'>('OPENING');
+  const [formDivision, setFormDivision] = useState<DivisionType>('DAPUR');
+  const [formType, setFormType] = useState<ContentType>('SOP');
+  const [formPhase, setFormPhase] = useState<PhaseType>('OPENING');
   const [formTitle, setFormTitle] = useState('');
   const [formSummary, setFormSummary] = useState('');
   const [formContentList, setFormContentList] = useState<string>('');
   const [formNotes, setFormNotes] = useState('');
+  const [formMenuPhoto, setFormMenuPhoto] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const menuPhotoInputRef = useRef<HTMLInputElement | null>(null);
 
   const defaultInitialGuides: GuideItem[] = [
     {
@@ -90,6 +154,7 @@ export default function OperationalKnowledgeBase({
       summary: 'Tanggung jawab utama atas kualitas rasa, kecepatan penyajian porsi, dan kebersihan dapur.',
       responsibilities: [
         'Memastikan seluruh bahan baku siap pakai sebelum jam operasional dimulai.',
+        '- Mengecek stok bakso beku, mie ayam, bihun, dan bumbu kaldu.',
         'Menjaga konsistensi porsi dan standar penyajian bakso serta mie ayam sesuai gramasi.',
         'Mengontrol suhu kuah kaldu agar selalu panas dan mendidih.',
         'Menjaga kebersihan area masak, panci dandang, dan tempat penyimpanan bahan beku.',
@@ -107,6 +172,7 @@ export default function OperationalKnowledgeBase({
       summary: 'Standar penyalaan api kompor dan pengisian takaran kuah di pagi hari.',
       steps: [
         'Cek kebersihan bagian dalam dandang sebelum diisi air.',
+        '- Pastikan tidak ada sisa kerak bumbu dari shift malam sebelumnya.',
         'Isi air dandang kuah minimal 3/4 volume dandang.',
         'Nyalakan kompor dengan api sedang-tinggi hingga mendidih.',
         'Masukkan bumbu kuah kaldu resmi Bakso Ibu, aduk rata dan cicipi rasa standar.',
@@ -115,117 +181,39 @@ export default function OperationalKnowledgeBase({
       notes: 'Jangan pernah membiarkan air dandang kurang dari 1/2 volume.'
     },
     {
-      id: 'dapur-sop-2',
+      id: 'dapur-sop-handover',
       division: 'DAPUR',
       content_type: 'SOP',
-      phase: 'OPERASIONAL',
-      title: 'Standar Rebus Mie Ayam & Racikan Topping',
-      summary: 'Waktu perebusan mie agar tekstur kenyal dan tidak lembek.',
+      phase: 'HANDOVER',
+      title: 'Serah Terima Area Dapur & Stok Berjalan (Shift 1 ke Shift 2)',
+      summary: 'Prosedur pergantian kru dapur sore hari agar operasional tetap lancar.',
       steps: [
-        'Pastikan air rebusan mie dalam kondisi mendidih bergolak.',
-        'Urai mie ayam sebelum dimasukkan ke saringan rebus.',
-        'Rebus mie ayam selama 1 - 1.5 menit sambil diaduk perlahan.',
-        'Tiriskan mie secara maksimal (kocok saringan 3-4 kali agar air tidak terbawa).',
-        'Tuangkan racikan minyak bumbu ke mangkuk sebelum mie dimasukkan, aduk cepat hingga merata.',
-        'Beri topping ayam cincang dan daun bawang sesuai takaran standar.'
+        'Hitung sisa porsi bakso, ayam topping, mie, dan bihun yang tersedia di chiller.',
+        '- Pastikan bakso beku dari freezer sudah diturunkan ke chiller untuk stok malam.',
+        'Bersihkan meja racik, talenan, dan buang sampah dapur yang sudah penuh.',
+        'Sampaikan informasi bahan yang menipis kepada kru Shift 2 dan Leader.'
       ],
-      notes: 'Ganti air rebusan mie jika sudah mulai keruh dan berbusa.'
+      notes: 'Kru Shift 1 dilarang pulang sebelum meja racik bersih dan stok malam siap.'
     },
     {
-      id: 'dapur-sop-3',
+      id: 'dapur-menu-1',
       division: 'DAPUR',
-      content_type: 'SOP',
-      phase: 'CLOSING',
-      title: 'Pembersihan Kompor, Dandang & Penyimpanan Bahan Sisa',
-      summary: 'Prosedur tutup shift malam untuk sterilisasi dapur.',
+      content_type: 'MENU_STANDARD',
+      title: 'Bakso Campur Spesial Bakso Ibu',
+      summary: 'Standar gramasi komposisi dan urutan penataan mangkuk.',
       steps: [
-        'Matikan seluruh regulator kompor gas dan pastikan tidak ada bau gas menyengat.',
-        'Pindahkan sisa kuah kaldu yang layak ke wadah pendingin.',
-        'Cuci bersih dandang dan tiriskan di rak yang bersih.',
-        'Tutup rapat bahan sisa (daun bawang, bumbu, bakso) dan simpan dalam chiller/freezer.',
-        'Pel lantai dapur dengan karbol pembersih lemak.'
+        'Komposisi Bahan Utama:',
+        '- 1 butir Bakso Urat Besar (belah 4 mekar)',
+        '- 3 butir Bakso Halus',
+        '- 1 buah Tahu Bakso & 1 buah Siomay',
+        '- 80 gr Mie Kuning + 50 gr Bihun Putih (seduh 15 detik)',
+        'Urutan Penyajian (Plating):',
+        '- Masukkan mie & bihun yang sudah ditiriskan ke dasar mangkuk.',
+        '- Susun bakso urat di tengah, kelilingi dengan bakso halus, tahu, dan siomay.',
+        '- Siram kuah kaldu mendidih sebanyak 250 ml.',
+        '- Taburi seledri dan bawang goreng 1 sendok teh di bagian paling atas.'
       ],
-      notes: 'Pastikan regulator tabung gas dicabut saat outlet tutup malam.'
-    },
-    {
-      id: 'kasir-jobdesk-1',
-      division: 'KASIR',
-      content_type: 'JOBDESK',
-      title: 'Jobdesk & Tanggung Jawab Kasir Outlet',
-      summary: 'Tanggung jawab penuh atas penerimaan uang pembayaran, ketelitian input POS, dan setoran.',
-      responsibilities: [
-        'Melayani transaksi pembayaran pelanggan dengan ramah, cepat, dan teliti.',
-        'Menjaga kesesuaian antara uang tunai di laci fisik dengan laporan penjualan sistem.',
-        'Mencatat seluruh pengeluaran kas kecil laci (petty cash) dan melampirkan foto nota fisik.',
-        'Mengelola pesanan online (GrabFood, GoFood, ShopeeFood) agar tidak terlewat.',
-        'Menghitung dan melaporkan rekapan setoran bersih di akhir shift.'
-      ],
-      steps: [],
-      notes: 'Uang laci kasir tidak boleh dipinjamkan atau digunakan untuk keperluan pribadi.'
-    },
-    {
-      id: 'kasir-sop-1',
-      division: 'KASIR',
-      content_type: 'SOP',
-      phase: 'OPENING',
-      title: 'Standar Buka Kasir & Cek Uang Modal (Float)',
-      summary: 'Pengecekan modal receh awal shift.',
-      steps: [
-        'Nyalakan tablet / perangkat POS Olsera / ESB.',
-        'Hitung fisik uang modal laci kembalian (pastikan nominal pecahan sesuai modal awal).',
-        'Cek koneksi internet printer Bluetooth dan kertas struk termal.',
-        'Pastikan kode QRIS statis bersih dan terlihat jelas oleh pembeli.'
-      ],
-      notes: 'Jika modal pecahan awal kurang, segera koordinasikan dengan Leader.'
-    },
-    {
-      id: 'kasir-sop-2',
-      division: 'KASIR',
-      content_type: 'SOP',
-      phase: 'CLOSING',
-      title: 'Rekap Kas Laci, Upload Nota & Penyerahan Setoran',
-      summary: 'Langkah tutup shift kasir di sistem ERP Bakso Ibu.',
-      steps: [
-        'Keluarkan seluruh uang tunai dari laci kasir dan pisahkan per pecahan.',
-        'Buka modul "Rekap Omset & Kas Kasir" di portal outlet.',
-        'Input nominal penjualan tunai, QRIS, dan pesanan online sesuai laporan POS.',
-        'Input pengeluaran laci dan ambil foto nota/bon belanja lewat kamera HP.',
-        'Tentukan sisa uang modal yang ditinggal di laci untuk shift esok.',
-        'Cek status selisih kasir, simpan rekap, dan bagikan ringkasan ke grup WhatsApp.'
-      ],
-      notes: 'Uang bersih setoran wajib diserahkan ke Leader atau disetor ke rekening bank resmi.'
-    },
-    {
-      id: 'leader-jobdesk-1',
-      division: 'LEADER',
-      content_type: 'JOBDESK',
-      title: 'Jobdesk & Tanggung Jawab Leader Outlet',
-      summary: 'Penanggung jawab operasional harian cabang, koordinasi tim, stok bahan, dan kepuasan pelanggan.',
-      responsibilities: [
-        'Memimpin briefing harian sebelum outlet buka dan membagi tugas kru.',
-        'Memeriksa stok harian cabang dan mengajukan pesanan belanja bahan baku ke dapur pusat/vendor.',
-        'Menyetujui (ACC) atau menolak pengajuan lembur (overtime) kru sebelum jam kerja ekstra berjalan.',
-        'Memvalidasi laporan setoran kasir dan memeriksa keaslian nota belanja fisik.',
-        'Menangani komplain pelanggan dengan sopan dan solusi cepat.'
-      ],
-      steps: [],
-      notes: 'Leader adalah role model ketepatan waktu, kedisiplinan, dan keramahan pelayanan.'
-    },
-    {
-      id: 'leader-sop-1',
-      division: 'LEADER',
-      content_type: 'SOP',
-      phase: 'OPERASIONAL',
-      title: 'SOP Pengajuan Order Belanja Cabang',
-      summary: 'Tata cara pemesanan kebutuhan bahan harian ke Logistik & Vendor.',
-      steps: [
-        'Lakukan pengecekan fisik sisa stok di rak, chiller, dan freezer pada sore hari.',
-        'Buka modul "Lembar Permintaan Belanja" di portal outlet.',
-        'Isi jumlah kebutuhan bahan sesuai estimasi penjualan esok hari.',
-        'Tentukan penanggung jawab pembelian (Order Leader / Kasir / Logistik).',
-        'Kirim data ke sistem dan tekan tombol "Bagikan ke WA" untuk dikirim ke tim logistik.'
-      ],
-      notes: 'Pemesanan bahan maksimal dikirim sebelum jam cut-off dapur pusat.'
+      notes: 'Pastikan mangkuk dalam kondisi kering dan bersih sebelum digunakan.'
     }
   ];
 
@@ -257,6 +245,14 @@ export default function OperationalKnowledgeBase({
     fetchGuides();
   }, []);
 
+  // Reset sub-tab jika pindah dari DAPUR saat berada di MENU_STANDARD
+  const handleSelectDivision = (divId: DivisionType) => {
+    setSelectedDivision(divId);
+    if (divId !== 'DAPUR' && selectedType === 'MENU_STANDARD') {
+      setSelectedType('SOP');
+    }
+  };
+
   const filteredGuides = useMemo(() => {
     return guides.filter((g) => {
       const matchDiv = g.division === selectedDivision;
@@ -275,14 +271,16 @@ export default function OperationalKnowledgeBase({
   const groupedSOPByPhase = useMemo(() => {
     if (selectedType !== 'SOP') return null;
 
-    const phases: Record<string, GuideItem[]> = {
+    const phases: Record<PhaseType, GuideItem[]> = {
       OPENING: [],
       OPERASIONAL: [],
-      CLOSING: []
+      HANDOVER: [],
+      CLOSING: [],
+      ADMINISTRASI: []
     };
 
     filteredGuides.forEach((item) => {
-      const phaseKey = item.phase || 'OPERASIONAL';
+      const phaseKey = (item.phase as PhaseType) || 'OPERASIONAL';
       if (phases[phaseKey]) {
         phases[phaseKey].push(item);
       } else {
@@ -293,16 +291,74 @@ export default function OperationalKnowledgeBase({
     return phases;
   }, [filteredGuides, selectedType]);
 
+  // Kompresi foto standar menu
+  const compressImage = (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (e) => {
+        const img = new Image();
+        img.src = e.target?.result as string;
+        img.onload = () => {
+          const maxWidth = 1000;
+          let width = img.width;
+          let height = img.height;
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return reject(new Error('Gagal kanvas'));
+          ctx.drawImage(img, 0, 0, width, height);
+          canvas.toBlob(
+            (blob) => (blob ? resolve(blob) : reject(new Error('Gagal kompres'))),
+            'image/jpeg',
+            0.75
+          );
+        };
+      };
+      reader.onerror = (err) => reject(err);
+    });
+  };
+
+  const handleUploadMenuPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    try {
+      const blob = await compressImage(file);
+      const fileName = `menu_std_${Date.now()}.jpg`;
+      const { error: upErr } = await supabase.storage
+        .from('settlement-receipts')
+        .upload(fileName, blob, { contentType: 'image/jpeg' });
+      if (upErr) throw upErr;
+
+      const { data: pubData } = supabase.storage
+        .from('settlement-receipts')
+        .getPublicUrl(fileName);
+      setFormMenuPhoto(pubData.publicUrl);
+    } catch (err: any) {
+      alert('Gagal upload foto menu: ' + err.message);
+    } finally {
+      setUploadingPhoto(false);
+      if (menuPhotoInputRef.current) menuPhotoInputRef.current.value = '';
+    }
+  };
+
   const handleOpenAddModal = () => {
     setIsEditing(false);
     setEditId(null);
-    setFormDivision(selectedDivision as any);
+    setFormDivision(selectedDivision);
     setFormType(selectedType);
     setFormPhase('OPENING');
     setFormTitle('');
     setFormSummary('');
     setFormContentList('');
     setFormNotes('');
+    setFormMenuPhoto(null);
     setShowAddModal(true);
   };
 
@@ -312,14 +368,16 @@ export default function OperationalKnowledgeBase({
     setEditId(item.id);
     setFormDivision(item.division);
     setFormType(item.content_type);
-    setFormPhase(item.phase || 'OPERASIONAL');
+    setFormPhase((item.phase as PhaseType) || 'OPERASIONAL');
     setFormTitle(item.title);
     setFormSummary(item.summary || '');
-    const listToEdit = item.content_type === 'JOBDESK' 
-      ? (item.responsibilities || []).join('\n')
-      : (item.steps || []).join('\n');
+    const listToEdit =
+      item.content_type === 'JOBDESK'
+        ? (item.responsibilities || []).join('\n')
+        : (item.steps || []).join('\n');
     setFormContentList(listToEdit);
     setFormNotes(item.notes || '');
+    setFormMenuPhoto(item.menu_photo_url || null);
     setActiveDetailItem(null);
     setShowAddModal(true);
   };
@@ -345,9 +403,10 @@ export default function OperationalKnowledgeBase({
       phase: formType === 'SOP' ? formPhase : undefined,
       title: formTitle.trim(),
       summary: formSummary.trim(),
-      steps: formType === 'SOP' ? lines : [],
+      steps: formType !== 'JOBDESK' ? lines : [],
       responsibilities: formType === 'JOBDESK' ? lines : [],
       notes: formNotes.trim(),
+      menu_photo_url: formType === 'MENU_STANDARD' ? formMenuPhoto : null,
       updated_at: new Intl.DateTimeFormat('id-ID', { timeZone: 'Asia/Makassar' }).format(new Date())
     };
 
@@ -369,7 +428,7 @@ export default function OperationalKnowledgeBase({
       setShowAddModal(false);
     } catch (err: any) {
       setStatusMsg({
-        text: `Gagal menyimpan ke database: ${err.message}. Pastikan SQL tabel knowledge_base_articles sudah dijalankan.`,
+        text: `Gagal menyimpan ke database: ${err.message}`,
         type: 'error'
       });
       setShowAddModal(false);
@@ -379,7 +438,7 @@ export default function OperationalKnowledgeBase({
   };
 
   const handleDeleteGuide = async (id: string) => {
-    if (!confirm('Yakin ingin menghapus panduan/jobdesk ini?')) return;
+    if (!confirm('Yakin ingin menghapus materi ini?')) return;
     try {
       const { error } = await supabase.from('knowledge_base_articles').delete().eq('id', id);
       if (error) throw error;
@@ -409,7 +468,7 @@ export default function OperationalKnowledgeBase({
               </span>
             </div>
             <p className="text-xs font-medium text-slate-400">
-              Standar operasional prosedur dan rincian tanggung jawab kru per bagian.
+              Standar operasional prosedur, rincian tugas per divisi & takaran penyajian menu.
             </p>
           </div>
         </div>
@@ -419,7 +478,7 @@ export default function OperationalKnowledgeBase({
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3 pointer-events-none" />
             <input
               type="text"
-              placeholder="Cari materi / panduan..."
+              placeholder="Cari materi / menu..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none w-48 sm:w-60"
@@ -470,7 +529,7 @@ export default function OperationalKnowledgeBase({
             <button
               key={div.id}
               type="button"
-              onClick={() => setSelectedDivision(div.id)}
+              onClick={() => handleSelectDivision(div.id)}
               className={`px-4 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
                 isActive
                   ? 'bg-slate-900 text-white shadow-md shadow-slate-900/10'
@@ -484,9 +543,9 @@ export default function OperationalKnowledgeBase({
         })}
       </div>
 
-      {/* 3. SWITCH MODE: JOBDESK vs SOP */}
-      <div className="flex items-center justify-between bg-slate-50/80 p-2 rounded-2xl border border-slate-100">
-        <div className="flex gap-1.5">
+      {/* 3. SWITCH MODE: JOBDESK vs SOP (+ STANDAR PENYAJIAN MENU KHUSUS DAPUR) */}
+      <div className="flex flex-wrap items-center justify-between bg-slate-50/80 p-2 rounded-2xl border border-slate-100 gap-2">
+        <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
             onClick={() => setSelectedType('JOBDESK')}
@@ -512,6 +571,21 @@ export default function OperationalKnowledgeBase({
             <FileText className="w-4 h-4 text-orange-600" />
             <span>2. SOP & Langkah Kerja Lapangan</span>
           </button>
+
+          {selectedDivision === 'DAPUR' && (
+            <button
+              type="button"
+              onClick={() => setSelectedType('MENU_STANDARD')}
+              className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all cursor-pointer ${
+                selectedType === 'MENU_STANDARD'
+                  ? 'bg-white text-emerald-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <Utensils className="w-4 h-4 text-emerald-600" />
+              <span>3. Standar Penyajian Per Menu</span>
+            </button>
+          )}
         </div>
 
         <span className="text-[10px] font-bold text-slate-400 pr-2 hidden sm:inline">
@@ -528,7 +602,13 @@ export default function OperationalKnowledgeBase({
         <div className="py-16 text-center bg-slate-50/60 rounded-3xl border border-dashed border-slate-200 p-8 space-y-2">
           <Layers className="w-8 h-8 text-slate-300 mx-auto" />
           <p className="text-xs font-bold text-slate-500">
-            Belum ada data {selectedType === 'JOBDESK' ? 'Jobdesk' : 'SOP'} untuk divisi ini.
+            Belum ada data{' '}
+            {selectedType === 'JOBDESK'
+              ? 'Jobdesk'
+              : selectedType === 'MENU_STANDARD'
+              ? 'Standar Penyajian Menu'
+              : 'SOP'}{' '}
+            untuk bagian ini.
           </p>
           {effectiveIsHR && (
             <button
@@ -543,79 +623,152 @@ export default function OperationalKnowledgeBase({
       ) : selectedType === 'JOBDESK' ? (
         /* --- TAMPILAN JOBDESK --- */
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filteredGuides.map((item) => (
-            <div
-              key={item.id}
-              onClick={() => setActiveDetailItem(item)}
-              className="p-5 rounded-3xl border border-slate-100 bg-white hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer space-y-3 group"
-            >
-              <div className="flex items-start justify-between">
-                <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase rounded-lg">
-                  Tanggung Jawab Divisi
-                </span>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-slate-400">
-                    {item.responsibilities?.length || 0} Poin Utama
+          {filteredGuides.map((item) => {
+            const parsed = parseHierarchicalLines(item.responsibilities || []);
+            return (
+              <div
+                key={item.id}
+                onClick={() => setActiveDetailItem(item)}
+                className="p-5 rounded-3xl border border-slate-100 bg-white hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer space-y-3 group"
+              >
+                <div className="flex items-start justify-between">
+                  <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase rounded-lg">
+                    Tanggung Jawab Divisi
                   </span>
-                  {effectiveIsHR && (
-                    <button
-                      type="button"
-                      onClick={(e) => handleOpenEditModal(item, e)}
-                      className="p-1.5 rounded-lg bg-slate-50 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
-                      title="Edit Jobdesk"
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-400">
+                      {parsed.filter((p) => !p.isSub).length} Poin Utama
+                    </span>
+                    {effectiveIsHR && (
+                      <button
+                        type="button"
+                        onClick={(e) => handleOpenEditModal(item, e)}
+                        className="p-1.5 rounded-lg bg-slate-50 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
+                        title="Edit Jobdesk"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 group-hover:text-indigo-600 transition-colors">
+                    {item.title}
+                  </h3>
+                  {item.summary && (
+                    <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+                      {item.summary}
+                    </p>
+                  )}
+                </div>
+
+                <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                  {parsed.slice(0, 4).map((p, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex items-start gap-2 text-xs font-medium ${
+                        p.isSub ? 'pl-4 text-slate-500 text-[11px]' : 'text-slate-700'
+                      }`}
                     >
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
+                      <span className="font-bold text-indigo-600 shrink-0">{p.numberLabel}</span>
+                      <span className="line-clamp-1">{p.text}</span>
+                    </div>
+                  ))}
+                  {parsed.length > 4 && (
+                    <p className="text-[10px] font-bold text-indigo-600 pt-0.5">
+                      +{parsed.length - 4} rincian lainnya (klik untuk buka)
+                    </p>
                   )}
                 </div>
               </div>
-
-              <div>
-                <h3 className="text-sm font-black text-slate-900 group-hover:text-indigo-600 transition-colors">
-                  {item.title}
-                </h3>
-                {item.summary && (
-                  <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
-                    {item.summary}
-                  </p>
-                )}
-              </div>
-
-              <div className="pt-2 border-t border-slate-100 space-y-1.5">
-                {(item.responsibilities || []).slice(0, 3).map((resp, idx) => (
-                  <div key={idx} className="flex items-start gap-2 text-xs text-slate-700 font-medium">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-1.5 shrink-0"></span>
-                    <span className="line-clamp-1">{resp}</span>
+            );
+          })}
+        </div>
+      ) : selectedType === 'MENU_STANDARD' ? (
+        /* --- TAMPILAN STANDAR PENYAJIAN PER MENU (KHUSUS DAPUR) --- */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredGuides.map((menu) => {
+            const parsed = parseHierarchicalLines(menu.steps || []);
+            return (
+              <div
+                key={menu.id}
+                onClick={() => setActiveDetailItem(menu)}
+                className="rounded-3xl border border-slate-100 bg-white hover:border-emerald-300 hover:shadow-md transition-all cursor-pointer overflow-hidden flex flex-col group"
+              >
+                {menu.menu_photo_url && (
+                  <div className="h-40 w-full bg-slate-100 overflow-hidden relative">
+                    <img
+                      src={menu.menu_photo_url}
+                      alt={menu.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    />
                   </div>
-                ))}
-                {(item.responsibilities?.length || 0) > 3 && (
-                  <p className="text-[10px] font-bold text-indigo-600 pt-0.5">
-                    +{item.responsibilities!.length - 3} tanggung jawab lainnya (klik untuk buka)
-                  </p>
                 )}
+
+                <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase rounded-lg">
+                        Standar Gramasi & Plating
+                      </span>
+                      {effectiveIsHR && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenEditModal(menu, e)}
+                          className="p-1.5 rounded-lg bg-slate-50 hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-colors cursor-pointer"
+                          title="Edit Standar Menu"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    <h3 className="text-sm font-black text-slate-900 group-hover:text-emerald-600 transition-colors">
+                      {menu.title}
+                    </h3>
+
+                    {menu.summary && (
+                      <p className="text-xs text-slate-500 line-clamp-2">{menu.summary}</p>
+                    )}
+
+                    <div className="pt-2 border-t border-slate-100 space-y-1">
+                      {parsed.slice(0, 4).map((p, idx) => (
+                        <div
+                          key={idx}
+                          className={`flex items-start gap-1.5 text-[11px] ${
+                            p.isSub ? 'pl-3.5 text-slate-600' : 'font-bold text-slate-800'
+                          }`}
+                        >
+                          <span className="text-emerald-600 font-black shrink-0">{p.numberLabel}</span>
+                          <span className="line-clamp-1">{p.text}</span>
+                        </div>
+                      ))}
+                      {parsed.length > 4 && (
+                        <span className="text-[10px] font-bold text-emerald-600 block pt-0.5">
+                          +{parsed.length - 4} detail takaran lainnya (klik untuk buka)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
-        /* --- TAMPILAN SOP --- */
+        /* --- TAMPILAN SOP (5 FASE: OPENING, OPERASIONAL, HANDOVER, CLOSING, ADMINISTRASI) --- */
         <div className="space-y-6">
-          {(['OPENING', 'OPERASIONAL', 'CLOSING'] as const).map((phase) => {
-            const phaseItems = groupedSOPByPhase?.[phase] || [];
+          {SOP_PHASES.map((phaseObj) => {
+            const phaseItems = groupedSOPByPhase?.[phaseObj.id] || [];
             if (phaseItems.length === 0) return null;
 
-            const phaseLabels = {
-              OPENING: { title: 'OPENING', color: 'bg-emerald-500' },
-              OPERASIONAL: { title: 'OPERASIONAL (RUNNING)', color: 'bg-amber-500' },
-              CLOSING: { title: 'CLOSING', color: 'bg-rose-500' }
-            };
-
             return (
-              <div key={phase} className="space-y-3">
+              <div key={phaseObj.id} className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${phaseLabels[phase].color}`}></span>
+                  <span className={`w-2.5 h-2.5 rounded-full ${phaseObj.color}`}></span>
                   <h3 className="text-xs font-black uppercase tracking-wider text-slate-800">
-                    {phaseLabels[phase].title}
+                    {phaseObj.title}
                   </h3>
                   <span className="text-[10px] text-slate-400 font-medium">
                     ({phaseItems.length} Standar Kerja)
@@ -623,48 +776,58 @@ export default function OperationalKnowledgeBase({
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {phaseItems.map((sop) => (
-                    <div
-                      key={sop.id}
-                      onClick={() => setActiveDetailItem(sop)}
-                      className="p-4 rounded-2xl border border-slate-100 bg-white hover:border-orange-300 hover:shadow-xs transition-all cursor-pointer space-y-2.5 group"
-                    >
-                      <div className="flex items-center justify-between text-[10px] text-slate-400">
-                        <span className="font-bold text-orange-600">✓ {sop.steps.length} Langkah SOP</span>
-                        <div className="flex items-center gap-1.5">
-                          {sop.updated_at && <span>{sop.updated_at}</span>}
-                          {effectiveIsHR && (
-                            <button
-                              type="button"
-                              onClick={(e) => handleOpenEditModal(sop, e)}
-                              className="p-1 rounded-md bg-slate-50 hover:bg-orange-50 text-slate-400 hover:text-orange-600 transition-colors cursor-pointer"
-                              title="Edit SOP"
+                  {phaseItems.map((sop) => {
+                    const parsed = parseHierarchicalLines(sop.steps || []);
+                    return (
+                      <div
+                        key={sop.id}
+                        onClick={() => setActiveDetailItem(sop)}
+                        className="p-4 rounded-2xl border border-slate-100 bg-white hover:border-orange-300 hover:shadow-xs transition-all cursor-pointer space-y-2.5 group"
+                      >
+                        <div className="flex items-center justify-between text-[10px] text-slate-400">
+                          <span className="font-bold text-orange-600">
+                            ✓ {parsed.filter((p) => !p.isSub).length} Langkah Utama
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {sop.updated_at && <span>{sop.updated_at}</span>}
+                            {effectiveIsHR && (
+                              <button
+                                type="button"
+                                onClick={(e) => handleOpenEditModal(sop, e)}
+                                className="p-1 rounded-md bg-slate-50 hover:bg-orange-50 text-slate-400 hover:text-orange-600 transition-colors cursor-pointer"
+                                title="Edit SOP"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <h4 className="text-xs font-black text-slate-900 group-hover:text-orange-600 transition-colors leading-snug">
+                          {sop.title}
+                        </h4>
+
+                        <div className="space-y-1 pt-1">
+                          {parsed.slice(0, 3).map((step, sIdx) => (
+                            <div
+                              key={sIdx}
+                              className={`flex items-start gap-1.5 text-[11px] ${
+                                step.isSub ? 'pl-3.5 text-slate-500' : 'text-slate-700 font-medium'
+                              }`}
                             >
-                              <Edit3 className="w-3 h-3" />
-                            </button>
+                              <span className="text-slate-400 font-bold shrink-0">{step.numberLabel}</span>
+                              <span className="line-clamp-1">{step.text}</span>
+                            </div>
+                          ))}
+                          {parsed.length > 3 && (
+                            <span className="text-[10px] font-bold text-orange-600 block pt-0.5">
+                              +{parsed.length - 3} detail langkah lainnya (klik untuk buka)
+                            </span>
                           )}
                         </div>
                       </div>
-
-                      <h4 className="text-xs font-black text-slate-900 group-hover:text-orange-600 transition-colors leading-snug">
-                        {sop.title}
-                      </h4>
-
-                      <div className="space-y-1 pt-1">
-                        {sop.steps.slice(0, 2).map((step, sIdx) => (
-                          <div key={sIdx} className="flex items-start gap-1.5 text-[11px] text-slate-600">
-                            <span className="text-slate-400 font-bold shrink-0">{sIdx + 1}.</span>
-                            <span className="line-clamp-1">{step}</span>
-                          </div>
-                        ))}
-                        {sop.steps.length > 2 && (
-                          <span className="text-[10px] font-bold text-orange-600 block pt-0.5">
-                            +{sop.steps.length - 2} langkah lainnya (klik untuk buka)
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -672,19 +835,27 @@ export default function OperationalKnowledgeBase({
         </div>
       )}
 
-      {/* 5. MODAL POPUP DETAIL DOKUMEN */}
+      {/* 5. MODAL POPUP DETAIL DOKUMEN (MENDUKUNG PENOMORAN BERTINGKAT 1., 1.1, 1.2) */}
       {activeDetailItem && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 space-y-5 shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col">
             <div className="flex items-start justify-between pb-3 border-b border-slate-100">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
-                    activeDetailItem.content_type === 'JOBDESK'
-                      ? 'bg-indigo-50 text-indigo-700'
-                      : 'bg-orange-50 text-orange-700'
-                  }`}>
-                    {activeDetailItem.content_type === 'JOBDESK' ? 'URAIAN JOBDESK' : `SOP • ${activeDetailItem.phase || 'OPERASIONAL'}`}
+                  <span
+                    className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
+                      activeDetailItem.content_type === 'JOBDESK'
+                        ? 'bg-indigo-50 text-indigo-700'
+                        : activeDetailItem.content_type === 'MENU_STANDARD'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-orange-50 text-orange-700'
+                    }`}
+                  >
+                    {activeDetailItem.content_type === 'JOBDESK'
+                      ? 'URAIAN JOBDESK'
+                      : activeDetailItem.content_type === 'MENU_STANDARD'
+                      ? 'STANDAR PENYAJIAN MENU'
+                      : `SOP • ${SOP_PHASES.find((p) => p.id === activeDetailItem.phase)?.title || activeDetailItem.phase}`}
                   </span>
                   <span className="text-xs font-bold text-slate-400">
                     Divisi: {DIVISIONS.find((d) => d.id === activeDetailItem.division)?.label}
@@ -705,47 +876,75 @@ export default function OperationalKnowledgeBase({
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              {activeDetailItem.menu_photo_url && (
+                <div className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-900 max-h-60 flex items-center justify-center">
+                  <img
+                    src={activeDetailItem.menu_photo_url}
+                    alt={activeDetailItem.title}
+                    className="w-full h-full object-contain max-h-60"
+                  />
+                </div>
+              )}
+
               {activeDetailItem.summary && (
                 <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs text-slate-600 font-medium">
                   {activeDetailItem.summary}
                 </div>
               )}
 
-              {activeDetailItem.content_type === 'JOBDESK' && activeDetailItem.responsibilities && (
-                <div className="space-y-2">
-                  <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
-                    Daftar Tanggung Jawab & Target Kerja:
-                  </h4>
-                  <div className="space-y-2">
-                    {activeDetailItem.responsibilities.map((resp, idx) => (
-                      <div key={idx} className="p-3 rounded-xl bg-indigo-50/40 border border-indigo-100 text-xs font-semibold text-slate-800 flex items-start gap-2.5">
-                        <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">
-                          {idx + 1}
-                        </span>
-                        <span className="leading-relaxed">{resp}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {(() => {
+                const rawLines =
+                  activeDetailItem.content_type === 'JOBDESK'
+                    ? activeDetailItem.responsibilities || []
+                    : activeDetailItem.steps || [];
+                const parsedItems = parseHierarchicalLines(rawLines);
+                const badgeColor =
+                  activeDetailItem.content_type === 'JOBDESK'
+                    ? 'bg-indigo-600'
+                    : activeDetailItem.content_type === 'MENU_STANDARD'
+                    ? 'bg-emerald-600'
+                    : 'bg-orange-500';
 
-              {activeDetailItem.content_type === 'SOP' && activeDetailItem.steps && (
-                <div className="space-y-2">
-                  <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
-                    Langkah Kerja Petunjuk Lapangan:
-                  </h4>
+                return (
                   <div className="space-y-2">
-                    {activeDetailItem.steps.map((step, idx) => (
-                      <div key={idx} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs font-semibold text-slate-800 flex items-start gap-2.5">
-                        <span className="w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center text-[10px] font-black shrink-0 mt-0.5">
-                          {idx + 1}
-                        </span>
-                        <span className="leading-relaxed">{step}</span>
-                      </div>
-                    ))}
+                    <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider">
+                      {activeDetailItem.content_type === 'JOBDESK'
+                        ? 'Daftar Tanggung Jawab & Target Kerja:'
+                        : activeDetailItem.content_type === 'MENU_STANDARD'
+                        ? 'Komposisi Gramasi & Urutan Penyajian:'
+                        : 'Langkah Kerja Petunjuk Lapangan:'}
+                    </h4>
+
+                    <div className="space-y-1.5">
+                      {parsedItems.map((p, idx) =>
+                        p.isSub ? (
+                          <div
+                            key={idx}
+                            className="ml-6 p-2.5 rounded-xl bg-slate-50/90 border border-slate-100 text-xs text-slate-700 flex items-start gap-2"
+                          >
+                            <span className="font-black text-slate-500 text-[11px] shrink-0 mt-0.5">
+                              {p.numberLabel}
+                            </span>
+                            <span className="leading-relaxed">{p.text}</span>
+                          </div>
+                        ) : (
+                          <div
+                            key={idx}
+                            className="p-3 rounded-xl bg-slate-50 border border-slate-200/70 text-xs font-bold text-slate-900 flex items-start gap-2.5 mt-2 first:mt-0"
+                          >
+                            <span
+                              className={`px-2 py-0.5 rounded-lg ${badgeColor} text-white text-[10px] font-black shrink-0 mt-0.5`}
+                            >
+                              {p.numberLabel}
+                            </span>
+                            <span className="leading-relaxed">{p.text}</span>
+                          </div>
+                        )
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {activeDetailItem.notes && (
                 <div className="p-3 bg-amber-50/70 rounded-2xl border border-amber-200/70 text-xs text-amber-900 space-y-1">
@@ -778,7 +977,9 @@ export default function OperationalKnowledgeBase({
                     <span>Hapus</span>
                   </button>
                 </div>
-              ) : <div />}
+              ) : (
+                <div />
+              )}
 
               <button
                 type="button"
@@ -795,10 +996,10 @@ export default function OperationalKnowledgeBase({
       {/* 6. MODAL INPUT TAMBAH / EDIT DOKUMEN HR */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-slate-100">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-slate-100 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="text-sm font-black text-slate-900 uppercase">
-                {isEditing ? 'Edit Materi Panduan' : 'Tambah Materi Jobdesk / SOP Baru'}
+                {isEditing ? 'Edit Materi Panduan' : 'Tambah Materi Baru'}
               </h3>
               <button
                 type="button"
@@ -817,11 +1018,19 @@ export default function OperationalKnowledgeBase({
                   </label>
                   <select
                     value={formDivision}
-                    onChange={(e: any) => setFormDivision(e.target.value)}
+                    onChange={(e: any) => {
+                      const val = e.target.value as DivisionType;
+                      setFormDivision(val);
+                      if (val !== 'DAPUR' && formType === 'MENU_STANDARD') {
+                        setFormType('SOP');
+                      }
+                    }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800"
                   >
                     {DIVISIONS.map((d) => (
-                      <option key={d.id} value={d.id}>{d.label}</option>
+                      <option key={d.id} value={d.id}>
+                        {d.label}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -832,11 +1041,14 @@ export default function OperationalKnowledgeBase({
                   </label>
                   <select
                     value={formType}
-                    onChange={(e: any) => setFormType(e.target.value)}
+                    onChange={(e: any) => setFormType(e.target.value as ContentType)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800"
                   >
                     <option value="SOP">SOP (Standar Operasional)</option>
                     <option value="JOBDESK">Jobdesk (Uraian Tugas)</option>
+                    {formDivision === 'DAPUR' && (
+                      <option value="MENU_STANDARD">Standar Penyajian Menu</option>
+                    )}
                   </select>
                 </div>
               </div>
@@ -848,29 +1060,74 @@ export default function OperationalKnowledgeBase({
                   </label>
                   <select
                     value={formPhase}
-                    onChange={(e: any) => setFormPhase(e.target.value)}
+                    onChange={(e: any) => setFormPhase(e.target.value as PhaseType)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800"
                   >
                     <option value="OPENING">OPENING (Persiapan Buka Toko)</option>
                     <option value="OPERASIONAL">OPERASIONAL (Saat Melayani Tamu)</option>
+                    <option value="HANDOVER">SERAH TERIMA SHIFT (Pergantian Shift 1 → 2)</option>
                     <option value="CLOSING">CLOSING (Bersih-bersih & Tutup Toko)</option>
+                    <option value="ADMINISTRASI">ADMINISTRASI & PELAPORAN (Stok, Order & WA)</option>
                   </select>
                 </div>
               )}
 
               <div>
                 <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
-                  Judul Materi
+                  {formType === 'MENU_STANDARD' ? 'Nama Menu' : 'Judul Materi'}
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="Misal: Standar Pembersihan Kompor Dapur / Standar Salam Kasir"
+                  placeholder={
+                    formType === 'MENU_STANDARD'
+                      ? 'Misal: Bakso Urat Spesial / Mie Ayam Bakso'
+                      : 'Misal: Serah Terima Laci Kasir / Persiapan Dandang'
+                  }
                   value={formTitle}
                   onChange={(e) => setFormTitle(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800"
                 />
               </div>
+
+              {/* Upload Foto Standar Penyajian Menu (Khusus MENU_STANDARD) */}
+              {formType === 'MENU_STANDARD' && (
+                <div className="p-3 bg-emerald-50/50 rounded-2xl border border-emerald-100 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase text-emerald-800 flex items-center gap-1">
+                      <Camera className="w-3.5 h-3.5" /> Foto Contoh Penyajian / Plating (Opsional)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => menuPhotoInputRef.current?.click()}
+                      disabled={uploadingPhoto}
+                      className="px-2.5 py-1 bg-white hover:bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold rounded-lg flex items-center gap-1 cursor-pointer"
+                    >
+                      <UploadCloud className="w-3 h-3" />
+                      <span>{uploadingPhoto ? 'Mengunggah...' : formMenuPhoto ? 'Ganti Foto' : '+ Upload Foto'}</span>
+                    </button>
+                    <input
+                      ref={menuPhotoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleUploadMenuPhoto}
+                    />
+                  </div>
+                  {formMenuPhoto && (
+                    <div className="relative w-28 h-20 rounded-xl overflow-hidden border border-emerald-200">
+                      <img src={formMenuPhoto} alt="Preview Menu" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setFormMenuPhoto(null)}
+                        className="absolute top-1 right-1 p-0.5 bg-black/60 text-white rounded-full cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div>
                 <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
@@ -878,7 +1135,7 @@ export default function OperationalKnowledgeBase({
                 </label>
                 <input
                   type="text"
-                  placeholder="Deskripsi singkat tujuan dari SOP atau Jobdesk ini..."
+                  placeholder="Deskripsi singkat tujuan panduan atau keterangan menu..."
                   value={formSummary}
                   onChange={(e) => setFormSummary(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-700"
@@ -886,16 +1143,25 @@ export default function OperationalKnowledgeBase({
               </div>
 
               <div>
-                <label className="block text-[10px] font-black uppercase text-slate-400 mb-1">
-                  {formType === 'JOBDESK' ? 'Poin-Poin Tanggung Jawab (1 baris per poin)' : 'Langkah-Langkah SOP (1 baris per langkah)'}
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[10px] font-black uppercase text-slate-400">
+                    {formType === 'JOBDESK'
+                      ? 'Poin Tanggung Jawab'
+                      : formType === 'MENU_STANDARD'
+                      ? 'Komposisi Gramasi & Urutan Penyajian'
+                      : 'Langkah Kerja SOP'}
+                  </label>
+                  <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                    Awali baris dengan &ldquo;-&rdquo; untuk sub-detail (1.1, 1.2)
+                  </span>
+                </div>
                 <textarea
                   required
-                  rows={4}
-                  placeholder={`Tulis tiap poin di baris baru:\nPastikan dandang bersih\nNyalakan kompor api sedang\nCek takaran bumbu kaldu`}
+                  rows={5}
+                  placeholder={`Contoh penulisan bertingkat:\nPersiapan Dandang Kuah\n- Pastikan bagian dalam dandang bersih\n- Isi air minimal 3/4 dandang\nNyalakan Kompor Api Sedang`}
                   value={formContentList}
                   onChange={(e) => setFormContentList(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 resize-none"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-medium text-slate-800 resize-none leading-relaxed"
                 />
               </div>
 
@@ -905,7 +1171,7 @@ export default function OperationalKnowledgeBase({
                 </label>
                 <input
                   type="text"
-                  placeholder="Misal: Dilarang bermain HP saat jam operasional..."
+                  placeholder="Misal: Kuah wajib mendidih saat disiram ke mangkuk..."
                   value={formNotes}
                   onChange={(e) => setFormNotes(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-700"
