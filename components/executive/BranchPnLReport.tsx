@@ -54,6 +54,8 @@ interface PnLData {
   omsetDineIn: number;
   omsetOnline: number;
   totalCustomer: number;
+  activeDaysCount: number;
+  averageDailyTC: number;
   averagePerCustomer: number;
   vendorBreakdown: Record<string, number>;
   totalCogs: number;
@@ -106,6 +108,7 @@ export default function BranchPnLReport() {
   const [totalHqSharedPool, setTotalHqSharedPool] = useState<number>(0);
   const [totalFinancingPool, setTotalFinancingPool] = useState<number>(0);
   const [totalOtherExpPool, setTotalOtherExpPool] = useState<number>(0);
+  const [totalUniqueActiveDaysAll, setTotalUniqueActiveDaysAll] = useState<number>(0);
 
   const [activeDrillDown, setActiveDrillDown] = useState<ActiveDrillDown | null>(null);
 
@@ -198,21 +201,22 @@ export default function BranchPnLReport() {
       (hqExpenses || []).forEach((exp: any) => {
         const val = Number(exp.amount || 0);
         const cat = exp.expense_category || '';
+        const expLocId = exp.location_id ? String(exp.location_id) : '';
 
         if (cat.startsWith('COGS_') || cat === 'COGS_VENDOR') {
           const vName = normalizeVendorName(exp.expense_name?.replace(/^\[COGS - /i, '').replace(/\].*$/, ''));
           if (exp.is_shared_to_all_branches) {
             ownerSharedCogsVendorMap[vName] = (ownerSharedCogsVendorMap[vName] || 0) + val;
-          } else if (exp.location_id) {
-            if (!ownerManualCogsVendorMap[exp.location_id]) ownerManualCogsVendorMap[exp.location_id] = {};
-            ownerManualCogsVendorMap[exp.location_id][vName] = (ownerManualCogsVendorMap[exp.location_id][vName] || 0) + val;
+          } else if (expLocId) {
+            if (!ownerManualCogsVendorMap[expLocId]) ownerManualCogsVendorMap[expLocId] = {};
+            ownerManualCogsVendorMap[expLocId][vName] = (ownerManualCogsVendorMap[expLocId][vName] || 0) + val;
           }
 
           logs.push({
             id: exp.id,
             date: exp.expense_date,
-            locationId: exp.location_id || 'shared',
-            locationName: exp.is_shared_to_all_branches ? 'Bagi Rata Seluruh Cabang' : cleanLocationName(locations.find(l => l.id === exp.location_id)?.name),
+            locationId: expLocId || 'shared',
+            locationName: exp.is_shared_to_all_branches ? 'Bagi Rata Seluruh Cabang' : cleanLocationName(locations.find(l => String(l.id) === expLocId)?.name),
             componentType: 'COGS_VENDOR',
             vendorOrChannel: vName,
             nominal: val,
@@ -223,15 +227,15 @@ export default function BranchPnLReport() {
         else if (cat === 'STORE_OPEX') {
           if (exp.is_shared_to_all_branches) {
             sharedHqPool += val;
-          } else if (exp.location_id) {
-            ownerManualOpexMap[exp.location_id] = (ownerManualOpexMap[exp.location_id] || 0) + val;
+          } else if (expLocId) {
+            ownerManualOpexMap[expLocId] = (ownerManualOpexMap[expLocId] || 0) + val;
           }
 
           logs.push({
             id: exp.id,
             date: exp.expense_date,
-            locationId: exp.location_id || 'shared',
-            locationName: exp.is_shared_to_all_branches ? 'Bagi Rata Seluruh Cabang' : cleanLocationName(locations.find(l => l.id === exp.location_id)?.name),
+            locationId: expLocId || 'shared',
+            locationName: exp.is_shared_to_all_branches ? 'Bagi Rata Seluruh Cabang' : cleanLocationName(locations.find(l => String(l.id) === expLocId)?.name),
             componentType: 'CASHIER_EXPENSE',
             vendorOrChannel: 'Biaya Operasional Toko',
             nominal: val,
@@ -239,21 +243,21 @@ export default function BranchPnLReport() {
             reporter: exp.created_by || 'Owner'
           });
         }
-        else if (cat === 'STORE_UTILITY' && exp.location_id && !exp.is_shared_to_all_branches) {
-          utilityDirectMap[exp.location_id] = (utilityDirectMap[exp.location_id] || 0) + val;
+        else if (cat === 'STORE_UTILITY' && expLocId && !exp.is_shared_to_all_branches) {
+          utilityDirectMap[expLocId] = (utilityDirectMap[expLocId] || 0) + val;
         }
         else if (cat === 'FINANCING_EXPENSE') {
           if (exp.is_shared_to_all_branches) {
             sharedFinancingPool += val;
-          } else if (exp.location_id) {
-            directFinancingMap[exp.location_id] = (directFinancingMap[exp.location_id] || 0) + val;
+          } else if (expLocId) {
+            directFinancingMap[expLocId] = (directFinancingMap[expLocId] || 0) + val;
           }
 
           logs.push({
             id: exp.id,
             date: exp.expense_date,
-            locationId: exp.location_id || 'shared',
-            locationName: exp.is_shared_to_all_branches ? 'Bagi Rata Seluruh Cabang' : cleanLocationName(locations.find(l => l.id === exp.location_id)?.name),
+            locationId: expLocId || 'shared',
+            locationName: exp.is_shared_to_all_branches ? 'Bagi Rata Seluruh Cabang' : cleanLocationName(locations.find(l => String(l.id) === expLocId)?.name),
             componentType: 'FINANCING',
             vendorOrChannel: 'Beban Financing / Pinjaman',
             nominal: val,
@@ -264,15 +268,15 @@ export default function BranchPnLReport() {
         else if (cat === 'OTHER_EXPENSE') {
           if (exp.is_shared_to_all_branches) {
             sharedOtherPool += val;
-          } else if (exp.location_id) {
-            directOtherMap[exp.location_id] = (directOtherMap[exp.location_id] || 0) + val;
+          } else if (expLocId) {
+            directOtherMap[expLocId] = (directOtherMap[expLocId] || 0) + val;
           }
 
           logs.push({
             id: exp.id,
             date: exp.expense_date,
-            locationId: exp.location_id || 'shared',
-            locationName: exp.is_shared_to_all_branches ? 'Bagi Rata Seluruh Cabang' : cleanLocationName(locations.find(l => l.id === exp.location_id)?.name),
+            locationId: expLocId || 'shared',
+            locationName: exp.is_shared_to_all_branches ? 'Bagi Rata Seluruh Cabang' : cleanLocationName(locations.find(l => String(l.id) === expLocId)?.name),
             componentType: 'OTHER',
             vendorOrChannel: 'Beban Lain-Lain',
             nominal: val,
@@ -297,7 +301,8 @@ export default function BranchPnLReport() {
       const payrollMap: Record<string, number> = {};
       (payrollData || []).forEach((pay: any) => {
         if (pay.location_id) {
-          payrollMap[pay.location_id] = (payrollMap[pay.location_id] || 0) + Number(pay.total_net_salary || 0);
+          const pLocId = String(pay.location_id);
+          payrollMap[pLocId] = (payrollMap[pLocId] || 0) + Number(pay.total_net_salary || 0);
         }
       });
 
@@ -314,15 +319,23 @@ export default function BranchPnLReport() {
       const omsetDineInMap: Record<string, number> = {};
       const omsetOnlineMap: Record<string, number> = {};
       const customerCountMap: Record<string, number> = {};
+      const activeDatesPerLocMap: Record<string, Set<string>> = {};
+      const allActiveDatesSet = new Set<string>();
       const cashierExpMap: Record<string, number> = {};
       const vendorPerLocMap: Record<string, Record<string, number>> = {};
       const discoveredVendors = new Set<string>(['Rumah Produksi']);
 
       (settlements || []).forEach((s: any) => {
-        const locId = s.location_id;
+        const locId = s.location_id ? String(s.location_id) : '';
         if (!locId) return;
 
-        const locName = cleanLocationName(locations.find(l => l.id === locId)?.name);
+        const locName = cleanLocationName(locations.find(l => String(l.id) === locId)?.name);
+
+        if (s.settlement_date) {
+          if (!activeDatesPerLocMap[locId]) activeDatesPerLocMap[locId] = new Set<string>();
+          activeDatesPerLocMap[locId].add(s.settlement_date);
+          allActiveDatesSet.add(s.settlement_date);
+        }
 
         let cCash = Number(s.cash_nominal || 0);
         let cQris = Number(s.qris_nominal || 0);
@@ -346,7 +359,6 @@ export default function BranchPnLReport() {
           finalRev = totalNominal;
         }
 
-        // Ambil dari total_bills (nama kolom resmi di CashSettlementForm)
         const custCount = Number(s.total_bills || s.total_customer || s.customer_count || s.transaction_count || 0);
         customerCountMap[locId] = (customerCountMap[locId] || 0) + custCount;
 
@@ -446,6 +458,8 @@ export default function BranchPnLReport() {
         }
       });
 
+      setTotalUniqueActiveDaysAll(allActiveDatesSet.size);
+
       Object.keys(ownerSharedCogsVendorMap).forEach((v) => discoveredVendors.add(v));
       Object.values(ownerManualCogsVendorMap).forEach((m) => Object.keys(m).forEach((v) => discoveredVendors.add(v)));
 
@@ -463,16 +477,19 @@ export default function BranchPnLReport() {
       setAllLogs(logs);
 
       const computedList: PnLData[] = locations.map((loc) => {
-        const rev = revenueMap[loc.id] || 0;
-        const dineIn = omsetDineInMap[loc.id] || 0;
-        const online = omsetOnlineMap[loc.id] || 0;
-        const tc = customerCountMap[loc.id] || 0;
+        const locKey = String(loc.id);
+        const rev = revenueMap[locKey] || 0;
+        const dineIn = omsetDineInMap[locKey] || 0;
+        const online = omsetOnlineMap[locKey] || 0;
+        const tc = customerCountMap[locKey] || 0;
+        const activeDays = activeDatesPerLocMap[locKey]?.size || 0;
+        const avgDailyTC = activeDays > 0 ? Math.round((tc / activeDays) * 10) / 10 : 0;
         const apc = tc > 0 ? Math.round(rev / tc) : 0;
 
-        const vBreakdown: Record<string, number> = { ...(vendorPerLocMap[loc.id] || {}) };
+        const vBreakdown: Record<string, number> = { ...(vendorPerLocMap[locKey] || {}) };
 
-        if (ownerManualCogsVendorMap[loc.id]) {
-          Object.entries(ownerManualCogsVendorMap[loc.id]).forEach(([v, amt]) => {
+        if (ownerManualCogsVendorMap[locKey]) {
+          Object.entries(ownerManualCogsVendorMap[locKey]).forEach(([v, amt]) => {
             vBreakdown[v] = (vBreakdown[v] || 0) + amt;
           });
         }
@@ -491,26 +508,28 @@ export default function BranchPnLReport() {
         const grossProfit = rev - totalCogs;
         const grossMarginPct = rev > 0 ? (grossProfit / rev) * 100 : 0;
 
-        const cashierExp = (cashierExpMap[loc.id] || 0) + (ownerManualOpexMap[loc.id] || 0);
-        const payroll = payrollMap[loc.id] || 0;
-        const utilityBank = utilityDirectMap[loc.id] || 0;
+        const cashierExp = (cashierExpMap[locKey] || 0) + (ownerManualOpexMap[locKey] || 0);
+        const payroll = payrollMap[locKey] || 0;
+        const utilityBank = utilityDirectMap[locKey] || 0;
 
         const directOpex = cashierExp + payroll + utilityBank;
         const storeOperatingProfit = grossProfit - directOpex;
 
-        const branchFinancing = (directFinancingMap[loc.id] || 0) + sharedPerBranchFinancing;
-        const branchOtherExp = (directOtherMap[loc.id] || 0) + sharedPerBranchOther;
+        const branchFinancing = (directFinancingMap[locKey] || 0) + sharedPerBranchFinancing;
+        const branchOtherExp = (directOtherMap[locKey] || 0) + sharedPerBranchOther;
 
         const netProfit = storeOperatingProfit - sharedPerBranchHq - branchFinancing - branchOtherExp;
         const netMarginPct = rev > 0 ? (netProfit / rev) * 100 : 0;
 
         return {
-          locationId: loc.id,
+          locationId: locKey,
           locationName: cleanLocationName(loc.name),
           revenue: rev,
           omsetDineIn: dineIn,
           omsetOnline: online,
           totalCustomer: tc,
+          activeDaysCount: activeDays,
+          averageDailyTC: avgDailyTC,
           averagePerCustomer: apc,
           vendorBreakdown: vBreakdown,
           totalCogs: totalCogs,
@@ -544,34 +563,43 @@ export default function BranchPnLReport() {
 
   const displayedBranches = useMemo(() => {
     if (selectedLocation === 'all') return pnlList;
-    return pnlList.filter(p => p.locationId === selectedLocation);
+    return pnlList.filter(p => String(p.locationId) === String(selectedLocation));
   }, [pnlList, selectedLocation]);
 
+  // Ringkasan mengikuti cabang yang sedang dipilih (1 cabang atau konsolidasi semua cabang)
   const consolidated = useMemo(() => {
-    const totalRev = pnlList.reduce((sum, p) => sum + p.revenue, 0);
-    const totalDineIn = pnlList.reduce((sum, p) => sum + p.omsetDineIn, 0);
-    const totalOnline = pnlList.reduce((sum, p) => sum + p.omsetOnline, 0);
-    const totalTC = pnlList.reduce((sum, p) => sum + p.totalCustomer, 0);
+    const targetList = displayedBranches;
+
+    const totalRev = targetList.reduce((sum, p) => sum + p.revenue, 0);
+    const totalDineIn = targetList.reduce((sum, p) => sum + p.omsetDineIn, 0);
+    const totalOnline = targetList.reduce((sum, p) => sum + p.omsetOnline, 0);
+    const totalTC = targetList.reduce((sum, p) => sum + p.totalCustomer, 0);
     const averageAPC = totalTC > 0 ? Math.round(totalRev / totalTC) : 0;
+
+    const activeDays =
+      selectedLocation === 'all'
+        ? totalUniqueActiveDaysAll
+        : (targetList[0]?.activeDaysCount || 0);
+    const averageDailyTC = activeDays > 0 ? Math.round((totalTC / activeDays) * 10) / 10 : 0;
     
     const totalPerVendor: Record<string, number> = {};
     allVendorNames.forEach((v) => {
-      totalPerVendor[v] = pnlList.reduce((sum, p) => sum + Number(p.vendorBreakdown[v] || 0), 0);
+      totalPerVendor[v] = targetList.reduce((sum, p) => sum + Number(p.vendorBreakdown[v] || 0), 0);
     });
 
-    const totalCogs = pnlList.reduce((sum, p) => sum + p.totalCogs, 0);
+    const totalCogs = targetList.reduce((sum, p) => sum + p.totalCogs, 0);
     const totalCogsPct = totalRev > 0 ? (totalCogs / totalRev) * 100 : 0;
     const totalGross = totalRev - totalCogs;
     
-    const totalCashierExp = pnlList.reduce((sum, p) => sum + p.cashierExpenses, 0);
-    const totalPayroll = pnlList.reduce((sum, p) => sum + p.storePayroll, 0);
-    const totalUtilityBank = pnlList.reduce((sum, p) => sum + p.storeUtilityBank, 0);
-    const totalDirectOpex = pnlList.reduce((sum, p) => sum + p.directOpexTotal, 0);
+    const totalCashierExp = targetList.reduce((sum, p) => sum + p.cashierExpenses, 0);
+    const totalPayroll = targetList.reduce((sum, p) => sum + p.storePayroll, 0);
+    const totalUtilityBank = targetList.reduce((sum, p) => sum + p.storeUtilityBank, 0);
+    const totalDirectOpex = targetList.reduce((sum, p) => sum + p.directOpexTotal, 0);
     const totalStoreProfit = totalGross - totalDirectOpex;
     
-    const totalHq = totalHqSharedPool;
-    const totalFinancing = pnlList.reduce((sum, p) => sum + p.financingExpense, 0);
-    const totalOtherExp = pnlList.reduce((sum, p) => sum + p.otherExpense, 0);
+    const totalHq = targetList.reduce((sum, p) => sum + p.hqSharedAllocation, 0);
+    const totalFinancing = targetList.reduce((sum, p) => sum + p.financingExpense, 0);
+    const totalOtherExp = targetList.reduce((sum, p) => sum + p.otherExpense, 0);
 
     const totalNet = totalStoreProfit - totalHq - totalFinancing - totalOtherExp;
 
@@ -583,6 +611,8 @@ export default function BranchPnLReport() {
       totalDineIn,
       totalOnline,
       totalTC,
+      activeDays,
+      averageDailyTC,
       averageAPC,
       dineInPct,
       onlinePct,
@@ -602,7 +632,7 @@ export default function BranchPnLReport() {
       totalNet,
       netPct: totalRev > 0 ? Math.round((totalNet / totalRev) * 1000) / 10 : 0
     };
-  }, [pnlList, allVendorNames, totalHqSharedPool]);
+  }, [displayedBranches, selectedLocation, totalUniqueActiveDaysAll, allVendorNames]);
 
   const handleSaveOwnerExpense = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -691,7 +721,7 @@ export default function BranchPnLReport() {
 
     const targetLogs = selectedLocation === 'all'
       ? allLogs
-      : allLogs.filter(l => l.locationId === selectedLocation || l.locationId === 'shared');
+      : allLogs.filter(l => String(l.locationId) === String(selectedLocation) || l.locationId === 'shared');
 
     let csvContent = 'Tipe Transaksi,Tanggal,Cabang,Pos / Vendor / Shift,Rincian / Keterangan,Pelapor,TC (Customer),Cash (Rp),QRIS (Rp),GrabFood (Rp),GoFood (Rp),ShopeeFood (Rp),Total Nominal (Rp)\n';
 
@@ -720,7 +750,7 @@ export default function BranchPnLReport() {
     return allLogs.filter((log) => {
       const matchLoc = activeDrillDown.targetLocationId === 'all' 
         ? true 
-        : (log.locationId === activeDrillDown.targetLocationId || log.locationId === 'shared');
+        : (String(log.locationId) === String(activeDrillDown.targetLocationId) || log.locationId === 'shared');
 
       if (!matchLoc) return false;
 
@@ -785,8 +815,10 @@ export default function BranchPnLReport() {
   const printableLogs = useMemo(() => {
     return selectedLocation === 'all'
       ? allLogs
-      : allLogs.filter(l => l.locationId === selectedLocation || l.locationId === 'shared');
+      : allLogs.filter(l => String(l.locationId) === String(selectedLocation) || l.locationId === 'shared');
   }, [allLogs, selectedLocation]);
+
+  const isSingleBranchView = selectedLocation !== 'all';
 
   return (
     <div className="printable-area bg-white rounded-3xl border border-slate-100 p-6 sm:p-8 shadow-xs space-y-6 font-sans print:p-0 print:border-none print:m-0">
@@ -838,7 +870,7 @@ export default function BranchPnLReport() {
           BAKSO IBU • LAPORAN LABA RUGI EKSEKUTIF (PnL)
         </h1>
         <p className="text-[11px] text-slate-600 font-semibold mt-0.5">
-          Periode Bulan: {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(`${selectedMonth}-01`))} • {selectedLocation === 'all' ? 'Konsolidasi Seluruh Cabang' : cleanLocationName(locations.find(l => l.id === selectedLocation)?.name)}
+          Periode Bulan: {new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(new Date(`${selectedMonth}-01`))} • {selectedLocation === 'all' ? 'Konsolidasi Seluruh Cabang' : cleanLocationName(locations.find(l => String(l.id) === String(selectedLocation))?.name)}
         </p>
       </div>
 
@@ -887,7 +919,7 @@ export default function BranchPnLReport() {
             >
               <option value="all">Semua Cabang (Konsolidasi)</option>
               {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
+                <option key={loc.id} value={String(loc.id)}>
                   {cleanLocationName(loc.name)}
                 </option>
               ))}
@@ -975,19 +1007,21 @@ export default function BranchPnLReport() {
         </div>
       </div>
 
-      {/* METRIK KARTU RINGKASAN FINANSIAL DENGAN TC & APC */}
+      {/* METRIK KARTU RINGKASAN FINANSIAL (MENGIKUTI CABANG YANG DIPILIH) */}
       <div className="grid grid-cols-1 sm:grid-cols-5 gap-3.5 no-print">
         <div 
           onClick={() => setActiveDrillDown({
             title: 'Seluruh Pemasukan Penjualan Toko (Omzet)',
             componentType: 'REVENUE_TOTAL',
             targetLocationId: selectedLocation,
-            targetLocationName: selectedLocation === 'all' ? 'Semua Cabang (Konsolidasi)' : cleanLocationName(locations.find(l => l.id === selectedLocation)?.name)
+            targetLocationName: selectedLocation === 'all' ? 'Semua Cabang (Konsolidasi)' : cleanLocationName(locations.find(l => String(l.id) === String(selectedLocation))?.name)
           })}
           className="bg-slate-50/70 p-4 rounded-2xl border border-slate-100 hover:border-indigo-300 hover:bg-white cursor-pointer transition-all group"
         >
           <div className="flex justify-between items-center">
-            <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">Total Omzet Penjualan</span>
+            <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">
+              {isSingleBranchView ? 'Omzet Cabang' : 'Total Omzet Penjualan'}
+            </span>
             <Eye className="w-3.5 h-3.5 text-slate-300 group-hover:text-indigo-600 transition-colors" />
           </div>
           <div className="text-xl font-black text-slate-900 mt-1">
@@ -1003,7 +1037,7 @@ export default function BranchPnLReport() {
             title: 'Traffic Transaksi Kasir (TC & APC)',
             componentType: 'REVENUE_TC_APC',
             targetLocationId: selectedLocation,
-            targetLocationName: selectedLocation === 'all' ? 'Semua Cabang (Konsolidasi)' : cleanLocationName(locations.find(l => l.id === selectedLocation)?.name)
+            targetLocationName: selectedLocation === 'all' ? 'Semua Cabang (Konsolidasi)' : cleanLocationName(locations.find(l => String(l.id) === String(selectedLocation))?.name)
           })}
           className="bg-blue-50/60 p-4 rounded-2xl border border-blue-100 hover:border-blue-300 hover:bg-white cursor-pointer transition-all group"
         >
@@ -1015,7 +1049,7 @@ export default function BranchPnLReport() {
             {consolidated.totalTC.toLocaleString('id-ID')} <span className="text-xs font-bold text-blue-500">Struk</span>
           </div>
           <span className="text-[10px] text-blue-700 font-bold mt-0.5 block">
-            APC: Rp {consolidated.averageAPC.toLocaleString('id-ID')} / Orang
+            Rata-rata: {consolidated.averageDailyTC.toLocaleString('id-ID')} TC/Hari • APC: Rp {consolidated.averageAPC.toLocaleString('id-ID')}
           </span>
         </div>
 
@@ -1055,19 +1089,21 @@ export default function BranchPnLReport() {
             <tr className="bg-slate-50 border-b border-slate-200/80 text-[10px] font-black uppercase tracking-wider text-slate-500">
               <th className="py-3 px-4 min-w-[260px]">Komponen Laba Rugi (PnL)</th>
               {displayedBranches.map((p) => (
-                <th key={p.locationId} className="py-3 px-3 text-right min-w-[130px]">
+                <th key={p.locationId} className="py-3 px-3 text-right min-w-[140px]">
                   {p.locationName}
                 </th>
               ))}
-              <th className="py-3 px-4 text-right min-w-[140px] font-black bg-indigo-50 text-indigo-900">
-                KONSOLIDASI (TOTAL)
-              </th>
+              {!isSingleBranchView && (
+                <th className="py-3 px-4 text-right min-w-[150px] font-black bg-indigo-50 text-indigo-900">
+                  KONSOLIDASI (TOTAL)
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 font-semibold text-slate-800">
             {loading ? (
               <tr>
-                <td colSpan={displayedBranches.length + 2} className="py-16 text-center text-slate-400 font-bold">
+                <td colSpan={displayedBranches.length + (isSingleBranchView ? 1 : 2)} className="py-16 text-center text-slate-400 font-bold">
                   Mengalkulasi angka PnL dari database...
                 </td>
               </tr>
@@ -1092,39 +1128,49 @@ export default function BranchPnLReport() {
                       Rp {p.revenue.toLocaleString('id-ID')}
                     </td>
                   ))}
-                  <td 
-                    onClick={() => setActiveDrillDown({
-                      title: 'Omzet Penjualan • Konsolidasi Seluruh Cabang',
-                      componentType: 'REVENUE_TOTAL',
-                      targetLocationId: 'all',
-                      targetLocationName: 'Semua Cabang (Konsolidasi)'
-                    })}
-                    className="py-2.5 px-4 text-right font-black bg-indigo-50/60 text-indigo-950 hover:underline cursor-pointer"
-                  >
-                    Rp {consolidated.totalRev.toLocaleString('id-ID')}
-                  </td>
+                  {!isSingleBranchView && (
+                    <td 
+                      onClick={() => setActiveDrillDown({
+                        title: 'Omzet Penjualan • Konsolidasi Seluruh Cabang',
+                        componentType: 'REVENUE_TOTAL',
+                        targetLocationId: 'all',
+                        targetLocationName: 'Semua Cabang (Konsolidasi)'
+                      })}
+                      className="py-2.5 px-4 text-right font-black bg-indigo-50/60 text-indigo-950 hover:underline cursor-pointer"
+                    >
+                      Rp {consolidated.totalRev.toLocaleString('id-ID')}
+                    </td>
+                  )}
                 </tr>
 
-                {/* METRIK SUB-BARIS: TC & APC */}
+                {/* METRIK SUB-BARIS: TC, RATA-RATA TC/HARI & APC */}
                 <tr className="bg-blue-50/20 text-blue-900 border-b border-blue-100/60">
                   <td className="py-2 px-4 pl-8 flex items-center gap-2">
                     <Receipt className="w-3.5 h-3.5 text-blue-600" />
-                    <span className="text-[11px] font-bold">↳ Total Customer (TC) & Rata-rata Belanja (APC)</span>
+                    <span className="text-[11px] font-bold">↳ Total Customer (TC), Rata-rata TC/Hari & APC</span>
                   </td>
                   {displayedBranches.map((p) => (
                     <td key={`tc-${p.locationId}`} className="py-2 px-3 text-right text-blue-900 text-[11px]">
                       <span className="font-extrabold">{p.totalCustomer.toLocaleString('id-ID')} TC</span>
+                      <span className="block text-[10px] text-blue-700 font-semibold">
+                        Rata-rata: {p.averageDailyTC.toLocaleString('id-ID')} TC/hari
+                      </span>
                       <span className="block text-[10px] text-blue-600 font-semibold">
                         APC: Rp {p.averagePerCustomer.toLocaleString('id-ID')}
                       </span>
                     </td>
                   ))}
-                  <td className="py-2 px-4 text-right bg-blue-50/40 text-blue-950 text-[11px]">
-                    <span className="font-extrabold">{consolidated.totalTC.toLocaleString('id-ID')} TC</span>
-                    <span className="block text-[10px] text-blue-700 font-semibold">
-                      APC: Rp {consolidated.averageAPC.toLocaleString('id-ID')}
-                    </span>
-                  </td>
+                  {!isSingleBranchView && (
+                    <td className="py-2 px-4 text-right bg-blue-50/40 text-blue-950 text-[11px]">
+                      <span className="font-extrabold">{consolidated.totalTC.toLocaleString('id-ID')} TC</span>
+                      <span className="block text-[10px] text-blue-800 font-semibold">
+                        Rata-rata: {consolidated.averageDailyTC.toLocaleString('id-ID')} TC/hari
+                      </span>
+                      <span className="block text-[10px] text-blue-700 font-semibold">
+                        APC: Rp {consolidated.averageAPC.toLocaleString('id-ID')}
+                      </span>
+                    </td>
+                  )}
                 </tr>
 
                 {/* DINE IN */}
@@ -1147,17 +1193,19 @@ export default function BranchPnLReport() {
                       Rp {p.omsetDineIn.toLocaleString('id-ID')}
                     </td>
                   ))}
-                  <td 
-                    onClick={() => setActiveDrillDown({
-                      title: 'Omzet Dine In (Cash + QRIS) • Konsolidasi Seluruh Cabang',
-                      componentType: 'REVENUE_DINE_IN',
-                      targetLocationId: 'all',
-                      targetLocationName: 'Semua Cabang (Konsolidasi)'
-                    })}
-                    className="py-2 px-4 text-right font-bold bg-indigo-50/20 text-slate-800 text-[11px] hover:underline cursor-pointer"
-                  >
-                    Rp {consolidated.totalDineIn.toLocaleString('id-ID')}
-                  </td>
+                  {!isSingleBranchView && (
+                    <td 
+                      onClick={() => setActiveDrillDown({
+                        title: 'Omzet Dine In (Cash + QRIS) • Konsolidasi Seluruh Cabang',
+                        componentType: 'REVENUE_DINE_IN',
+                        targetLocationId: 'all',
+                        targetLocationName: 'Semua Cabang (Konsolidasi)'
+                      })}
+                      className="py-2 px-4 text-right font-bold bg-indigo-50/20 text-slate-800 text-[11px] hover:underline cursor-pointer"
+                    >
+                      Rp {consolidated.totalDineIn.toLocaleString('id-ID')}
+                    </td>
+                  )}
                 </tr>
 
                 {/* ONLINE */}
@@ -1180,17 +1228,19 @@ export default function BranchPnLReport() {
                       Rp {p.omsetOnline.toLocaleString('id-ID')}
                     </td>
                   ))}
-                  <td 
-                    onClick={() => setActiveDrillDown({
-                      title: 'Omzet Online (Ojol) • Konsolidasi Seluruh Cabang',
-                      componentType: 'REVENUE_ONLINE',
-                      targetLocationId: 'all',
-                      targetLocationName: 'Semua Cabang (Konsolidasi)'
-                    })}
-                    className="py-2 px-4 text-right font-bold bg-indigo-50/20 text-orange-800 text-[11px] hover:underline cursor-pointer"
-                  >
-                    Rp {consolidated.totalOnline.toLocaleString('id-ID')}
-                  </td>
+                  {!isSingleBranchView && (
+                    <td 
+                      onClick={() => setActiveDrillDown({
+                        title: 'Omzet Online (Ojol) • Konsolidasi Seluruh Cabang',
+                        componentType: 'REVENUE_ONLINE',
+                        targetLocationId: 'all',
+                        targetLocationName: 'Semua Cabang (Konsolidasi)'
+                      })}
+                      className="py-2 px-4 text-right font-bold bg-indigo-50/20 text-orange-800 text-[11px] hover:underline cursor-pointer"
+                    >
+                      Rp {consolidated.totalOnline.toLocaleString('id-ID')}
+                    </td>
+                  )}
                 </tr>
 
                 {/* 2. HEADER BEBAN POKOK + PERSENTASE TOTAL HPP DARI OMZET */}
@@ -1209,12 +1259,14 @@ export default function BranchPnLReport() {
                       </span>
                     </td>
                   ))}
-                  <td className="py-2.5 px-4 text-right font-black text-rose-950 bg-rose-100/50">
-                    (Rp {consolidated.totalCogs.toLocaleString('id-ID')})
-                    <span className={`block text-[10px] font-extrabold ${consolidated.cogsPct > 50 ? 'text-rose-600' : 'text-emerald-700'}`}>
-                      {consolidated.cogsPct}% dari Omzet
-                    </span>
-                  </td>
+                  {!isSingleBranchView && (
+                    <td className="py-2.5 px-4 text-right font-black text-rose-950 bg-rose-100/50">
+                      (Rp {consolidated.totalCogs.toLocaleString('id-ID')})
+                      <span className={`block text-[10px] font-extrabold ${consolidated.cogsPct > 50 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                        {consolidated.cogsPct}% dari Omzet
+                      </span>
+                    </td>
+                  )}
                 </tr>
 
                 {/* DETAIL VENDOR BESERTA PERSENTASE DARI OMZET CABANG */}
@@ -1250,25 +1302,27 @@ export default function BranchPnLReport() {
                           </td>
                         );
                       })}
-                      <td 
-                        onClick={() => setActiveDrillDown({
-                          title: `Belanja ${vendor} • Konsolidasi Seluruh Cabang`,
-                          componentType: 'COGS_VENDOR',
-                          vendorOrChannel: vendor,
-                          targetLocationId: 'all',
-                          targetLocationName: 'Semua Cabang (Konsolidasi)'
-                        })}
-                        className={`py-2 px-4 text-right font-bold bg-indigo-50/20 cursor-pointer hover:underline ${isRP ? 'text-rose-800' : 'text-amber-900'}`}
-                      >
-                        <div>(Rp {Number(consolidated.totalPerVendor[vendor] || 0).toLocaleString('id-ID')})</div>
-                        {Number(consolidated.totalPerVendor[vendor] || 0) > 0 && (
-                          <div className="text-[9px] text-slate-400 font-semibold">
-                            {consolidated.totalRev > 0 
-                              ? ((Number(consolidated.totalPerVendor[vendor] || 0) / consolidated.totalRev) * 100).toFixed(1)
-                              : '0.0'}% omzet
-                          </div>
-                        )}
-                      </td>
+                      {!isSingleBranchView && (
+                        <td 
+                          onClick={() => setActiveDrillDown({
+                            title: `Belanja ${vendor} • Konsolidasi Seluruh Cabang`,
+                            componentType: 'COGS_VENDOR',
+                            vendorOrChannel: vendor,
+                            targetLocationId: 'all',
+                            targetLocationName: 'Semua Cabang (Konsolidasi)'
+                          })}
+                          className={`py-2 px-4 text-right font-bold bg-indigo-50/20 cursor-pointer hover:underline ${isRP ? 'text-rose-800' : 'text-amber-900'}`}
+                        >
+                          <div>(Rp {Number(consolidated.totalPerVendor[vendor] || 0).toLocaleString('id-ID')})</div>
+                          {Number(consolidated.totalPerVendor[vendor] || 0) > 0 && (
+                            <div className="text-[9px] text-slate-400 font-semibold">
+                              {consolidated.totalRev > 0 
+                                ? ((Number(consolidated.totalPerVendor[vendor] || 0) / consolidated.totalRev) * 100).toFixed(1)
+                                : '0.0'}% omzet
+                            </div>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -1286,17 +1340,19 @@ export default function BranchPnLReport() {
                       </span>
                     </td>
                   ))}
-                  <td className="py-2.5 px-4 text-right font-black text-emerald-900 bg-emerald-100/40">
-                    Rp {consolidated.totalGross.toLocaleString('id-ID')}
-                    <span className="block text-[10px] text-emerald-700 font-normal">
-                      Margin: {consolidated.grossPct}%
-                    </span>
-                  </td>
+                  {!isSingleBranchView && (
+                    <td className="py-2.5 px-4 text-right font-black text-emerald-900 bg-emerald-100/40">
+                      Rp {consolidated.totalGross.toLocaleString('id-ID')}
+                      <span className="block text-[10px] text-emerald-700 font-normal">
+                        Margin: {consolidated.grossPct}%
+                      </span>
+                    </td>
+                  )}
                 </tr>
 
                 {/* OPEX */}
                 <tr className="bg-slate-50/40">
-                  <td colSpan={displayedBranches.length + 2} className="py-2 px-4 font-black text-slate-800 uppercase text-[10px] tracking-wider">
+                  <td colSpan={displayedBranches.length + (isSingleBranchView ? 1 : 2)} className="py-2 px-4 font-black text-slate-800 uppercase text-[10px] tracking-wider">
                     2. BEBAN OPERASIONAL LANGSUNG CABANG (DIRECT OPEX)
                   </td>
                 </tr>
@@ -1318,17 +1374,19 @@ export default function BranchPnLReport() {
                       (Rp {p.cashierExpenses.toLocaleString('id-ID')})
                     </td>
                   ))}
-                  <td 
-                    onClick={() => setActiveDrillDown({
-                      title: 'Pengeluaran Kasir Laci • Konsolidasi Seluruh Cabang',
-                      componentType: 'CASHIER_EXPENSE',
-                      targetLocationId: 'all',
-                      targetLocationName: 'Semua Cabang (Konsolidasi)'
-                    })}
-                    className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20 cursor-pointer hover:underline"
-                  >
-                    (Rp {consolidated.totalCashierExp.toLocaleString('id-ID')})
-                  </td>
+                  {!isSingleBranchView && (
+                    <td 
+                      onClick={() => setActiveDrillDown({
+                        title: 'Pengeluaran Kasir Laci • Konsolidasi Seluruh Cabang',
+                        componentType: 'CASHIER_EXPENSE',
+                        targetLocationId: 'all',
+                        targetLocationName: 'Semua Cabang (Konsolidasi)'
+                      })}
+                      className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20 cursor-pointer hover:underline"
+                    >
+                      (Rp {consolidated.totalCashierExp.toLocaleString('id-ID')})
+                    </td>
+                  )}
                 </tr>
 
                 <tr>
@@ -1340,9 +1398,11 @@ export default function BranchPnLReport() {
                       (Rp {p.storePayroll.toLocaleString('id-ID')})
                     </td>
                   ))}
-                  <td className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20">
-                    (Rp {consolidated.totalPayroll.toLocaleString('id-ID')})
-                  </td>
+                  {!isSingleBranchView && (
+                    <td className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20">
+                      (Rp {consolidated.totalPayroll.toLocaleString('id-ID')})
+                    </td>
+                  )}
                 </tr>
 
                 <tr>
@@ -1354,9 +1414,11 @@ export default function BranchPnLReport() {
                       (Rp {p.storeUtilityBank.toLocaleString('id-ID')})
                     </td>
                   ))}
-                  <td className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20">
-                    (Rp {consolidated.totalUtilityBank.toLocaleString('id-ID')})
-                  </td>
+                  {!isSingleBranchView && (
+                    <td className="py-1.5 px-4 text-right text-slate-800 font-bold bg-indigo-50/20">
+                      (Rp {consolidated.totalUtilityBank.toLocaleString('id-ID')})
+                    </td>
+                  )}
                 </tr>
 
                 {/* STORE PROFIT */}
@@ -1369,9 +1431,11 @@ export default function BranchPnLReport() {
                       Rp {p.storeOperatingProfit.toLocaleString('id-ID')}
                     </td>
                   ))}
-                  <td className="py-2 px-4 text-right font-black text-slate-900 bg-indigo-50/40">
-                    Rp {consolidated.totalStoreProfit.toLocaleString('id-ID')}
-                  </td>
+                  {!isSingleBranchView && (
+                    <td className="py-2 px-4 text-right font-black text-slate-900 bg-indigo-50/40">
+                      Rp {consolidated.totalStoreProfit.toLocaleString('id-ID')}
+                    </td>
+                  )}
                 </tr>
 
                 {/* HQ ALLOCATION */}
@@ -1384,14 +1448,16 @@ export default function BranchPnLReport() {
                       (Rp {p.hqSharedAllocation.toLocaleString('id-ID')})
                     </td>
                   ))}
-                  <td className="py-2 px-4 text-right text-indigo-900 font-black bg-indigo-50/30">
-                    (Rp {consolidated.totalHq.toLocaleString('id-ID')})
-                  </td>
+                  {!isSingleBranchView && (
+                    <td className="py-2 px-4 text-right text-indigo-900 font-black bg-indigo-50/30">
+                      (Rp {consolidated.totalHq.toLocaleString('id-ID')})
+                    </td>
+                  )}
                 </tr>
 
                 {/* FINANCING & OTHER */}
                 <tr className="bg-purple-50/40">
-                  <td colSpan={displayedBranches.length + 2} className="py-2 px-4 font-black text-purple-900 uppercase text-[10px] tracking-wider">
+                  <td colSpan={displayedBranches.length + (isSingleBranchView ? 1 : 2)} className="py-2 px-4 font-black text-purple-900 uppercase text-[10px] tracking-wider">
                     3. BEBAN PEMBIAYAAN (FINANCING) & PENGELUARAN LAIN-LAIN
                   </td>
                 </tr>
@@ -1414,17 +1480,19 @@ export default function BranchPnLReport() {
                       (Rp {p.financingExpense.toLocaleString('id-ID')})
                     </td>
                   ))}
-                  <td 
-                    onClick={() => setActiveDrillDown({
-                      title: 'Beban Financing & Pinjaman • Konsolidasi Seluruh Cabang',
-                      componentType: 'FINANCING',
-                      targetLocationId: 'all',
-                      targetLocationName: 'Semua Cabang (Konsolidasi)'
-                    })}
-                    className="py-1.5 px-4 text-right text-purple-900 font-bold bg-purple-50/30 cursor-pointer hover:underline"
-                  >
-                    (Rp {consolidated.totalFinancing.toLocaleString('id-ID')})
-                  </td>
+                  {!isSingleBranchView && (
+                    <td 
+                      onClick={() => setActiveDrillDown({
+                        title: 'Beban Financing & Pinjaman • Konsolidasi Seluruh Cabang',
+                        componentType: 'FINANCING',
+                        targetLocationId: 'all',
+                        targetLocationName: 'Semua Cabang (Konsolidasi)'
+                      })}
+                      className="py-1.5 px-4 text-right text-purple-900 font-bold bg-purple-50/30 cursor-pointer hover:underline"
+                    >
+                      (Rp {consolidated.totalFinancing.toLocaleString('id-ID')})
+                    </td>
+                  )}
                 </tr>
 
                 <tr>
@@ -1446,17 +1514,19 @@ export default function BranchPnLReport() {
                       (Rp {p.otherExpense.toLocaleString('id-ID')})
                     </td>
                   ))}
-                  <td 
-                    onClick={() => setActiveDrillDown({
-                      title: 'Beban Lain-Lain • Konsolidasi Seluruh Cabang',
-                      componentType: 'OTHER',
-                      targetLocationId: 'all',
-                      targetLocationName: 'Semua Cabang (Konsolidasi)'
-                    })}
-                    className="py-1.5 px-4 text-right text-slate-900 font-bold bg-slate-100/50 cursor-pointer hover:underline"
-                  >
-                    (Rp {consolidated.totalOtherExp.toLocaleString('id-ID')})
-                  </td>
+                  {!isSingleBranchView && (
+                    <td 
+                      onClick={() => setActiveDrillDown({
+                        title: 'Beban Lain-Lain • Konsolidasi Seluruh Cabang',
+                        componentType: 'OTHER',
+                        targetLocationId: 'all',
+                        targetLocationName: 'Semua Cabang (Konsolidasi)'
+                      })}
+                      className="py-1.5 px-4 text-right text-slate-900 font-bold bg-slate-100/50 cursor-pointer hover:underline"
+                    >
+                      (Rp {consolidated.totalOtherExp.toLocaleString('id-ID')})
+                    </td>
+                  )}
                 </tr>
 
                 {/* NET PROFIT */}
@@ -1472,12 +1542,14 @@ export default function BranchPnLReport() {
                       </span>
                     </td>
                   ))}
-                  <td className="py-3 px-4 text-right font-black text-base bg-indigo-700">
-                    Rp {consolidated.totalNet.toLocaleString('id-ID')}
-                    <span className="block text-[10px] text-indigo-200 font-normal">
-                      Margin: {consolidated.netPct}%
-                    </span>
-                  </td>
+                  {!isSingleBranchView && (
+                    <td className="py-3 px-4 text-right font-black text-base bg-indigo-700">
+                      Rp {consolidated.totalNet.toLocaleString('id-ID')}
+                      <span className="block text-[10px] text-indigo-200 font-normal">
+                        Margin: {consolidated.netPct}%
+                      </span>
+                    </td>
+                  )}
                 </tr>
               </>
             )}
@@ -1756,7 +1828,7 @@ export default function BranchPnLReport() {
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none"
                   >
                     {locations.map((loc) => (
-                      <option key={loc.id} value={loc.id}>
+                      <option key={loc.id} value={String(loc.id)}>
                         {cleanLocationName(loc.name)}
                       </option>
                     ))}
