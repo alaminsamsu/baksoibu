@@ -358,65 +358,60 @@ export default function CashSettlementForm({ user, onBack, locationId: propLocId
     }
 
     const diffText = cashDifference === 0 
-      ? 'KLOP (Rp 0)' 
-      : `${cashDifference < 0 ? 'MINUS' : 'LEBIH'} Rp ${Math.abs(cashDifference).toLocaleString('id-ID')}`;
+      ? 'KLOP' 
+      : `${cashDifference < 0 ? 'MINUS' : 'LEBIH'} ${Math.abs(cashDifference).toLocaleString('id-ID')}`;
 
-    const shiftLabel = shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2';
+    const shiftShort = shift === 'SHIFT_1' ? 'Shift 1' : 'Shift 2';
+    const tcTag = Number(totalBills) > 0 ? ` (${totalBills} TC)` : '';
 
-    let text = `💰 *[CLOSING KASIR] REKAP OMSET & SETORAN*\n`;
-    text += `📍 Outlet: *${outletName}*\n`;
-    text += `📅 Tanggal: *${settlementDate}*\n`;
-    text += `⏱️ Shift: *${shift === 'SHIFT_1' ? 'Shift 1 (Siang)' : 'Shift 2 (Malam)'}*\n`;
-    text += `👤 Kasir: *${effectiveStaffName}*\n`;
-    if (Number(totalBills) > 0) text += `🧾 Transaksi (TC): *${totalBills} Struk*\n`;
+    const channels: string[] = [];
+    if (numCash > 0) channels.push(`Cash: ${numCash.toLocaleString('id-ID')}`);
+    if (numQris > 0) channels.push(`QRIS: ${numQris.toLocaleString('id-ID')}`);
+    if (numGrab > 0) channels.push(`Grab: ${numGrab.toLocaleString('id-ID')}`);
+    if (numGofood > 0) channels.push(`GoFood: ${numGofood.toLocaleString('id-ID')}`);
+    if (numShopee > 0) channels.push(`Shopee: ${numShopee.toLocaleString('id-ID')}`);
+
+    let text = `💰 *[CLOSING KASIR] • ${outletName}*\n`;
+    text += `📅 *${settlementDate}* • *${shiftShort}* • 👤 *${effectiveStaffName}*${tcTag}\n\n`;
+
+    text += `*1. Omset ${shiftShort}: Rp ${totalOmset.toLocaleString('id-ID')}*\n`;
+    if (channels.length > 0) {
+      text += `• ${channels.join(' | ')}\n`;
+    }
     text += `\n`;
 
-    text += `*1. OMSET SHIFT:*\n`;
-    text += `• Dine In (Cash): Rp ${numCash.toLocaleString('id-ID')}\n`;
-    text += `• Dine In (QRIS/Tf): Rp ${numQris.toLocaleString('id-ID')}\n`;
-    if (numGrab > 0) text += `• GrabFood: Rp ${numGrab.toLocaleString('id-ID')}\n`;
-    if (numGofood > 0) text += `• GoFood: Rp ${numGofood.toLocaleString('id-ID')}\n`;
-    if (numShopee > 0) text += `• ShopeeFood: Rp ${numShopee.toLocaleString('id-ID')}\n`;
-    text += `👉 *Total Omset ${shiftLabel}: Rp ${totalOmset.toLocaleString('id-ID')}*\n\n`;
-
-    text += `*2. PENGELUARAN LACI (TUNAI):*\n`;
-    text += `• Keluar: *Rp ${numExpense.toLocaleString('id-ID')}*${expensePhotos.length > 0 ? ` _(${expensePhotos.length} Nota Terlampir)_` : ''}\n`;
-    if (expenseNotes.trim()) text += `• Rincian: _${expenseNotes.trim()}_\n`;
+    text += `*2. Laci Keluar: Rp ${numExpense.toLocaleString('id-ID')}*${expensePhotos.length > 0 ? ` _(${expensePhotos.length} Nota)_` : ''}\n`;
+    if (expenseNotes.trim()) {
+      text += `• _${expenseNotes.trim()}_\n`;
+    }
     text += `\n`;
 
     const validNonCash = nonCashList.filter(i => Number(i.nominal) > 0);
     if (validNonCash.length > 0) {
-      text += `*3. BEBAN NON-KASIR (RP & VENDOR):*\n`;
-      validNonCash.forEach((item) => {
-        text += `• ${item.category}: Rp ${Number(item.nominal).toLocaleString('id-ID')}${item.notes ? ` _(${item.notes})_` : ''}\n`;
-      });
-      text += `👉 *Total Beban Vendor: Rp ${totalNonCashExpense.toLocaleString('id-ID')}*\n\n`;
+      text += `*3. Beban Non-Kasir: Rp ${totalNonCashExpense.toLocaleString('id-ID')}*\n`;
+      const vendorLine = validNonCash
+        .map((item) => `${item.category}: ${Number(item.nominal).toLocaleString('id-ID')}${item.notes ? ` (${item.notes})` : ''}`)
+        .join(' | ');
+      text += `• ${vendorLine}\n\n`;
     }
 
-    text += `*4. REKONSILIASI LACI & SETORAN:*\n`;
-    text += `• Modal Awal: Rp ${numOpeningCash.toLocaleString('id-ID')} | Seharusnya: Rp ${expectedCashInDrawer.toLocaleString('id-ID')}\n`;
-    text += `• Fisik di Laci: *Rp ${numActualTotalInHand.toLocaleString('id-ID')}* • Status: *${diffText}*\n`;
-    text += `• Sisa Ditinggal di Laci: Rp ${numRetained.toLocaleString('id-ID')}\n`;
-    text += `------------------------------------\n`;
-    text += `💵 *UANG BERSIH DISETOR: Rp ${netCashToDeposit.toLocaleString('id-ID')}*\n`;
-    if (depositPhoto) text += `📌 _(Bukti transfer/setoran sudah diupload)_\n`;
+    text += `*4. Laci & Setoran:*\n`;
+    text += `• Modal: ${numOpeningCash.toLocaleString('id-ID')} | Seharusnya: ${expectedCashInDrawer.toLocaleString('id-ID')} | Fisik: *${numActualTotalInHand.toLocaleString('id-ID')}* (*${diffText}*)\n`;
+    text += `• Sisa Laci: ${numRetained.toLocaleString('id-ID')}\n`;
+    text += `──────────────\n`;
+    text += `💵 *SETOR BERSIH: Rp ${netCashToDeposit.toLocaleString('id-ID')}*${depositPhoto ? ' _(Struk ✓)_' : ''}\n`;
     if (shift === 'SHIFT_2') {
-      text += `📊 *TOTAL OMSET HARIAN (SHIFT 1 + 2): Rp ${dailyTotalOmset.toLocaleString('id-ID')}*${!hasShift1Data ? ' _(Shift 1 belum input)_' : ''}\n`;
+      text += `📊 *OMSET HARIAN (S1+S2): Rp ${dailyTotalOmset.toLocaleString('id-ID')}*${!hasShift1Data ? ' _(S1 belum input)_' : ''}\n`;
     }
-    text += `------------------------------------\n`;
-    text += `_Dilaporkan via Sistem ERP Bakso Ibu_`;
+
+    text = text.trim();
 
     if (navigator.share) {
-      navigator.share({
-        title: `Closing Kasir - ${outletName}`,
-        text: text,
-      }).catch(() => {
-        const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-        window.open(waUrl, '_blank');
+      navigator.share({ title: `Closing Kasir - ${outletName}`, text }).catch(() => {
+        window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
       });
     } else {
-      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-      window.open(waUrl, '_blank');
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
     }
   };
 

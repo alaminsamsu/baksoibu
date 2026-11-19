@@ -84,7 +84,13 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
 
   const normalizeUnit = (itemName: string, rawUnit?: string) => {
     const lower = (itemName || '').toLowerCase();
-    if (lower.includes('bihun') || lower.includes('kwetiau') || lower.includes('kwetiaw')) {
+    if (lower.includes('bihun')) {
+      return 'Bungkus';
+    }
+    if (lower.includes('masako')) {
+      return 'Saset';
+    }
+    if (lower.includes('kwetiau') || lower.includes('kwetiaw')) {
       return 'kg';
     }
     if (lower.includes('kecap nasional')) {
@@ -251,7 +257,6 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
     return Object.values(quantities).filter((q) => parseFloat(q) > 0).length;
   }, [quantities]);
 
-  // Format Text & Bagikan ke WhatsApp (Seragam dengan Laporan Lain)
   const handleShareToWhatsApp = () => {
     const selectedEntries = Object.entries(quantities).filter(([_, qty]) => parseFloat(qty) > 0);
     if (selectedEntries.length === 0) {
@@ -264,7 +269,7 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
       hour: '2-digit',
       minute: '2-digit',
       hour12: false
-    }).format(new Date()) + ' WITA';
+    }).format(new Date());
 
     const rpItems: string[] = [];
     const vendorItems: string[] = [];
@@ -277,64 +282,40 @@ export default function OrderRequestForm({ user, onBack, locationId, staffName }
       const status = orderStatuses[itemName] || 'ORDERED_LEADER';
 
       if (status === 'BOUGHT_CASHIER') {
-        cashierItems.push(`*${itemName}* : ${qty} ${unit}`);
+        cashierItems.push(`• ${itemName}: *${qty} ${unit}*`);
       } else if (supplier.toUpperCase().includes('RUMAH PRODUKSI') || supplier.toUpperCase() === 'RP') {
-        const statusTag = status === 'PROCESSED_LOGISTICS' ? ' _(Logistik)_' : '';
-        rpItems.push(`*${itemName}* : ${qty} ${unit}${statusTag}`);
+        const tag = status === 'PROCESSED_LOGISTICS' ? ' _(Log)_' : '';
+        rpItems.push(`• ${itemName}: *${qty} ${unit}*${tag}`);
       } else {
-        const statusTag = status === 'PROCESSED_LOGISTICS' ? ' • Logistik' : '';
-        vendorItems.push(`*${itemName}* : ${qty} ${unit} _(${supplier}${statusTag})_`);
+        const tag = status === 'PROCESSED_LOGISTICS' ? ' • Log' : '';
+        vendorItems.push(`• ${itemName}: *${qty} ${unit}* _(${supplier}${tag})_`);
       }
     });
 
-    let text = `🛒 *[ORDER BELANJA] PERMINTAAN BAHAN*\n`;
-    text += `📍 Outlet: *${outletName}*\n`;
-    text += `📅 Utk Pemakaian: *${targetDate}*\n`;
-    text += `🕒 Dibuat: *${timeStr}*\n`;
-    text += `👤 Pemohon: *${activeStaffName}*\n\n`;
+    let text = `🛒 *[ORDER BELANJA] • ${outletName}*\n`;
+    text += `📅 Pakai: *${targetDate}* • 👤 *${activeStaffName}* (${timeStr})\n\n`;
 
     if (rpItems.length > 0) {
-      text += `*A. ORDER RUMAH PRODUKSI (PUSAT):*\n`;
-      rpItems.forEach((line, idx) => {
-        text += `${idx + 1}. ${line}\n`;
-      });
-      text += `\n`;
+      text += `*A. Rumah Produksi:*\n${rpItems.join('\n')}\n\n`;
     }
-
     if (vendorItems.length > 0) {
-      text += `*B. ORDER VENDOR / LOGISTIK:*\n`;
-      vendorItems.forEach((line, idx) => {
-        text += `${idx + 1}. ${line}\n`;
-      });
-      text += `\n`;
+      text += `*B. Vendor / Logistik:*\n${vendorItems.join('\n')}\n\n`;
     }
-
     if (cashierItems.length > 0) {
-      text += `*C. BELANJA TUNAI KASIR (LACI):*\n`;
-      cashierItems.forEach((line, idx) => {
-        text += `${idx + 1}. ${line}\n`;
-      });
-      text += `\n`;
+      text += `*C. Belanja Kasir:*\n${cashierItems.join('\n')}\n\n`;
     }
-
     if (notes.trim()) {
-      text += `📝 *Catatan:* _${notes.trim()}_\n`;
+      text += `📝 _${notes.trim()}_`;
     }
 
-    text += `------------------------------------\n`;
-    text += `_Dikirim via Sistem ERP Bakso Ibu_`;
+    text = text.trim();
 
     if (navigator.share) {
-      navigator.share({
-        title: `Order Belanja - ${outletName}`,
-        text: text,
-      }).catch(() => {
-        const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-        window.open(waUrl, '_blank');
+      navigator.share({ title: `Order Belanja - ${outletName}`, text }).catch(() => {
+        window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
       });
     } else {
-      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-      window.open(waUrl, '_blank');
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
     }
   };
 

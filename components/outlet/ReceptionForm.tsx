@@ -78,7 +78,13 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
 
   const normalizeUnit = (itemName: string, rawUnit?: string) => {
     const lower = (itemName || '').toLowerCase();
-    if (lower.includes('bihun') || lower.includes('kwetiau') || lower.includes('kwetiaw')) {
+    if (lower.includes('bihun')) {
+      return 'Bungkus';
+    }
+    if (lower.includes('masako')) {
+      return 'Saset';
+    }
+    if (lower.includes('kwetiau') || lower.includes('kwetiaw')) {
       return 'kg';
     }
     if (lower.includes('kecap nasional')) {
@@ -271,51 +277,44 @@ export default function ReceptionForm({ user, onBack, locationId, staffName }: P
       hour: '2-digit',
       minute: '2-digit',
       hour12: false
-    }).format(new Date()) + ' WITA';
+    }).format(new Date());
 
-    let text = `📦 *[BARANG MASUK] KONFIRMASI PENERIMAAN*\n`;
-    text += `📍 Outlet: *${outletName}*\n`;
-    text += `📅 Utk Pemakaian: *${usageDate}*\n`;
-    text += `🕒 Jam Terima: *${timeStr}*\n`;
-    text += `👤 Penerima: *${activeStaffName}*\n\n`;
+    let text = `📦 *[BARANG MASUK] • ${outletName}*\n`;
+    text += `📅 Pakai: *${usageDate}* • 👤 *${activeStaffName}* (${timeStr})\n\n`;
 
     if (filledOrders.length > 0) {
-      text += `*1. REALISASI DAFTAR ORDER (${filledOrders.length} Item):*\n`;
+      text += `*1. Realisasi Order (${filledOrders.length} Item):*\n`;
       filledOrders.forEach((o) => {
         const recQty = parseFloat(receivedQtys[o.id] || '0');
         const diff = recQty - Number(o.quantity);
 
         if (diff === 0) {
-          text += `✅ *${o.item_name}* : ${recQty} ${o.unit} _(Pas)_\n`;
+          text += `✅ ${o.item_name}: *${recQty} ${o.unit}*\n`;
         } else if (diff < 0) {
-          text += `⚠️ *${o.item_name}* : *${recQty} ${o.unit}* _(Order: ${o.quantity} ${o.unit} • Kurang ${Math.abs(diff)} ${o.unit})_\n`;
+          text += `⚠️ ${o.item_name}: *${recQty}/${o.quantity} ${o.unit}* _(Kurang ${Math.abs(diff)})_\n`;
         } else {
-          text += `➕ *${o.item_name}* : *${recQty} ${o.unit}* _(Order: ${o.quantity} ${o.unit} • Lebih +${diff} ${o.unit})_\n`;
+          text += `➕ ${o.item_name}: *${recQty}/${o.quantity} ${o.unit}* _(Lebih +${diff})_\n`;
         }
       });
       text += `\n`;
     }
 
     if (validAdHoc.length > 0) {
-      text += `*2. BARANG MASUK DI LUAR ORDER:*\n`;
+      text += `*2. Di Luar Order:*\n`;
       validAdHoc.forEach((a) => {
-        text += `🔸 *${a.item_name}* : *${a.quantity} ${a.unit}*${a.notes ? ` _(${a.notes})_` : ''}\n`;
+        text += `🔸 ${a.item_name}: *${a.quantity} ${a.unit}*${a.notes ? ` _(${a.notes})_` : ''}\n`;
       });
       text += `\n`;
     }
 
     if (notes.trim()) {
-      text += `📝 *Kondisi Barang:* _${notes.trim()}_\n`;
+      text += `📝 _${notes.trim()}_`;
     }
 
-    text += `------------------------------------\n`;
-    text += `_Diverifikasi via Sistem ERP Bakso Ibu_`;
+    text = text.trim();
 
     if (navigator.share) {
-      navigator.share({
-        title: `Barang Masuk - ${outletName}`,
-        text
-      }).catch(() => {
+      navigator.share({ title: `Barang Masuk - ${outletName}`, text }).catch(() => {
         window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
       });
     } else {
