@@ -71,14 +71,12 @@ const SOP_PHASES: { id: PhaseType; title: string; color: string }[] = [
   { id: 'ADMINISTRASI', title: 'ADMINISTRASI & PELAPORAN', color: 'bg-slate-700' }
 ];
 
-// Helper: Parse baris teks menjadi penomoran bertingkat (1., 1.1, 1.2, 2., dst.)
 const parseHierarchicalLines = (lines: string[]): ParsedStep[] => {
   let mainCount = 0;
   let subCount = 0;
 
   return lines.map((rawLine) => {
     const trimmed = rawLine.trim();
-    // Deteksi sub-poin jika diawali '-', '*', '>', atau pola angka bertingkat seperti '1.1'
     const isExplicitSub =
       trimmed.startsWith('-') ||
       trimmed.startsWith('*') ||
@@ -125,13 +123,11 @@ export default function OperationalKnowledgeBase({
   const [loading, setLoading] = useState(true);
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // Modal State
   const [activeDetailItem, setActiveDetailItem] = useState<GuideItem | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
 
-  // Form State
   const [formDivision, setFormDivision] = useState<DivisionType>('DAPUR');
   const [formType, setFormType] = useState<ContentType>('SOP');
   const [formPhase, setFormPhase] = useState<PhaseType>('OPENING');
@@ -179,41 +175,6 @@ export default function OperationalKnowledgeBase({
         'Kecilkan api ke tingkat api simpan panas begitu kuah mendidih sempurna.'
       ],
       notes: 'Jangan pernah membiarkan air dandang kurang dari 1/2 volume.'
-    },
-    {
-      id: 'dapur-sop-handover',
-      division: 'DAPUR',
-      content_type: 'SOP',
-      phase: 'HANDOVER',
-      title: 'Serah Terima Area Dapur & Stok Berjalan (Shift 1 ke Shift 2)',
-      summary: 'Prosedur pergantian kru dapur sore hari agar operasional tetap lancar.',
-      steps: [
-        'Hitung sisa porsi bakso, ayam topping, mie, dan bihun yang tersedia di chiller.',
-        '- Pastikan bakso beku dari freezer sudah diturunkan ke chiller untuk stok malam.',
-        'Bersihkan meja racik, talenan, dan buang sampah dapur yang sudah penuh.',
-        'Sampaikan informasi bahan yang menipis kepada kru Shift 2 dan Leader.'
-      ],
-      notes: 'Kru Shift 1 dilarang pulang sebelum meja racik bersih dan stok malam siap.'
-    },
-    {
-      id: 'dapur-menu-1',
-      division: 'DAPUR',
-      content_type: 'MENU_STANDARD',
-      title: 'Bakso Campur Spesial Bakso Ibu',
-      summary: 'Standar gramasi komposisi dan urutan penataan mangkuk.',
-      steps: [
-        'Komposisi Bahan Utama:',
-        '- 1 butir Bakso Urat Besar (belah 4 mekar)',
-        '- 3 butir Bakso Halus',
-        '- 1 buah Tahu Bakso & 1 buah Siomay',
-        '- 80 gr Mie Kuning + 50 gr Bihun Putih (seduh 15 detik)',
-        'Urutan Penyajian (Plating):',
-        '- Masukkan mie & bihun yang sudah ditiriskan ke dasar mangkuk.',
-        '- Susun bakso urat di tengah, kelilingi dengan bakso halus, tahu, dan siomay.',
-        '- Siram kuah kaldu mendidih sebanyak 250 ml.',
-        '- Taburi seledri dan bawang goreng 1 sendok teh di bagian paling atas.'
-      ],
-      notes: 'Pastikan mangkuk dalam kondisi kering dan bersih sebelum digunakan.'
     }
   ];
 
@@ -245,7 +206,6 @@ export default function OperationalKnowledgeBase({
     fetchGuides();
   }, []);
 
-  // Reset sub-tab jika pindah dari DAPUR saat berada di MENU_STANDARD
   const handleSelectDivision = (divId: DivisionType) => {
     setSelectedDivision(divId);
     if (divId !== 'DAPUR' && selectedType === 'MENU_STANDARD') {
@@ -291,7 +251,6 @@ export default function OperationalKnowledgeBase({
     return phases;
   }, [filteredGuides, selectedType]);
 
-  // Kompresi foto standar menu
   const compressImage = (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -437,7 +396,8 @@ export default function OperationalKnowledgeBase({
     }
   };
 
-  const handleDeleteGuide = async (id: string) => {
+  const handleDeleteGuide = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (!confirm('Yakin ingin menghapus materi ini?')) return;
     try {
       const { error } = await supabase.from('knowledge_base_articles').delete().eq('id', id);
@@ -543,7 +503,7 @@ export default function OperationalKnowledgeBase({
         })}
       </div>
 
-      {/* 3. SWITCH MODE: JOBDESK vs SOP (+ STANDAR PENYAJIAN MENU KHUSUS DAPUR) */}
+      {/* 3. SWITCH MODE */}
       <div className="flex flex-wrap items-center justify-between bg-slate-50/80 p-2 rounded-2xl border border-slate-100 gap-2">
         <div className="flex flex-wrap gap-1.5">
           <button
@@ -635,19 +595,29 @@ export default function OperationalKnowledgeBase({
                   <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase rounded-lg">
                     Tanggung Jawab Divisi
                   </span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-400">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-400 mr-1">
                       {parsed.filter((p) => !p.isSub).length} Poin Utama
                     </span>
                     {effectiveIsHR && (
-                      <button
-                        type="button"
-                        onClick={(e) => handleOpenEditModal(item, e)}
-                        className="p-1.5 rounded-lg bg-slate-50 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
-                        title="Edit Jobdesk"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenEditModal(item, e)}
+                          className="p-1.5 rounded-lg bg-slate-50 hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
+                          title="Edit Jobdesk"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteGuide(item.id, e)}
+                          className="p-1.5 rounded-lg bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                          title="Hapus Jobdesk"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -713,14 +683,24 @@ export default function OperationalKnowledgeBase({
                         Standar Gramasi & Plating
                       </span>
                       {effectiveIsHR && (
-                        <button
-                          type="button"
-                          onClick={(e) => handleOpenEditModal(menu, e)}
-                          className="p-1.5 rounded-lg bg-slate-50 hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-colors cursor-pointer"
-                          title="Edit Standar Menu"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenEditModal(menu, e)}
+                            className="p-1.5 rounded-lg bg-slate-50 hover:bg-emerald-50 text-slate-400 hover:text-emerald-600 transition-colors cursor-pointer"
+                            title="Edit Standar Menu"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteGuide(menu.id, e)}
+                            className="p-1.5 rounded-lg bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                            title="Hapus Standar Menu"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       )}
                     </div>
 
@@ -757,7 +737,7 @@ export default function OperationalKnowledgeBase({
           })}
         </div>
       ) : (
-        /* --- TAMPILAN SOP (5 FASE: OPENING, OPERASIONAL, HANDOVER, CLOSING, ADMINISTRASI) --- */
+        /* --- TAMPILAN SOP --- */
         <div className="space-y-6">
           {SOP_PHASES.map((phaseObj) => {
             const phaseItems = groupedSOPByPhase?.[phaseObj.id] || [];
@@ -788,17 +768,27 @@ export default function OperationalKnowledgeBase({
                           <span className="font-bold text-orange-600">
                             ✓ {parsed.filter((p) => !p.isSub).length} Langkah Utama
                           </span>
-                          <div className="flex items-center gap-1.5">
-                            {sop.updated_at && <span>{sop.updated_at}</span>}
+                          <div className="flex items-center gap-1">
+                            {sop.updated_at && <span className="mr-1">{sop.updated_at}</span>}
                             {effectiveIsHR && (
-                              <button
-                                type="button"
-                                onClick={(e) => handleOpenEditModal(sop, e)}
-                                className="p-1 rounded-md bg-slate-50 hover:bg-orange-50 text-slate-400 hover:text-orange-600 transition-colors cursor-pointer"
-                                title="Edit SOP"
-                              >
-                                <Edit3 className="w-3 h-3" />
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleOpenEditModal(sop, e)}
+                                  className="p-1 rounded-md bg-slate-50 hover:bg-orange-50 text-slate-400 hover:text-orange-600 transition-colors cursor-pointer"
+                                  title="Edit SOP"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleDeleteGuide(sop.id, e)}
+                                  className="p-1 rounded-md bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                                  title="Hapus SOP"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </>
                             )}
                           </div>
                         </div>
@@ -835,7 +825,7 @@ export default function OperationalKnowledgeBase({
         </div>
       )}
 
-      {/* 5. MODAL POPUP DETAIL DOKUMEN (MENDUKUNG PENOMORAN BERTINGKAT 1., 1.1, 1.2) */}
+      {/* 5. MODAL POPUP DETAIL DOKUMEN */}
       {activeDetailItem && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 space-y-5 shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col">
@@ -1090,7 +1080,6 @@ export default function OperationalKnowledgeBase({
                 />
               </div>
 
-              {/* Upload Foto Standar Penyajian Menu (Khusus MENU_STANDARD) */}
               {formType === 'MENU_STANDARD' && (
                 <div className="p-3 bg-emerald-50/50 rounded-2xl border border-emerald-100 space-y-2">
                   <div className="flex items-center justify-between">
